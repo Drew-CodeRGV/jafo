@@ -107,7 +107,8 @@ git branch -M "$BRANCH" 2>/dev/null || true
 # Verify SSH auth before pushing
 # ----------------------------------------------------------------------------
 info "Verifying SSH access to GitHub..."
-if ! ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+SSH_OUT="$(ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 || true)"
+if ! echo "$SSH_OUT" | grep -q "successfully authenticated"; then
   echo ""
   echo "============================================================"
   echo "  ${BOLD}SSH key not yet authorized on GitHub${NC}"
