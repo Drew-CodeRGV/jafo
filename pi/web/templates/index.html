@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo — {{ node_name }}</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E📡%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">📡</span>
+    <span class="name">jafo</span>
+    <span class="sub">{{ node_name }}</span>
+  </div>
+  <div id="stats-bar" class="stats-bar">
+    <span class="stat" id="stat-totals">…</span>
+    <span class="stat" id="stat-24h">…</span>
+    <span class="stat" id="stat-backlog">…</span>
+  </div>
+  <div class="actions">
+    <label class="auto-refresh">
+      <input type="checkbox" id="auto-refresh" checked>
+      <span>Live</span>
+    </label>
+  </div>
+</header>
+
+<aside class="sidebar">
+  <div class="search-block">
+    <input id="search" type="search" placeholder="Search transcripts…" autocomplete="off">
+  </div>
+
+  <div class="filter-block">
+    <div class="filter-header">
+      <h3>Talkgroups</h3>
+      <div class="filter-controls">
+        <div class="seg-toggle" role="tablist" aria-label="Group by">
+          <button class="seg-btn active" data-group="service" title="Group by service type">Service</button>
+          <button class="seg-btn" data-group="category" title="Group by city/agency">City</button>
+          <button class="seg-btn" data-group="flat" title="No grouping">All</button>
+        </div>
+        <div class="seg-toggle" role="tablist" aria-label="Sort">
+          <button class="seg-btn active" data-sort="count" title="Sort by activity">Active</button>
+          <button class="seg-btn" data-sort="alpha" title="Sort A→Z">A–Z</button>
+        </div>
+      </div>
+    </div>
+    <div id="talkgroup-groups" class="filter-groups"></div>
+  </div>
+
+  <div class="filter-block">
+    <h3>Incident Types</h3>
+    <ul id="incident-type-list" class="filter-list"></ul>
+  </div>
+
+  <div class="filter-block">
+    <h3>Severity</h3>
+    <ul id="severity-list" class="filter-list">
+      <li data-sev="critical"><span class="sev sev-critical">●</span> Critical</li>
+      <li data-sev="high"><span class="sev sev-high">●</span> High</li>
+      <li data-sev="medium"><span class="sev sev-medium">●</span> Medium</li>
+      <li data-sev="low"><span class="sev sev-low">●</span> Low</li>
+      <li data-sev="unknown"><span class="sev sev-unknown">●</span> Unknown</li>
+    </ul>
+  </div>
+
+  <div class="filter-block">
+    <button id="clear-filters" class="clear-btn">Clear filters</button>
+  </div>
+</aside>
+
+<main class="timeline">
+  <div id="active-filters" class="active-filters"></div>
+  <div id="results" class="results"></div>
+  <div id="loading" class="loading hidden">Loading…</div>
+  <button id="load-more" class="load-more hidden">Load more</button>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

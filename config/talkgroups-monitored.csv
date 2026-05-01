@@ -1,0 +1,26 @@
+Decimal,Hex,Alpha Tag,Mode,Description,Tag,Category,Priority
+1001,3E9,HCSO Disp 1,D,HCSO Patrol Dispatch 1,Law Dispatch,Law Enforcement,1
+1002,3EA,HCSO Disp 2,D,HCSO Patrol Dispatch 2,Law Dispatch,Law Enforcement,1
+1003,3EB,HCSO Tac 1,D,HCSO Tactical 1,Law Tac,Law Enforcement,2
+1004,3EC,HCSO Tac 2,D,HCSO Tactical 2,Law Tac,Law Enforcement,2
+1010,3F2,HCSO Detention,D,HCSO Detention Center,Corrections,Law Enforcement,3
+1015,3F7,HCSO Investigations,D,HCSO Investigations,Law Talk,Law Enforcement,2
+2001,7D1,McAllen PD 1,DE,McAllen PD Dispatch,Law Dispatch,Law Enforcement,1
+2002,7D2,McAllen PD 2,DE,McAllen PD Tac,Law Tac,Law Enforcement,2
+2101,835,Mission PD 1,DE,Mission PD Dispatch,Law Dispatch,Law Enforcement,1
+2201,899,Edinburg PD 1,D,Edinburg PD Dispatch,Law Dispatch,Law Enforcement,1
+2202,89A,Edinburg PD 2,D,Edinburg PD Tac,Law Tac,Law Enforcement,2
+2301,8FD,Pharr PD 1,D,Pharr PD Dispatch,Law Dispatch,Law Enforcement,1
+3001,BB9,Fire Disp,D,County Fire Dispatch,Fire Dispatch,Fire,1
+3002,BBA,Fire Tac 1,D,County Fire Tac 1,Fire-Tac,Fire,2
+3003,BBB,Fire Tac 2,D,County Fire Tac 2,Fire-Tac,Fire,2
+3010,BC2,EMS Disp,D,County EMS Dispatch,EMS Dispatch,EMS,1
+3011,BC3,EMS Tac 1,D,County EMS Tac 1,EMS-Tac,EMS,2
+3012,BC4,EMS Ops,D,County EMS Operations,EMS-Tac,EMS,3
+4001,FA1,HCISD Schools,D,Hidalgo CISD Police,Schools,Public Service,3
+4101,1005,Constable Pct 1,D,Constable Precinct 1,Law Talk,Law Enforcement,3
+4102,1006,Constable Pct 2,D,Constable Precinct 2,Law Talk,Law Enforcement,3
+5001,1389,Pub Works,D,County Public Works,Public Works,Public Service,4
+5002,138A,Roads & Bridges,D,County Roads & Bridges,Public Works,Public Service,4
+9001,2329,Interop 1,D,LRGV Interop 1,Interop,Public Service,2
+9002,232A,Interop 2,D,LRGV Interop 2,Interop,Public Service,2

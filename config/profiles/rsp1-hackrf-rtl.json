@@ -1,0 +1,57 @@
+{
+  "ver": 2,
+  "_comment": "All three SDRs detected. RTL-SDR on control, HackRF on voice (wide BW), RSP1 held in reserve.",
+  "sources": [
+    {
+      "_comment": "RTL-SDR dedicated to control channel decode.",
+      "center": 851075000,
+      "rate": 2400000,
+      "error": 0,
+      "gain": 40,
+      "digitalRecorders": 0,
+      "driver": "osmosdr",
+      "device": "rtl=0",
+      "modulation": "qpsk"
+    },
+    {
+      "_comment": "HackRF covers the full 851-856 MHz voice channel range. Preamp ON.",
+      "center": 853700000,
+      "rate": 7968000,
+      "error": 0,
+      "gain": 14,
+      "ifGain": 40,
+      "bbGain": 40,
+      "digitalRecorders": 4,
+      "driver": "osmosdr",
+      "device": "hackrf=0",
+      "modulation": "qpsk"
+    }
+  ],
+  "systems": [
+    {
+      "shortName": "lrgvrrs",
+      "control_channels": [851067500, 851337500, 851075000, 851312500, 852962500],
+      "type": "p25",
+      "modulation": "qpsk",
+      "talkgroupsFile": "/home/pi/jafo-data/config/talkgroups.csv",
+      "unitTagsFile": "",
+      "recordUnknown": true,
+      "audioArchive": true,
+      "transmissionArchive": false,
+      "callLog": true,
+      "compressWav": false,
+      "uploadServer": "",
+      "talkgroupDisplayFormat": "id_tag",
+      "minDuration": 0,
+      "decodeMDC": false
+    }
+  ],
+  "captureDir": "/home/pi/jafo-data/recordings",
+  "logDir": "/home/pi/jafo-data/logs",
+  "logFile": true,
+  "consoleLog": true,
+  "frequencyFormat": "mhz",
+  "controlWarnRate": 10,
+  "callTimeout": 3,
+  "broadcastSignals": false
+}

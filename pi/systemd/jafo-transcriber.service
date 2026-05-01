@@ -1,0 +1,19 @@
+[Unit]
+Description=jafo — transcriber (Groq Whisper)
+After=jafo-processor.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/jafo-data
+EnvironmentFile=/home/pi/jafo/.env
+Environment=JAFO_DATA_DIR=/home/pi/jafo-data
+ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/transcriber.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

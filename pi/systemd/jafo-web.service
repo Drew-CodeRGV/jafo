@@ -1,0 +1,27 @@
+[Unit]
+Description=jafo — web (Flask via gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/jafo/pi/web
+EnvironmentFile=/home/pi/jafo/.env
+Environment=JAFO_DATA_DIR=/home/pi/jafo-data
+Environment=PYTHONPATH=/home/pi/jafo/pi/services
+ExecStart=/home/pi/jafo-data/venv-web/bin/gunicorn \
+    --bind 127.0.0.1:8080 \
+    --workers 2 \
+    --threads 4 \
+    --timeout 60 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
