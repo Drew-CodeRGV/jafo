@@ -134,6 +134,12 @@
   </div>
 </div>
 
+<script>
+// Server-injected role flag: true on jafo.live (hub), false on jafo.local (edge).
+// Gates the "Enhance Call" button — only the hub has the Groq key.
+window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};
+</script>
+
 {% if hub_link %}
 <div id="cloud-banner" class="cloud-banner hidden" role="dialog" aria-modal="true" aria-labelledby="cloud-banner-title">
   <div class="cloud-banner-backdrop" data-action="dismiss"></div>

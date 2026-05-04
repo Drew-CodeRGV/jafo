@@ -286,6 +286,13 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
 # -----------------------------------------------------------------------------
 # UI — fleet (root) + per-region + per-node + admin
 # -----------------------------------------------------------------------------
+def _is_edge_node() -> bool:
+    """True if this Flask process is running on a Pi feeding a hub.
+    The presence of JAFO_HUB_URL is the canonical signal — the hub
+    itself doesn't have that variable set."""
+    return bool(os.environ.get("JAFO_HUB_URL", "").strip())
+
+
 def _hub_link_for_this_node() -> dict | None:
     """If we're an edge node (JAFO_HUB_URL + JAFO_NODE_SLUG set), return the
     public link to this node's page on the hub. None on the hub itself."""
@@ -322,7 +329,8 @@ def index():
     if n_regions <= 1:
         return render_template("index.html", node_name=NODE_NAME,
                                region_slug=None, node_slug=None,
-                               hub_link=_hub_link_for_this_node())
+                               hub_link=_hub_link_for_this_node(),
+                               is_hub=not _is_edge_node())
     return render_template("fleet.html", node_name=NODE_NAME)
 
 
@@ -336,7 +344,8 @@ def region_dashboard(slug: str):
         abort(404)
     return render_template("index.html", node_name=NODE_NAME,
                            region_slug=slug, region_name=r["name"], node_slug=None,
-                           hub_link=_hub_link_for_this_node())
+                           hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
 
 
 @app.route("/r/<slug>/n/<node_slug>")
@@ -354,13 +363,15 @@ def node_detail(slug: str, node_slug: str):
     return render_template("index.html", node_name=NODE_NAME,
                            region_slug=slug, node_slug=node_slug,
                            node_display_name=n["display_name"],
-                           hub_link=_hub_link_for_this_node())
+                           hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
 
 
 @app.route("/talkgroups")
 def talkgroups_editor():
     return render_template("talkgroups.html", node_name=NODE_NAME,
-                           hub_link=_hub_link_for_this_node())
+                           hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
 
 
 # -----------------------------------------------------------------------------
@@ -637,11 +648,29 @@ def call_detail(call_id: int):
 
 # -----------------------------------------------------------------------------
 # Enhance — re-run a single call's audio through Groq for higher-quality
-# transcription. Used by the "✨ Enhance Call" button on the dashboard. The
-# original (local) transcript is preserved in transcript_original so we can
-# always show what was replaced.
+# transcription. HUB-ONLY: edge nodes refuse this request and tell the
+# caller to go to jafo.live. The original (local) transcript is preserved in
+# transcript_original so we can always show what was replaced.
+#
+# Single shared Groq client — created lazily on first hit, reused across all
+# subsequent /enhance requests in this gunicorn worker. No per-request client
+# spin-up, no key passing through layers, one canonical integration point.
 # -----------------------------------------------------------------------------
 GROQ_PREMIUM_MODEL = "whisper-large-v3-turbo"
+_GROQ_CLIENT = None
+
+
+def _groq_client():
+    """Lazy singleton — first caller wins, subsequent callers reuse."""
+    global _GROQ_CLIENT
+    if _GROQ_CLIENT is not None:
+        return _GROQ_CLIENT
+    from common import GROQ_API_KEY
+    if not GROQ_API_KEY:
+        return None
+    from groq import Groq
+    _GROQ_CLIENT = Groq(api_key=GROQ_API_KEY, max_retries=1)
+    return _GROQ_CLIENT
 
 
 def _ensure_enhance_columns(conn) -> None:
@@ -655,8 +684,17 @@ def _ensure_enhance_columns(conn) -> None:
 
 @app.route("/api/calls/<int:call_id>/enhance", methods=["POST"])
 def call_enhance(call_id: int):
-    from common import GROQ_API_KEY  # late import: not all deployments have key
-    if not GROQ_API_KEY:
+    # Hub-only — edge nodes can't enhance (no Groq key, by design).
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        return jsonify({
+            "error": "enhance is hub-only",
+            "redirect": f"{hub_url}/api/calls/<id>/enhance" if hub_url else None,
+            "hub_url": hub_url or None,
+        }), 503
+
+    client = _groq_client()
+    if client is None:
         return jsonify({"error": "Groq API key not configured on this hub"}), 503
 
     conn = get_db()
@@ -691,8 +729,6 @@ def call_enhance(call_id: int):
         })
 
     try:
-        from groq import Groq
-        client = Groq(api_key=GROQ_API_KEY, max_retries=1)
         with open(opus_full, "rb") as f:
             result = client.audio.transcriptions.create(
                 file=(opus_full.name, f.read()),

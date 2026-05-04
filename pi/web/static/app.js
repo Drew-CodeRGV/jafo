@@ -941,10 +941,12 @@ function renderCall(c) {
     ? `<div class="location">${escapeHtml(c.incident_location)}</div>`
     : "";
 
-  // Enhance button: visible if we have audio and the transcript isn't already
-  // from the premium model. Replaces with "Enhanced ✓" once Groq has run.
+  // Enhance button: hub-only. On the edge (jafo.local) the user always sees
+  // the local faster-whisper transcript with no premium upsell — keeps the
+  // edge $0/month for the user. On the hub we show the button (or the
+  // "Enhanced" badge once Groq has been run).
   const isEnhanced = (c.transcript_model || "").startsWith("whisper-large-v3-turbo");
-  const enhanceBtn = c.audio_available
+  const enhanceBtn = (window.JAFO_IS_HUB && c.audio_available)
     ? (isEnhanced
         ? `<span class="enhance-badge" title="Already enhanced via ${escapeHtml(c.transcript_model || "")}">${AI_STAR_SVG}<span>Enhanced</span></span>`
         : `<button class="enhance-btn" title="Re-run this call's audio through Groq Whisper-Large for higher-quality transcription">${AI_STAR_SVG}<span>Enhance Call</span></button>`)
