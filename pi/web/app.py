@@ -1267,6 +1267,11 @@ def ensure_stories_table() -> None:
     conn.close()
 
 
+# Story-synth backend: same env vars as the enricher. Default 'ollama'.
+_STORY_BACKEND = os.environ.get("JAFO_LLM_BACKEND", "ollama").strip().lower()
+_STORY_MODEL_OLLAMA = os.environ.get("JAFO_LLM_MODEL", "gemma2:2b").strip()
+_STORY_OLLAMA_HOST  = os.environ.get("JAFO_LLM_HOST", "http://127.0.0.1:11434").strip().rstrip("/")
+
 _claude_client = None
 def _claude():
     global _claude_client
@@ -1279,6 +1284,36 @@ def _claude():
         _claude_client = Anthropic(api_key=ANTHROPIC_API_KEY)
         return _claude_client
     except ImportError:
+        return None
+
+
+def _ollama_chat_json(system: str, user: str, model: str, num_predict: int = 400) -> dict | None:
+    """Hit local Ollama with format='json'. Returns parsed dict or None on error."""
+    import requests
+    try:
+        r = requests.post(
+            f"{_STORY_OLLAMA_HOST}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user},
+                ],
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": 0, "num_predict": num_predict},
+            },
+            timeout=180,
+        )
+        r.raise_for_status()
+        text = r.json().get("message", {}).get("content", "").strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"ollama story synth failed: {e}", file=sys.stderr)
         return None
 
 
@@ -1322,10 +1357,13 @@ def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
 
 
 def _synthesize_story(cluster: list[dict]) -> dict | None:
-    """Use Claude to write a brief. Returns {title, body} or None on failure."""
-    client = _claude()
-    if not client:
-        return None
+    """Write a one-paragraph news brief for a cluster of related calls.
+
+    Backend selected by JAFO_LLM_BACKEND env var:
+      ollama (default) — local Gemma 2B, $0
+      anthropic — Claude Haiku, paid (premium quality)
+    Returns {"title", "body"} or None on failure.
+    """
     primary = cluster[-1]  # most recent in cluster (calls are ASC)
     transcripts = "\n".join(
         f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
@@ -1349,30 +1387,38 @@ def _synthesize_story(cluster: list[dict]) -> dict | None:
         f"Output strict JSON only: {{\"title\": \"<6-10 word headline>\", \"body\": \"<3-5 sentence paragraph>\"}}.\n"
         f"Be factual; do not speculate beyond the transcripts. No markdown, no preamble."
     )
+    system = ("You write tight, factual local-news briefs from public-safety radio "
+              "transcripts. Output JSON only with 'title' and 'body' keys.")
 
-    try:
-        resp = client.messages.create(
-            model=STORY_MODEL,
-            max_tokens=400,
-            system=("You write tight, factual local-news briefs from public-safety radio "
-                    "transcripts. Output JSON only with 'title' and 'body' keys."),
-            messages=[{"role": "user", "content": user_msg}],
-        )
-        text = resp.content[0].text.strip()
-        # Strip a possible code-fence
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        data = json.loads(text)
-        title = (data.get("title") or "").strip()
-        body  = (data.get("body")  or "").strip()
-        if not title or not body:
+    if _STORY_BACKEND == "anthropic":
+        client = _claude()
+        if not client:
             return None
-        return {"title": title, "body": body}
-    except Exception as e:
-        print(f"story synth failed: {e}", file=sys.stderr)
+        try:
+            resp = client.messages.create(
+                model=STORY_MODEL, max_tokens=400,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            text = resp.content[0].text.strip()
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            data = json.loads(text)
+        except Exception as e:
+            print(f"anthropic story synth failed: {e}", file=sys.stderr)
+            return None
+    else:  # ollama default
+        data = _ollama_chat_json(system, user_msg, _STORY_MODEL_OLLAMA, num_predict=400)
+        if not data:
+            return None
+
+    title = (data.get("title") or "").strip()
+    body  = (data.get("body")  or "").strip()
+    if not title or not body:
         return None
+    return {"title": title, "body": body}
 
 
 def _refresh_stories_once() -> tuple[int, int]:
