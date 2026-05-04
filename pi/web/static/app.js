@@ -436,17 +436,44 @@ function init3DMap(cfg) {
   );
 
   map3dState.map.on("load", () => {
+    // Trail line source/layer — one feature collection updated on each poll.
+    map3dState.map.addSource("trails", {
+      type: "geojson",
+      lineMetrics: true,           // enables along-line gradient
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map3dState.map.addLayer({
+      id: "trail-lines",
+      type: "line",
+      source: "trails",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 1.6,
+        // Fade older portions of the trail so newer is brighter
+        "line-gradient": [
+          "interpolate", ["linear"], ["line-progress"],
+          0,   "rgba(255,255,255,0.05)",
+          0.6, "rgba(255,255,255,0.35)",
+          1,   "rgba(255,255,255,0.95)",
+        ],
+        "line-opacity": 0.85,
+      },
+    });
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
   });
 }
 
+function _altColor(ft) {
+  if (ft > 30000) return "#ec4848";
+  if (ft > 15000) return "#ec8a3c";
+  if (ft >  5000) return "#e8d23c";
+  return "#4cc06b";
+}
+
 function _aircraftSvg(altitudeFt) {
-  // Color by altitude band: green low, yellow mid, orange/red high
-  let fill = "#4cc06b";
-  if (altitudeFt > 30000) fill = "#ec4848";
-  else if (altitudeFt > 15000) fill = "#ec8a3c";
-  else if (altitudeFt > 5000) fill = "#e8d23c";
+  const fill = _altColor(altitudeFt || 0);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
     <path fill="${fill}" stroke="#000" stroke-width="0.6"
           d="M7 0.5 L9.6 11 L7 9 L4.4 11 Z"/>
@@ -498,6 +525,25 @@ async function refreshAircraft() {
       m.remove();
       map3dState.aircraftMarkers.delete(icao);
     }
+  }
+  // Update trail lines — one LineString per aircraft with at least 2 points.
+  // The line-gradient (configured at layer creation) fades older segments.
+  const features = [];
+  for (const a of list) {
+    if (a.trail && a.trail.length >= 2) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: a.trail },
+        properties: {
+          icao24: a.icao24,
+          color:  _altColor(a.altitude_ft || 0),
+        },
+      });
+    }
+  }
+  const trailSrc = map3dState.map.getSource("trails");
+  if (trailSrc) {
+    trailSrc.setData({ type: "FeatureCollection", features });
   }
   const counter = document.getElementById("aircraft-count");
   if (counter) counter.textContent = `· ${list.length}`;

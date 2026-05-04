@@ -2388,6 +2388,14 @@ _AIRCRAFT_CACHE: dict[str, dict] = {}   # region_slug → {"ts", "payload"}
 _AIRCRAFT_LOCK = threading.Lock()
 AIRCRAFT_TTL_SEC = 60
 
+# Per-aircraft positional history for trail rendering. Keyed by icao24.
+# Kept in memory (small) — at ~10-30 active aircraft × 30 points × ~32 bytes
+# per point that's < 30 KB. Lost on web restart, which is fine.
+_AIRCRAFT_HISTORY: dict[str, list[tuple[int, float, float, int | None]]] = {}
+_AIRCRAFT_HISTORY_LOCK = threading.Lock()
+TRAIL_MAX_POINTS = 30          # ~30 minutes at 60s polling
+TRAIL_TTL_SEC    = 30 * 60     # drop a plane's trail after 30 min of silence
+
 
 @app.route("/api/aircraft")
 def api_aircraft():
@@ -2450,6 +2458,33 @@ def api_aircraft():
                     "squawk":      a.get("squawk"),
                     "on_ground":   a.get("alt_baro") == "ground",
                 })
+            # Update per-aircraft trail history; attach trail to each outgoing record.
+            now_int = int(now)
+            with _AIRCRAFT_HISTORY_LOCK:
+                cutoff = now_int - TRAIL_TTL_SEC
+                # Prune aircraft whose last point is older than TTL
+                for icao in list(_AIRCRAFT_HISTORY.keys()):
+                    hist = _AIRCRAFT_HISTORY[icao]
+                    if not hist or hist[-1][0] < cutoff:
+                        del _AIRCRAFT_HISTORY[icao]
+                # Append current positions, deduping if the lat/lon hasn't moved
+                # (some adsb feeds re-emit the same position when an aircraft is stationary)
+                for a in aircraft:
+                    icao = a.get("icao24")
+                    if not icao:
+                        continue
+                    hist = _AIRCRAFT_HISTORY.setdefault(icao, [])
+                    last = hist[-1] if hist else None
+                    if not last or (last[1], last[2]) != (a["lat"], a["lon"]):
+                        hist.append((now_int, a["lat"], a["lon"], a.get("altitude_ft")))
+                        if len(hist) > TRAIL_MAX_POINTS:
+                            del hist[0:len(hist) - TRAIL_MAX_POINTS]
+                # Attach trails as [[lon, lat], ...] (GeoJSON-friendly order)
+                for a in aircraft:
+                    icao = a.get("icao24")
+                    hist = _AIRCRAFT_HISTORY.get(icao, [])
+                    a["trail"] = [[lon, lat] for (_, lat, lon, _) in hist]
+
             payload = {
                 "region": region_slug,
                 "bbox": {"north": north, "south": south, "east": east, "west": west},
