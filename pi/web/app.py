@@ -1036,12 +1036,20 @@ def api_ingest():
         out_path.write_bytes(audio_bytes)
         rel_path = str(rel_dir / fname)
 
+        # Edge-supplied transcript (Phase 6: local-primary). The hub's
+        # transcriber will only re-run Groq if transcript ends up NULL.
+        edge_transcript       = metadata.get("transcript")
+        edge_transcript_model = metadata.get("transcript_model")
+        edge_transcript_at    = metadata.get("transcript_at")
+        edge_transcript_error = metadata.get("transcript_error")
+
         cur = conn.execute("""
             INSERT INTO calls (
                 opus_path, talkgroup, talkgroup_tag, start_time, duration_sec, speech_sec,
                 status, processed_at, metadata_json,
+                transcript, transcript_model, transcript_at, transcript_error,
                 node_id, region_id, content_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             rel_path,
             metadata.get("talkgroup"),
@@ -1052,6 +1060,10 @@ def api_ingest():
             metadata.get("status") or "kept",
             int(time.time()),
             metadata.get("metadata_json") or metadata_str,
+            edge_transcript,
+            edge_transcript_model,
+            edge_transcript_at,
+            edge_transcript_error,
             node["id"],
             node["region_id"],
             content_hash,

@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-jafo-transcriber — hybrid Groq + local faster-whisper.
+jafo-transcriber — local-first faster-whisper, optional Groq fallback.
 
-Tries Groq first (fast, free-tier or paid). Falls back to local
-faster-whisper base (multilingual) on any Groq error: rate-limit, network
-failure, 5xx, no API key, etc. Either path stores text + the model that
-produced it in `transcript_model`.
+Default behavior: every call gets transcribed locally with faster-whisper-base
+(int8, 2 cpu threads). The transcript stays on the Pi until the uploader
+ships it to jafo.live alongside the audio. The hub's cloud transcriber acts
+as a backup-of-backup for calls that arrive without a transcript.
 
-Local model is lazy-loaded — no RAM spent until the first fallback.
+Set JAFO_TRANSCRIBE_GROQ_FALLBACK=true in .env to use Groq when the local
+engine fails (rare — model is robust). Off by default to keep edges
+self-contained, no API keys at the edge, predictable monthly spend.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,6 +31,8 @@ LOCAL_COMPUTE = "int8"
 LOCAL_CPU_THREADS = 2               # leave 2 cores for trunk-recorder + processor
 POLL_INTERVAL_SEC = 10
 BATCH_SIZE = 5
+
+GROQ_FALLBACK_ENABLED = os.environ.get("JAFO_TRANSCRIBE_GROQ_FALLBACK", "").strip().lower() in ("1", "true", "yes")
 
 # Whisper context prompt — primes the model for our domain
 INITIAL_PROMPT = (
@@ -125,25 +130,24 @@ def get_pending_calls(conn, limit: int):
 # Main loop
 # -----------------------------------------------------------------------------
 def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
-    """Try Groq, fall back to local. Returns (text, model_label)."""
-    if groq_client is not None:
-        try:
+    """Local first; only fall back to Groq if explicitly enabled and local
+    actually raises. Returns (text, model_label)."""
+    try:
+        return transcribe_via_local(opus_path)
+    except Exception as e:
+        log.warning("Local transcribe raised (%s: %s)", type(e).__name__, str(e)[:120])
+        if groq_client is not None and GROQ_FALLBACK_ENABLED:
+            log.info("falling back to Groq")
             return transcribe_via_groq(groq_client, opus_path)
-        except Exception as e:
-            # Any Groq failure — rate limit, network, key invalid, 5xx — falls
-            # through to local. We log it so we can see the pattern over time.
-            log.info("Groq failed (%s: %s) — falling back to local",
-                     type(e).__name__, str(e)[:120])
-    return transcribe_via_local(opus_path)
+        raise
 
 
 def main() -> None:
-    groq_client = make_groq_client()
-    if groq_client is None:
-        log.warning("GROQ_API_KEY not set — running local-only.")
-    else:
-        log.info("Starting jafo-transcriber. primary=groq:%s fallback=faster-whisper-%s",
-                 GROQ_MODEL, LOCAL_MODEL_NAME)
+    groq_client = make_groq_client() if GROQ_FALLBACK_ENABLED else None
+    if GROQ_FALLBACK_ENABLED and groq_client is None:
+        log.warning("JAFO_TRANSCRIBE_GROQ_FALLBACK=true but GROQ_API_KEY not set — local-only.")
+    log.info("Starting jafo-transcriber. primary=faster-whisper-%s groq_fallback=%s",
+             LOCAL_MODEL_NAME, "yes" if (GROQ_FALLBACK_ENABLED and groq_client) else "no")
 
     conn = db_connect()
 

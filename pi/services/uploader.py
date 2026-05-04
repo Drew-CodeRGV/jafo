@@ -37,14 +37,22 @@ RETRY_BACKOFF_SEC = 5
 
 
 def get_pending(conn, limit: int):
+    """Calls ready to upload: kept + transcribed (or transcript_error set, so we
+    don't block forever on a stuck row). Local transcriber runs ahead of us."""
     return conn.execute("""
         SELECT id, opus_path, talkgroup, talkgroup_tag, start_time,
-               duration_sec, speech_sec, status, processed_at, metadata_json
+               duration_sec, speech_sec, status, processed_at, metadata_json,
+               transcript, transcript_model, transcript_at, transcript_error
         FROM calls
         WHERE status = 'kept'
           AND opus_path IS NOT NULL
           AND audio_deleted = 0
           AND uploaded_at IS NULL
+          AND (
+              transcript IS NOT NULL
+           OR transcript_error IS NOT NULL
+           OR processed_at < strftime('%s','now','-90 second')
+          )
         ORDER BY processed_at ASC
         LIMIT ?
     """, (limit,)).fetchall()
@@ -65,6 +73,11 @@ def upload_one(call) -> tuple[bool, str | dict]:
         "processed_at":     call["processed_at"],
         "node_slug":        NODE_SLUG,
         "metadata_json":    call["metadata_json"],
+        # Edge-side transcript — hub stores as-is, only re-runs Groq if missing
+        "transcript":       call["transcript"],
+        "transcript_model": call["transcript_model"],
+        "transcript_at":    call["transcript_at"],
+        "transcript_error": call["transcript_error"],
     }
 
     headers = {"Authorization": f"Bearer {NODE_TOKEN}"}
