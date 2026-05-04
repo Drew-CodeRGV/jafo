@@ -436,12 +436,34 @@ function init3DMap(cfg) {
   );
 
   map3dState.map.on("load", () => {
-    // Trail line source/layer — one feature collection updated on each poll.
+    // Trail rendering — bold neon. Stack two line layers for a halo:
+    //   1) a thick blurred halo (cyan glow) — hits the eye first
+    //   2) a thinner bright core (white-hot to faded) — gives the gradient fade
     map3dState.map.addSource("trails", {
       type: "geojson",
-      lineMetrics: true,           // enables along-line gradient
+      lineMetrics: true,           // enables along-line gradient on the core
       data: { type: "FeatureCollection", features: [] },
     });
+
+    // Outer halo — wide, blurred, neon cyan, no gradient (uniform glow).
+    map3dState.map.addLayer({
+      id: "trail-halo",
+      type: "line",
+      source: "trails",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": "#00ffe7",
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          5, 6,
+          12, 12,
+          16, 22,
+        ],
+        "line-blur": 6,
+        "line-opacity": 0.55,
+      },
+    });
+    // Inner core — bright, gradient-faded, narrow.
     map3dState.map.addLayer({
       id: "trail-lines",
       type: "line",
@@ -449,17 +471,38 @@ function init3DMap(cfg) {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": ["get", "color"],
-        "line-width": 1.6,
-        // Fade older portions of the trail so newer is brighter
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          5, 2.5,
+          12, 4,
+          16, 7,
+        ],
+        // Older portions fade; current end is bright white-hot
         "line-gradient": [
           "interpolate", ["linear"], ["line-progress"],
-          0,   "rgba(255,255,255,0.05)",
-          0.6, "rgba(255,255,255,0.35)",
-          1,   "rgba(255,255,255,0.95)",
+          0,    "rgba(255,255,255,0.10)",
+          0.45, "rgba(255,255,255,0.50)",
+          0.85, "rgba(255,255,255,0.95)",
+          1,    "rgba(255,255,255,1.0)",
         ],
-        "line-opacity": 0.85,
+        "line-opacity": 1,
       },
     });
+
+    // Scale up aircraft markers as the user zooms in so they don't get
+    // dwarfed by the imagery. Base CSS gives each marker a defined size
+    // (28px); we multiply via transform: scale().
+    const applyZoomScale = () => {
+      const z = map3dState.map.getZoom();
+      // Scale ramp: 1.0 at z=8, up to 2.0 at z=14
+      const scale = Math.max(1.0, Math.min(2.2, 1.0 + (z - 8) * 0.20));
+      for (const m of map3dState.aircraftMarkers.values()) {
+        m.getElement().style.setProperty("--ac-scale", scale.toFixed(2));
+      }
+    };
+    map3dState.map.on("zoom", applyZoomScale);
+    map3dState.applyZoomScale = applyZoomScale;
+
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
   });
@@ -474,42 +517,45 @@ function _altColor(ft) {
 
 function _aircraftSvg(altitudeFt, kind) {
   const fill = _altColor(altitudeFt || 0);
-  // 20×20 viewBox with cinematic outer-glow stroke. The marker element's
-  // CSS gives it an additional drop-shadow halo (war-room aesthetic).
   const stroke = "rgba(0,0,0,0.85)";
+  // Transparent hit-rect spanning the full viewBox makes the WHOLE
+  // 28×28 region clickable, not just the silhouette. Solves the
+  // "I keep missing the plane" problem.
+  const hit = '<rect width="100%" height="100%" fill="transparent"/>';
   if (kind === "helicopter") {
-    // Rotor disc (translucent ellipse) + small fuselage + tail boom.
-    // Shape reads "helicopter" at small size; rotated to track.
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-      <ellipse cx="10" cy="9" rx="8" ry="1.6" fill="${fill}" opacity="0.35" stroke="${stroke}" stroke-width="0.5"/>
-      <rect x="8" y="7.5" width="4" height="5" rx="1.6" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-      <rect x="9.4" y="11.5" width="1.2" height="5" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
-      <rect x="8.4" y="16" width="3.2" height="0.9" fill="${fill}" stroke="${stroke}" stroke-width="0.3"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+      ${hit}
+      <ellipse cx="14" cy="13" rx="11" ry="2.1" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
+      <rect x="11" y="11" width="6" height="7" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+      <rect x="13" y="17.5" width="2" height="7" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+      <rect x="11.5" y="23.5" width="5" height="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
     </svg>`;
   }
   if (kind === "uav") {
-    // Small + diamond shape with antenna
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-      <path d="M8 2 L13 8 L8 14 L3 8 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-      <line x1="8" y1="2" x2="8" y2="0" stroke="${fill}" stroke-width="1"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      ${hit}
+      <path d="M12 3 L19.5 12 L12 21 L4.5 12 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8"/>
+      <line x1="12" y1="3" x2="12" y2="0" stroke="${fill}" stroke-width="1.5"/>
     </svg>`;
   }
   if (kind === "glider") {
-    // Long flat wing
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-      <path d="M10 2 L11 14 L10 12 L9 14 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-      <ellipse cx="10" cy="8" rx="9" ry="1.1" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+      ${hit}
+      <path d="M14 3 L15.5 22 L14 19 L12.5 22 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+      <ellipse cx="14" cy="11" rx="13" ry="1.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
     </svg>`;
   }
   if (kind === "balloon") {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-      <ellipse cx="9" cy="7" rx="5" ry="6" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-      <rect x="7" y="13" width="4" height="2.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
+      ${hit}
+      <ellipse cx="13" cy="10" rx="7" ry="9" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+      <rect x="10" y="19" width="6" height="3.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
     </svg>`;
   }
-  // Default: airplane (fixed-wing). A more recognizable plane silhouette
-  // than the bare triangle — fuselage + swept wings + tailplane.
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  // Default airplane silhouette — same shape, scaled up to 28×28 with
+  // a transparent hit rect spanning the full bounds.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 20 20">
+    ${hit}
     <path d="M10 1
              L11.2 8.5
              L18 11
@@ -583,6 +629,8 @@ async function refreshAircraft() {
       map3dState.aircraftMarkers.delete(icao);
     }
   }
+  // Make sure newly-added markers pick up the current zoom scale
+  if (map3dState.applyZoomScale) map3dState.applyZoomScale();
   // Update trail lines — one LineString per aircraft with at least 2 points.
   // The line-gradient (configured at layer creation) fades older segments.
   const features = [];
