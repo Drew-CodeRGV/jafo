@@ -1012,14 +1012,15 @@ function renderCall(c) {
     });
   }
 
-  // Enhance Call — POST to /api/calls/<id>/enhance, swap transcript on success
-  const enhanceBtn = div.querySelector(".enhance-btn");
-  if (enhanceBtn) {
-    enhanceBtn.addEventListener("click", async (e) => {
+  // Enhance Call — POST to /api/calls/<id>/enhance, swap transcript on success.
+  // (renamed to enhanceBtnEl to avoid shadowing the enhanceBtn HTML string above)
+  const enhanceBtnEl = div.querySelector(".enhance-btn");
+  if (enhanceBtnEl) {
+    enhanceBtnEl.addEventListener("click", async (e) => {
       e.stopPropagation();
-      enhanceBtn.disabled = true;
-      enhanceBtn.classList.add("enhancing");
-      const labelEl = enhanceBtn.querySelector("span");
+      enhanceBtnEl.disabled = true;
+      enhanceBtnEl.classList.add("enhancing");
+      const labelEl = enhanceBtnEl.querySelector("span");
       const origLabel = labelEl ? labelEl.textContent : "";
       if (labelEl) labelEl.textContent = "Enhancing…";
       try {
@@ -1028,13 +1029,11 @@ function renderCall(c) {
         if (!r.ok || payload.error) {
           throw new Error(payload.error || `HTTP ${r.status}`);
         }
-        // Swap in the enhanced transcript and replace the button with a badge
         const tEl = div.querySelector(".transcript");
         if (tEl) {
           tEl.classList.add("transcript-enhanced");
           tEl.innerHTML = highlight(payload.transcript, state.filters.search);
         } else if (payload.transcript) {
-          // No prior transcript element — insert one now
           const body = div.querySelector(".body");
           const newT = document.createElement("div");
           newT.className = "transcript transcript-enhanced";
@@ -1045,14 +1044,14 @@ function renderCall(c) {
         newBadge.className = "enhance-badge";
         newBadge.title = `Enhanced via ${payload.transcript_model}`;
         newBadge.innerHTML = `${AI_STAR_SVG}<span>Enhanced</span>`;
-        enhanceBtn.replaceWith(newBadge);
+        enhanceBtnEl.replaceWith(newBadge);
       } catch (err) {
         if (labelEl) labelEl.textContent = origLabel;
-        enhanceBtn.disabled = false;
-        enhanceBtn.classList.remove("enhancing");
-        enhanceBtn.classList.add("enhance-failed");
-        enhanceBtn.title = `Enhance failed: ${err.message}`;
-        setTimeout(() => enhanceBtn.classList.remove("enhance-failed"), 3000);
+        enhanceBtnEl.disabled = false;
+        enhanceBtnEl.classList.remove("enhancing");
+        enhanceBtnEl.classList.add("enhance-failed");
+        enhanceBtnEl.title = `Enhance failed: ${err.message}`;
+        setTimeout(() => enhanceBtnEl.classList.remove("enhance-failed"), 3000);
         console.error("enhance failed", err);
       }
     });
