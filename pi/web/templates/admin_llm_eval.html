@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo admin — LLM eval</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  body { padding: 20px; font-family: -apple-system, system-ui, sans-serif; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { padding: 12px; background: var(--bg-alt, #1a1a1a); border-radius: 8px; }
+  .stat-card .v { font-size: 28px; font-weight: 600; }
+  .stat-card .l { font-size: 11px; color: var(--text-dim, #aaa); text-transform: uppercase; letter-spacing: 0.04em; }
+  table.tbl { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.tbl th, table.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border, #2a2a2a); text-align: left; vertical-align: top; }
+  table.tbl th { background: var(--bg-alt, #1a1a1a); position: sticky; top: 0; font-size: 12px; }
+  .pri  { color: #7ed79a; }
+  .shdw { color: #b9a6ff; }
+  .transcript { font-size: 12px; color: var(--text-dim,#aaa); max-width: 380px; }
+  details { margin-top: 4px; }
+  details summary { cursor: pointer; color: var(--text-faint,#888); font-size: 11px; }
+  details pre { background: rgba(0,0,0,0.4); padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; }
+  h1 img { height: 26px; vertical-align: middle; margin-right: 8px; }
+  .actions { display: flex; gap: 10px; align-items: center; margin: 14px 0; }
+  .actions a, .actions button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border,#2a2a2a); background: transparent; color: var(--text,#eee); text-decoration: none; font-family: inherit; font-size: 13px; cursor: pointer; }
+  .actions a:hover, .actions button:hover { background: var(--bg-hover,#2a2a2a); border-color: var(--text-faint,#777); }
+  .actions a.primary { background: var(--accent,#4cc06b); color: #052010; border-color: var(--accent,#4cc06b); font-weight: 600; }
+  .legend { font-size: 12px; color: var(--text-dim,#aaa); margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1><img src="/static/logo.png" alt=""> LLM eval — primary vs shadow Ollama</h1>
+<p style="color:var(--text-dim,#aaa)">
+  <a href="/admin">← admin</a> · primary backend's output is canonical (what users see); shadow Ollama runs in parallel for evaluation only.
+</p>
+
+<section id="stats" class="stat-grid"></section>
+
+<div class="actions">
+  <a id="export-link" class="primary" href="">⬇ Export training corpus (JSONL)</a>
+  <button id="refresh">Refresh</button>
+  <span class="legend">Click for top disagreements ↓</span>
+</div>
+
+<h2 style="margin-top:24px">Type-mapping disagreements (rolled up)</h2>
+<table id="type-tbl" class="tbl">
+  <thead><tr><th class="pri">Primary type</th><th class="shdw">Ollama said</th><th style="text-align:right">count</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2 style="margin-top:24px">Recent disagreement samples (with transcripts)</h2>
+<table id="diff-tbl" class="tbl">
+  <thead><tr>
+    <th>id</th><th>talkgroup</th><th>transcript</th>
+    <th class="pri">Primary</th><th class="shdw">Ollama</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const HDRS = TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {};
+document.getElementById('export-link').href = '/api/admin/llm-eval/export.jsonl?token=' + encodeURIComponent(TOKEN);
+
+function pct(num, denom) {
+  if (!denom) return '—';
+  return ((num / denom) * 100).toFixed(1) + '%';
+}
+
+async function load() {
+  const [s, d] = await Promise.all([
+    fetch('/api/admin/llm-eval/summary', { headers: HDRS }).then(r => r.json()),
+    fetch('/api/admin/llm-eval/disagreements?limit=30', { headers: HDRS }).then(r => r.json()),
+  ]);
+  if (s.error || d.error) {
+    document.body.innerHTML = '<h1>Unauthorized</h1>';
+    return;
+  }
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-card"><div class="v">${(s.compared||0).toLocaleString()}</div><div class="l">Calls compared</div></div>
+    <div class="stat-card"><div class="v">${(s.pending||0).toLocaleString()}</div><div class="l">Shadow pending</div></div>
+    <div class="stat-card"><div class="v">${pct(s.type_agree, s.compared)}</div><div class="l">Type agreement</div></div>
+    <div class="stat-card"><div class="v">${pct(s.sev_agree, s.compared)}</div><div class="l">Severity agreement</div></div>
+    <div class="stat-card"><div class="v">${(s.shadow_errors||0).toLocaleString()}</div><div class="l">Shadow errors</div></div>
+  `;
+  document.querySelector('#type-tbl tbody').innerHTML = (s.type_disagreements || []).map(r => `
+    <tr>
+      <td class="pri">${escapeHtml(r.primary_type||'')}</td>
+      <td class="shdw">${escapeHtml(r.ollama_type||'')}</td>
+      <td style="text-align:right">${r.n}</td>
+    </tr>`).join('') || '<tr><td colspan="3" style="color:#888">no disagreements yet</td></tr>';
+  document.querySelector('#diff-tbl tbody').innerHTML = (d.disagreements || []).map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${escapeHtml(r.talkgroup_tag||'')}</td>
+      <td class="transcript">${escapeHtml((r.transcript||'').slice(0,180))}</td>
+      <td class="pri">
+        <strong>${escapeHtml(r.incident_type||'')}</strong>
+        <br><small>sev: ${escapeHtml(r.incident_severity||'')}</small>
+        <details><summary>full</summary><pre>${escapeHtml(r.incident_json||'')}</pre></details>
+      </td>
+      <td class="shdw">
+        <strong>${escapeHtml(r.incident_type_ollama||'')}</strong>
+        <br><small>sev: ${escapeHtml(r.incident_severity_ollama||'')}</small>
+        <details><summary>full</summary><pre>${escapeHtml(r.incident_json_ollama||'')}</pre></details>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" style="color:#888">no disagreements yet — let it run a while</td></tr>';
+}
+function escapeHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+document.getElementById('refresh').addEventListener('click', load);
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

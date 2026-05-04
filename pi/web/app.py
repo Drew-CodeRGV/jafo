@@ -438,6 +438,124 @@ def admin_regions():
 
 
 # -----------------------------------------------------------------------------
+# LLM evaluation — compares primary backend's enrichment vs shadow Ollama
+# enrichment. Used to spot where the local model is wrong, build a corpus
+# for fine-tuning later.
+# -----------------------------------------------------------------------------
+@app.route("/admin/llm-eval")
+def admin_llm_eval():
+    if not _admin_ok(request):
+        return ("<h1>jafo admin</h1>"
+                "<p>Pass <code>?token=YOUR_TOKEN</code>.</p>", 401)
+    return render_template("admin_llm_eval.html", node_name=NODE_NAME)
+
+
+@app.route("/api/admin/llm-eval/summary")
+def admin_llm_eval_summary():
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    conn = get_db()
+    row = conn.execute("""
+        SELECT
+          COUNT(*) AS compared,
+          SUM(CASE WHEN incident_type = incident_type_ollama THEN 1 ELSE 0 END)
+            AS type_agree,
+          SUM(CASE WHEN incident_severity = incident_severity_ollama THEN 1 ELSE 0 END)
+            AS sev_agree,
+          SUM(CASE WHEN shadow_enrich_error IS NOT NULL THEN 1 ELSE 0 END)
+            AS shadow_errors
+        FROM calls
+        WHERE incident_json IS NOT NULL
+          AND incident_json_ollama IS NOT NULL
+    """).fetchone()
+    pending_shadow = conn.execute("""
+        SELECT COUNT(*) FROM calls
+        WHERE incident_json IS NOT NULL
+          AND incident_json_ollama IS NULL
+          AND shadow_enrich_error IS NULL
+          AND length(transcript) >= 8
+    """).fetchone()[0]
+
+    type_breakdown = conn.execute("""
+        SELECT incident_type AS primary_type,
+               incident_type_ollama AS ollama_type,
+               COUNT(*) AS n
+        FROM calls
+        WHERE incident_json IS NOT NULL AND incident_json_ollama IS NOT NULL
+          AND incident_type != incident_type_ollama
+        GROUP BY incident_type, incident_type_ollama
+        ORDER BY n DESC
+        LIMIT 15
+    """).fetchall()
+    conn.close()
+
+    return jsonify({
+        "compared":      row["compared"] or 0,
+        "type_agree":    row["type_agree"] or 0,
+        "sev_agree":     row["sev_agree"] or 0,
+        "shadow_errors": row["shadow_errors"] or 0,
+        "pending":       pending_shadow,
+        "type_disagreements": [dict(r) for r in type_breakdown],
+    })
+
+
+@app.route("/api/admin/llm-eval/disagreements")
+def admin_llm_eval_disagreements():
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    limit = min(int(request.args.get("limit", 30)), 200)
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT id, talkgroup_tag, transcript,
+               incident_type, incident_summary, incident_severity,
+               incident_type_ollama, incident_severity_ollama,
+               incident_json, incident_json_ollama
+        FROM calls
+        WHERE incident_json IS NOT NULL AND incident_json_ollama IS NOT NULL
+          AND (incident_type != incident_type_ollama
+               OR incident_severity != incident_severity_ollama)
+        ORDER BY enriched_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return jsonify({"disagreements": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/llm-eval/export.jsonl")
+def admin_llm_eval_export():
+    """Export training corpus as JSONL: {transcript, talkgroup_tag, label}.
+    The 'label' is the primary (canonical) backend output — what we want
+    Ollama to learn to produce."""
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT transcript, talkgroup_tag, incident_json
+        FROM calls
+        WHERE incident_json IS NOT NULL
+          AND length(transcript) >= 12
+        ORDER BY enriched_at DESC
+    """).fetchall()
+    conn.close()
+
+    def gen():
+        for r in rows:
+            try:
+                label = json.loads(r["incident_json"])
+            except Exception:
+                continue
+            yield json.dumps({
+                "transcript":    r["transcript"],
+                "talkgroup_tag": r["talkgroup_tag"] or "",
+                "label":         label,
+            }) + "\n"
+
+    from flask import Response
+    return Response(gen(), mimetype="application/jsonl",
+                    headers={"Content-Disposition": "attachment; filename=jafo-enrich-corpus.jsonl"})
+
+
+# -----------------------------------------------------------------------------
 # Public fleet info (for the / fleet landing page when multi-region)
 # -----------------------------------------------------------------------------
 @app.route("/api/regions")

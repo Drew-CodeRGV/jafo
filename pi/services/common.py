@@ -173,11 +173,22 @@ CREATE TRIGGER IF NOT EXISTS calls_au AFTER UPDATE ON calls BEGIN
 END;
 """
 
-_PHASE1_NEW_CALL_COLS = [
+_NEW_CALL_COLS = [
+    # Phase 1 — multi-node fleet
     ("node_id",      "INTEGER"),
     ("region_id",    "INTEGER"),
     ("uploaded_at",  "INTEGER"),
     ("content_hash", "TEXT"),
+    # Enhance Call (premium re-transcribe) — original transcript preserved
+    ("transcript_original",       "TEXT"),
+    ("transcript_original_model", "TEXT"),
+    # Dual-run (shadow Ollama enrichment for evaluation / corpus building)
+    ("incident_json_ollama",       "TEXT"),
+    ("incident_type_ollama",       "TEXT"),
+    ("incident_severity_ollama",   "TEXT"),
+    ("transcript_model_ollama",    "TEXT"),
+    ("enriched_at_ollama",         "INTEGER"),
+    ("shadow_enrich_error",        "TEXT"),
 ]
 
 
@@ -185,17 +196,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Idempotent column additions for pre-existing DBs.
 
     Runs AFTER the SCHEMA executescript (which creates new tables but cannot
-    ALTER existing ones). Adds Phase 1 columns + their indexes.
+    ALTER existing ones). Adds new columns + their indexes.
     """
     cols = {row[1] for row in conn.execute("PRAGMA table_info(calls)")}
-    for name, defn in _PHASE1_NEW_CALL_COLS:
+    for name, defn in _NEW_CALL_COLS:
         if name not in cols:
             conn.execute(f"ALTER TABLE calls ADD COLUMN {name} {defn}")
     # Indexes on the new columns — only safe to create after the ALTERs above.
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_node     ON calls(node_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_region   ON calls(region_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_uploaded ON calls(uploaded_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_hash     ON calls(content_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_node          ON calls(node_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_region        ON calls(region_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_uploaded      ON calls(uploaded_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_hash          ON calls(content_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_shadow_pending ON calls(enriched_at, enriched_at_ollama)")
 
 
 def db_connect() -> sqlite3.Connection:

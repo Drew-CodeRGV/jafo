@@ -39,6 +39,13 @@ LLM_HOST    = os.environ.get("JAFO_LLM_HOST", "http://127.0.0.1:11434").strip().
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
 
+# Dual-run / shadow Ollama (corpus building for distillation evaluation).
+# When enabled, the enricher runs each call through Ollama IN ADDITION to the
+# primary backend, storing its output in shadow columns. Primary stays the
+# user-visible result. Off by default; only meaningful when BACKEND != ollama.
+DUAL_RUN = os.environ.get("JAFO_LLM_DUAL_RUN", "").strip().lower() in ("1", "true", "yes")
+SHADOW_BATCH_SIZE = 2  # don't starve primary; small bites between primary cycles
+
 POLL_INTERVAL_SEC = 10
 BATCH_SIZE = 10
 MAX_TOKENS = 400
@@ -106,6 +113,42 @@ def shortcut_chatter(conn, call_id: int) -> None:
         payload["type"], payload["summary"], payload["location"],
         ",".join(payload["units"]), payload["severity"],
         json.dumps(payload), int(time.time()), call_id,
+    ))
+    conn.commit()
+
+
+def get_shadow_pending_calls(conn, limit: int):
+    """Calls already primary-enriched but not yet shadow-enriched."""
+    return conn.execute("""
+        SELECT id, transcript, talkgroup_tag
+        FROM calls
+        WHERE transcript IS NOT NULL
+          AND incident_json IS NOT NULL
+          AND incident_json_ollama IS NULL
+          AND shadow_enrich_error IS NULL
+          AND length(transcript) >= 8
+        ORDER BY enriched_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+
+
+def write_shadow_incident(conn, call_id: int, payload: dict, model_label: str) -> None:
+    conn.execute("""
+        UPDATE calls SET
+            incident_type_ollama     = ?,
+            incident_severity_ollama = ?,
+            incident_json_ollama     = ?,
+            transcript_model_ollama  = ?,
+            enriched_at_ollama       = ?,
+            shadow_enrich_error      = NULL
+        WHERE id = ?
+    """, (
+        payload.get("type"),
+        payload.get("severity") or "unknown",
+        json.dumps(payload),
+        model_label,
+        int(time.time()),
+        call_id,
     ))
     conn.commit()
 
@@ -235,6 +278,10 @@ def main() -> None:
 
     conn = db_connect()
 
+    if DUAL_RUN and BACKEND != "ollama":
+        log.info("DUAL_RUN enabled — Ollama will shadow-enrich %s primary calls (model=%s)",
+                 BACKEND, LLM_MODEL)
+
     while True:
         try:
             calls = get_pending_calls(conn, BATCH_SIZE)
@@ -243,8 +290,40 @@ def main() -> None:
             time.sleep(POLL_INTERVAL_SEC)
             continue
 
+        # Shadow pass — only when DUAL_RUN is on AND primary isn't already
+        # ollama (running ollama twice would be silly). Runs only after
+        # primary has work-or-not so primary always gets first crack.
+        shadow_did_work = False
+        if DUAL_RUN and BACKEND != "ollama":
+            try:
+                shadow_calls = get_shadow_pending_calls(conn, SHADOW_BATCH_SIZE)
+            except Exception as e:
+                log.exception("shadow DB query failed: %s", e)
+                shadow_calls = []
+            for sc in shadow_calls:
+                shadow_did_work = True
+                try:
+                    t0 = time.time()
+                    s_payload = enrich_via_ollama((sc["transcript"] or "").strip(),
+                                                  sc["talkgroup_tag"] or "")
+                    write_shadow_incident(conn, sc["id"], s_payload,
+                                          f"ollama:{LLM_MODEL}")
+                    log.info("SHDW  id=%s tag=%s type=%s sev=%s (%.1fs)",
+                             sc["id"], sc["talkgroup_tag"],
+                             s_payload.get("type"), s_payload.get("severity"),
+                             time.time() - t0)
+                except Exception as e:
+                    err = f"{type(e).__name__}: {str(e)[:200]}"
+                    log.warning("SHDW-FAIL id=%s: %s", sc["id"], err)
+                    conn.execute("""
+                        UPDATE calls SET shadow_enrich_error = ?, enriched_at_ollama = ?
+                        WHERE id = ?
+                    """, (err[:500], int(time.time()), sc["id"]))
+                    conn.commit()
+
         if not calls:
-            time.sleep(POLL_INTERVAL_SEC)
+            if not shadow_did_work:
+                time.sleep(POLL_INTERVAL_SEC)
             continue
 
         for call in calls:
