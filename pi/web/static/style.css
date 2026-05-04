@@ -172,14 +172,76 @@ body {
   overflow: hidden;
 }
 
-/* Map sits at the top of the timeline pane, capped at 20% of the
-   viewport height. The results list scrolls below it. */
+/* Map sits at the top of the timeline pane, split into two columns:
+   75% Leaflet 2D street map on the left, 25% MapLibre 3D satellite
+   view on the right (with live air traffic). Capped at 38vh. */
 .map-pane {
   flex: 0 0 auto;
   height: 38vh;
   max-height: 38vh;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.map-pane .map-2d {
+  flex: 0 0 75%;
+  height: 100%;
+  border-right: 1px solid var(--border);
+}
+.map-pane .map-3d {
+  flex: 0 0 25%;
+  height: 100%;
+  position: relative;
+  background: #000;
+}
+.map-pane .map-3d canvas { outline: none; }
+.map-3d-overlay {
+  position: absolute; left: 8px; top: 8px; right: 8px;
+  z-index: 5;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  pointer-events: none;
+}
+.map-3d-title {
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.map-3d-title #aircraft-count { color: #4cc06b; margin-left: 4px; }
+.map-3d-legend {
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: flex; gap: 8px;
+}
+.map-3d-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 3px; }
+.map-3d-legend .leg-call { background: #ec4848; }
+.map-3d-legend .leg-ac   { background: #4cc06b; }
+/* Aircraft marker — small triangle that rotates to track */
+.ac-marker {
+  width: 14px; height: 14px;
+  background: transparent;
+}
+.ac-marker svg { display: block; }
+.ac-label {
+  position: absolute;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(8px, -50%);
 }
 
 .timeline > .active-filters {
@@ -742,7 +804,11 @@ audio.visible { display: block; }
     grid-area: auto;
     height: calc(100vh - 56px);
   }
-  .map-pane { height: 28vh; max-height: 28vh; }
+  /* On phones, stack the two map panes vertically (street on top, sat below).
+     The 3D view at 25% width on a 360 px screen is too small to be useful. */
+  .map-pane { height: 36vh; max-height: 36vh; flex-direction: column; }
+  .map-pane .map-2d { flex: 0 0 65%; border-right: 0; border-bottom: 1px solid var(--border); }
+  .map-pane .map-3d { flex: 0 0 35%; }
 
   /* Stories: 2x2 grid on mobile so all 4 stay visible */
   .stories-strip { padding: 8px 12px 4px 12px; }

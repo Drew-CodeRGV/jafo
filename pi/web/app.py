@@ -2379,6 +2379,95 @@ def map_config():
     })
 
 
+# -----------------------------------------------------------------------------
+# Air traffic — proxies adsb.lol (free, no auth, AWS-friendly — OpenSky blocks
+# AWS IP ranges on its anonymous tier). Cached server-side for 60s so all
+# viewers share one upstream poll.
+# -----------------------------------------------------------------------------
+_AIRCRAFT_CACHE: dict[str, dict] = {}   # region_slug → {"ts", "payload"}
+_AIRCRAFT_LOCK = threading.Lock()
+AIRCRAFT_TTL_SEC = 60
+
+
+@app.route("/api/aircraft")
+def api_aircraft():
+    region_slug = request.args.get("region", "rgv")
+    conn = get_db()
+    r = conn.execute("""
+        SELECT bbox_north, bbox_south, bbox_east, bbox_west
+        FROM regions WHERE slug = ?
+    """, (region_slug,)).fetchone()
+    conn.close()
+    if not r or r["bbox_north"] is None:
+        return jsonify({"error": "region has no bbox", "aircraft": []}), 404
+
+    south, west, north, east = r["bbox_south"], r["bbox_west"], r["bbox_north"], r["bbox_east"]
+    now = time.time()
+
+    with _AIRCRAFT_LOCK:
+        cached = _AIRCRAFT_CACHE.get(region_slug)
+        if cached and now - cached["ts"] < AIRCRAFT_TTL_SEC:
+            return jsonify(cached["payload"])
+
+        try:
+            import requests as _r
+            # adsb.lol query is point + radius (nm). Compute a radius that
+            # covers the bbox: half the diagonal in nm.
+            lat_c = (north + south) / 2.0
+            lon_c = (east + west) / 2.0
+            # 1° latitude ≈ 60 nm; 1° lon at lat ≈ 60·cos(lat)
+            import math
+            dlat_nm = (north - south) / 2.0 * 60.0
+            dlon_nm = (east - west) / 2.0 * 60.0 * math.cos(math.radians(lat_c))
+            radius_nm = max(60, int(math.hypot(dlat_nm, dlon_nm)) + 10)
+            url = f"https://api.adsb.lol/v2/lat/{lat_c}/lon/{lon_c}/dist/{radius_nm}"
+            resp = _r.get(url, timeout=10,
+                          headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
+            resp.raise_for_status()
+            data = resp.json() or {}
+            ac_list = data.get("ac") or []
+            aircraft = []
+            for a in ac_list:
+                lat = a.get("lat"); lon = a.get("lon")
+                if lat is None or lon is None:
+                    continue
+                # Filter to our bbox in case adsb.lol's circle overshot
+                if not (south <= lat <= north and west <= lon <= east):
+                    continue
+                alt = a.get("alt_baro") if a.get("alt_baro") not in (None, "ground") else a.get("alt_geom")
+                aircraft.append({
+                    "icao24":      a.get("hex"),
+                    "callsign":    (a.get("flight") or "").strip(),
+                    "registration": a.get("r"),
+                    "type_code":   a.get("t"),
+                    "description": a.get("desc"),
+                    "lat":         lat,
+                    "lon":         lon,
+                    "altitude_ft": int(alt) if isinstance(alt, (int, float)) else None,
+                    "velocity_kt": int(a.get("gs")) if a.get("gs") is not None else None,
+                    "track_deg":   a.get("track"),
+                    "vertical_rate_fpm": a.get("baro_rate"),
+                    "squawk":      a.get("squawk"),
+                    "on_ground":   a.get("alt_baro") == "ground",
+                })
+            payload = {
+                "region": region_slug,
+                "bbox": {"north": north, "south": south, "east": east, "west": west},
+                "fetched_at": int(now),
+                "upstream_time": data.get("now"),
+                "count": len(aircraft),
+                "aircraft": aircraft,
+            }
+            _AIRCRAFT_CACHE[region_slug] = {"ts": now, "payload": payload}
+            return jsonify(payload)
+        except Exception as e:
+            # Cache an empty result briefly so a flap doesn't hammer OpenSky
+            payload = {"region": region_slug, "aircraft": [], "count": 0,
+                       "error": f"{type(e).__name__}: {e}", "fetched_at": int(now)}
+            _AIRCRAFT_CACHE[region_slug] = {"ts": now, "payload": payload}
+            return jsonify(payload), 502
+
+
 # Ensure the overrides table exists. Safe to call repeatedly.
 ensure_overrides_table()
 _start_stories_thread()

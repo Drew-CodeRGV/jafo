@@ -308,6 +308,14 @@ const mapState = {
   heatTimer: null,
 };
 
+// ---- 3D map (MapLibre, satellite + air traffic) ----
+const map3dState = {
+  map: null,            // maplibre Map instance
+  callMarkers: new Map(), // call.id → marker
+  aircraftMarkers: new Map(), // icao24 → marker
+  pollTimer: null,
+};
+
 async function refreshHeatmap() {
   if (!mapState.map || typeof L.heatLayer !== "function") return;
   try {
@@ -387,6 +395,122 @@ async function initMap() {
   }).addTo(mapState.map);
 
   addHeatToggleControl();
+
+  // Right-pane 3D satellite view with live air traffic
+  init3DMap(cfg);
+}
+
+// ---- 3D satellite + air-traffic pane (right column) ----
+function init3DMap(cfg) {
+  const el = document.getElementById("map-3d");
+  if (!el || typeof maplibregl === "undefined") return;
+
+  const center = cfg.center || [26.2, -98.0];
+  // MapLibre uses [lng, lat]; our cfg.center is [lat, lng] (Leaflet convention).
+  const lngLat = [center[1], center[0]];
+
+  map3dState.map = new maplibregl.Map({
+    container: "map-3d",
+    style: {
+      version: 8,
+      sources: {
+        // ESRI World Imagery — free, no API key, satellite+aerial composite
+        sat: {
+          type: "raster",
+          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256,
+          attribution: "Imagery © Esri, Maxar, Earthstar Geographics, USDA FSA, USGS, AeroGRID, IGN, and the GIS User Community",
+        },
+      },
+      layers: [{ id: "sat", type: "raster", source: "sat" }],
+    },
+    center: lngLat,
+    zoom: 8.2,
+    pitch: 60,        // tilt for the "from space staring at it" feel
+    bearing: -12,     // slight rotation, north-ish
+    interactive: true,
+    attributionControl: false,
+  });
+  map3dState.map.addControl(
+    new maplibregl.AttributionControl({ compact: true }), "bottom-right"
+  );
+
+  map3dState.map.on("load", () => {
+    refreshAircraft();      // first pull
+    map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
+  });
+}
+
+function _aircraftSvg(altitudeFt) {
+  // Color by altitude band: green low, yellow mid, orange/red high
+  let fill = "#4cc06b";
+  if (altitudeFt > 30000) fill = "#ec4848";
+  else if (altitudeFt > 15000) fill = "#ec8a3c";
+  else if (altitudeFt > 5000) fill = "#e8d23c";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+    <path fill="${fill}" stroke="#000" stroke-width="0.6"
+          d="M7 0.5 L9.6 11 L7 9 L4.4 11 Z"/>
+  </svg>`;
+}
+
+async function refreshAircraft() {
+  if (!map3dState.map) return;
+  let payload;
+  try {
+    const url = "/api/aircraft" + (window.JAFO_REGION_SLUG ? "?region=" + encodeURIComponent(window.JAFO_REGION_SLUG) : "?region=rgv");
+    const r = await fetch(url);
+    payload = await r.json();
+  } catch (e) {
+    console.warn("aircraft fetch failed", e);
+    return;
+  }
+  const list = payload.aircraft || [];
+  const seen = new Set();
+  for (const a of list) {
+    seen.add(a.icao24);
+    let m = map3dState.aircraftMarkers.get(a.icao24);
+    if (!m) {
+      const wrap = document.createElement("div");
+      wrap.className = "ac-marker";
+      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0);
+      m = new maplibregl.Marker({ element: wrap, rotationAlignment: "map" })
+        .setLngLat([a.lon, a.lat])
+        .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }))
+        .addTo(map3dState.map);
+      map3dState.aircraftMarkers.set(a.icao24, m);
+    }
+    m.setLngLat([a.lon, a.lat]);
+    m.setRotation(a.track_deg || 0);
+    // Re-color in case it climbed/descended into a new band
+    m.getElement().innerHTML = _aircraftSvg(a.altitude_ft || 0);
+    const cs = a.callsign || a.icao24;
+    const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "—";
+    const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "";
+    m.getPopup().setHTML(
+      `<strong>${cs}</strong><br>` +
+      `<small>alt: ${altTxt}${ktTxt ? " · " + ktTxt : ""}<br>` +
+      `${a.country || ""} · ${a.icao24}</small>`
+    );
+  }
+  // Drop stale markers (planes that left the bbox)
+  for (const [icao, m] of map3dState.aircraftMarkers) {
+    if (!seen.has(icao)) {
+      m.remove();
+      map3dState.aircraftMarkers.delete(icao);
+    }
+  }
+  const counter = document.getElementById("aircraft-count");
+  if (counter) counter.textContent = `· ${list.length}`;
+}
+
+function popMapMarker3D(call) {
+  if (!map3dState.map || call.lat == null || call.lng == null) return;
+  const el = document.createElement("div");
+  el.style.cssText = "width:10px;height:10px;border-radius:50%;background:#ec4848;box-shadow:0 0 12px #ec4848,0 0 0 2px rgba(255,255,255,0.4);";
+  const m = new maplibregl.Marker({ element: el })
+    .setLngLat([call.lng, call.lat])
+    .addTo(map3dState.map);
+  setTimeout(() => m.remove(), 5000);
 }
 
 function popMapMarker(call) {
@@ -447,6 +571,7 @@ function feedMapFromCalls(calls) {
   for (const c of fresh) {
     mapState.seenIds.add(c.id);
     popMapMarker(c);
+    popMapMarker3D(c);
   }
   // Keep set bounded
   if (mapState.seenIds.size > 2000) {
