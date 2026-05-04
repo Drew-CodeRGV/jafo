@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo admin — {{ node_name }}</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  body { padding: 24px; font-family: -apple-system, system-ui, sans-serif; }
+  table.admin-tbl { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  table.admin-tbl th, table.admin-tbl td { padding: 8px 12px; border-bottom: 1px solid var(--border, #2a2a2a); text-align: left; }
+  table.admin-tbl th { background: var(--bg-alt, #1a1a1a); position: sticky; top: 0; }
+  .status-active { color: #4cc06b; }
+  .status-disabled { color: #ec8a3c; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat-card { padding: 14px; background: var(--bg-alt, #1a1a1a); border-radius: 8px; }
+  .stat-card .v { font-size: 28px; font-weight: 600; }
+  .stat-card .l { font-size: 12px; color: var(--text-dim, #aaa); text-transform: uppercase; }
+  h1 { display: flex; align-items: center; gap: 12px; }
+  h1 img { height: 32px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><img src="/static/logo.png" alt=""> jafo admin</h1>
+  <p style="color:var(--text-dim,#aaa)">Fleet status. Token gate via <code>?token=…</code> URL param.</p>
+  <p><a href="/">← back to dashboard</a></p>
+</header>
+
+<section id="fleet-stats" class="stat-grid"></section>
+
+<h2>Regions</h2>
+<table id="regions-tbl" class="admin-tbl">
+  <thead><tr>
+    <th>Slug</th><th>Name</th><th style="text-align:right">Nodes</th>
+    <th style="text-align:right">Calls (total)</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2 style="margin-top:32px">Nodes</h2>
+<table id="nodes-tbl" class="admin-tbl">
+  <thead><tr>
+    <th>Slug</th><th>Display name</th><th>Region</th>
+    <th>Status</th><th>Owner</th>
+    <th style="text-align:right">Calls 24h</th>
+    <th style="text-align:right">Calls total</th>
+    <th>Last seen</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const HDRS = TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {};
+
+function fmt(t) {
+  if (!t) return '(never)';
+  const d = new Date(t * 1000);
+  const ago = (Date.now()/1000 - t);
+  if (ago < 60) return Math.floor(ago) + 's ago';
+  if (ago < 3600) return Math.floor(ago/60) + 'm ago';
+  if (ago < 86400) return Math.floor(ago/3600) + 'h ago';
+  return Math.floor(ago/86400) + 'd ago';
+}
+
+async function loadAll() {
+  const [regions, nodes] = await Promise.all([
+    fetch('/api/admin/regions', { headers: HDRS }).then(r => r.json()),
+    fetch('/api/admin/nodes', { headers: HDRS }).then(r => r.json()),
+  ]);
+  if (regions.error || nodes.error) {
+    document.body.innerHTML = '<h1>Unauthorized</h1><p>Pass ?token= in the URL or set the bearer header.</p>';
+    return;
+  }
+  // Stats
+  const totalNodes = nodes.nodes.length;
+  const activeNodes = nodes.nodes.filter(n => n.status === 'active').length;
+  const totalCalls = nodes.nodes.reduce((s,n) => s + (n.call_count||0), 0);
+  const calls24h  = nodes.nodes.reduce((s,n) => s + (n.calls_24h||0), 0);
+  document.getElementById('fleet-stats').innerHTML = `
+    <div class="stat-card"><div class="v">${totalNodes}</div><div class="l">Nodes</div></div>
+    <div class="stat-card"><div class="v">${activeNodes}</div><div class="l">Active</div></div>
+    <div class="stat-card"><div class="v">${regions.regions.length}</div><div class="l">Regions</div></div>
+    <div class="stat-card"><div class="v">${calls24h.toLocaleString()}</div><div class="l">Calls 24h</div></div>
+    <div class="stat-card"><div class="v">${totalCalls.toLocaleString()}</div><div class="l">Calls total</div></div>
+  `;
+  // Regions
+  const rtb = document.querySelector('#regions-tbl tbody');
+  rtb.innerHTML = regions.regions.map(r => `
+    <tr>
+      <td><a href="/r/${r.slug}">${r.slug}</a></td>
+      <td>${r.name}</td>
+      <td style="text-align:right">${r.node_count}</td>
+      <td style="text-align:right">${(r.call_count||0).toLocaleString()}</td>
+    </tr>`).join('');
+  // Nodes
+  const ntb = document.querySelector('#nodes-tbl tbody');
+  ntb.innerHTML = nodes.nodes.map(n => `
+    <tr>
+      <td><a href="/r/${n.region_slug}/n/${n.slug}">${n.slug}</a></td>
+      <td>${n.display_name||''}</td>
+      <td>${n.region_slug||'-'}</td>
+      <td><span class="status-${n.status}">${n.status}</span></td>
+      <td>${n.owner_email||''}</td>
+      <td style="text-align:right">${(n.calls_24h||0).toLocaleString()}</td>
+      <td style="text-align:right">${(n.call_count||0).toLocaleString()}</td>
+      <td>${fmt(n.last_seen_at)}</td>
+    </tr>`).join('');
+}
+loadAll();
+setInterval(loadAll, 15000);
+</script>
+</body>
+</html>

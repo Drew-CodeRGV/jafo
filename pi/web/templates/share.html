@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} — jafo</title>
+
+<!-- OpenGraph for Facebook + Twitter Card scraping -->
+<meta property="og:type" content="article">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:image" content="/api/share/{{ kind }}/{{ id }}/card.png">
+<meta property="og:image:width" content="1080">
+<meta property="og:image:height" content="1080">
+<meta property="og:site_name" content="jafo / {{ node_name }}">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ title }}">
+<meta name="twitter:description" content="{{ description }}">
+<meta name="twitter:image" content="/api/share/{{ kind }}/{{ id }}/card.png">
+
+<link rel="icon" href="/static/logo.png" type="image/png">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { display: block; padding: 0; }
+  .share-page {
+    max-width: 760px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: var(--text);
+  }
+  .share-page h1 { font-size: 22px; margin-top: 0; }
+  .share-page p  { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+  .share-page img.card {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 16px 0;
+  }
+  .share-page .back {
+    display: inline-block;
+    margin-top: 14px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .share-page video {
+    width: 100%;
+    max-width: 540px;
+    margin: 12px 0;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="share-page">
+  <h1>{{ title }}</h1>
+  <p>{{ description }}</p>
+  <img class="card" src="/api/share/{{ kind }}/{{ id }}/card.png" alt="{{ title }}">
+  <video controls preload="metadata">
+    <source src="/api/share/{{ kind }}/{{ id }}/video.mp4" type="video/mp4">
+  </video>
+  <p><a class="back" href="/">← back to jafo</a></p>
+</div>
+</body>
+</html>

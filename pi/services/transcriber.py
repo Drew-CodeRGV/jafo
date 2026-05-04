@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-jafo-transcriber — sends kept calls to Groq Whisper, stores text in SQLite.
+jafo-transcriber — hybrid Groq + local faster-whisper.
 
-Polls for calls where status='kept' AND transcript IS NULL AND transcript_error IS NULL
-(i.e. not yet attempted). Sends Opus to Groq, stores text. On error, stores
-the error so we don't infinite-loop on bad audio.
+Tries Groq first (fast, free-tier or paid). Falls back to local
+faster-whisper base (multilingual) on any Groq error: rate-limit, network
+failure, 5xx, no API key, etc. Either path stores text + the model that
+produced it in `transcript_model`.
 
-Costs roughly: large-v3-turbo at $0.04/hr of audio. ~24 min/day = $0.02/day.
+Local model is lazy-loaded — no RAM spent until the first fallback.
 """
 
 from __future__ import annotations
@@ -21,9 +22,12 @@ from common import (
 
 log = setup_logging("jafo-transcriber")
 
-WHISPER_MODEL = "whisper-large-v3-turbo"
+GROQ_MODEL = "whisper-large-v3-turbo"
+LOCAL_MODEL_NAME = "base"           # multilingual; bilingual EN/ES traffic
+LOCAL_COMPUTE = "int8"
+LOCAL_CPU_THREADS = 2               # leave 2 cores for trunk-recorder + processor
 POLL_INTERVAL_SEC = 10
-BATCH_SIZE = 5  # process up to N calls per loop tick
+BATCH_SIZE = 5
 
 # Whisper context prompt — primes the model for our domain
 INITIAL_PROMPT = (
@@ -35,8 +39,74 @@ INITIAL_PROMPT = (
 )
 
 
+# -----------------------------------------------------------------------------
+# Local backend (faster-whisper) — lazy-loaded
+# -----------------------------------------------------------------------------
+_local_model = None
+
+def get_local_model():
+    global _local_model
+    if _local_model is not None:
+        return _local_model
+    log.info("Loading local faster-whisper '%s' (%s, %d threads)...",
+             LOCAL_MODEL_NAME, LOCAL_COMPUTE, LOCAL_CPU_THREADS)
+    from faster_whisper import WhisperModel
+    _local_model = WhisperModel(
+        LOCAL_MODEL_NAME,
+        device="cpu",
+        compute_type=LOCAL_COMPUTE,
+        cpu_threads=LOCAL_CPU_THREADS,
+        num_workers=1,
+    )
+    log.info("Local model ready.")
+    return _local_model
+
+
+def transcribe_via_local(opus_path: Path) -> tuple[str, str]:
+    """Returns (text, model_label). Auto-detects language."""
+    model = get_local_model()
+    segments, info = model.transcribe(
+        str(opus_path),
+        beam_size=1,                # fastest
+        language=None,              # auto: EN or ES
+        initial_prompt=INITIAL_PROMPT,
+        vad_filter=False,           # processor.py already VAD-filtered
+        temperature=0.0,
+    )
+    text = " ".join(seg.text.strip() for seg in segments).strip()
+    label = f"faster-whisper-{LOCAL_MODEL_NAME}/{info.language}"
+    return text, label
+
+
+# -----------------------------------------------------------------------------
+# Groq backend
+# -----------------------------------------------------------------------------
+def make_groq_client():
+    if not GROQ_API_KEY:
+        return None
+    from groq import Groq
+    # max_retries=0 — we want immediate failure on 429 so we can fall through
+    # to local. Default SDK retries with Retry-After (~45s) which would defeat
+    # the point of the fallback.
+    return Groq(api_key=GROQ_API_KEY, max_retries=0)
+
+
+def transcribe_via_groq(client, opus_path: Path) -> tuple[str, str]:
+    with open(opus_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            file=(opus_path.name, f.read()),
+            model=GROQ_MODEL,
+            prompt=INITIAL_PROMPT,
+            response_format="verbose_json",
+            temperature=0.0,
+        )
+    return (result.text or "").strip(), GROQ_MODEL
+
+
+# -----------------------------------------------------------------------------
+# DB
+# -----------------------------------------------------------------------------
 def get_pending_calls(conn, limit: int):
-    """Find kept calls with audio still on disk and no transcript attempted yet."""
     cur = conn.execute("""
         SELECT id, opus_path, talkgroup_tag, duration_sec
         FROM calls
@@ -51,31 +121,31 @@ def get_pending_calls(conn, limit: int):
     return cur.fetchall()
 
 
-def transcribe_one(groq_client, opus_path: Path) -> dict:
-    """Send one Opus file to Groq. Returns dict with text or raises."""
-    with open(opus_path, "rb") as f:
-        result = groq_client.audio.transcriptions.create(
-            file=(opus_path.name, f.read()),
-            model=WHISPER_MODEL,
-            prompt=INITIAL_PROMPT,
-            response_format="verbose_json",
-            language="en",
-            temperature=0.0,
-        )
-    text = (result.text or "").strip()
-    return {"text": text}
+# -----------------------------------------------------------------------------
+# Main loop
+# -----------------------------------------------------------------------------
+def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
+    """Try Groq, fall back to local. Returns (text, model_label)."""
+    if groq_client is not None:
+        try:
+            return transcribe_via_groq(groq_client, opus_path)
+        except Exception as e:
+            # Any Groq failure — rate limit, network, key invalid, 5xx — falls
+            # through to local. We log it so we can see the pattern over time.
+            log.info("Groq failed (%s: %s) — falling back to local",
+                     type(e).__name__, str(e)[:120])
+    return transcribe_via_local(opus_path)
 
 
 def main() -> None:
-    if not GROQ_API_KEY:
-        log.warning("GROQ_API_KEY not set — sleeping. Add to .env and restart.")
-        while True:
-            time.sleep(60)
+    groq_client = make_groq_client()
+    if groq_client is None:
+        log.warning("GROQ_API_KEY not set — running local-only.")
+    else:
+        log.info("Starting jafo-transcriber. primary=groq:%s fallback=faster-whisper-%s",
+                 GROQ_MODEL, LOCAL_MODEL_NAME)
 
-    from groq import Groq
-    groq_client = Groq(api_key=GROQ_API_KEY)
     conn = db_connect()
-    log.info("Starting jafo-transcriber. model=%s", WHISPER_MODEL)
 
     while True:
         try:
@@ -103,21 +173,18 @@ def main() -> None:
 
             try:
                 t0 = time.time()
-                result = transcribe_one(groq_client, opus_full)
+                text, model_used = transcribe_one(groq_client, opus_full)
                 elapsed = time.time() - t0
-                text = result["text"]
 
                 if not text:
-                    # Whisper returned empty — store as empty string, not NULL,
-                    # so we don't try again. Treat as "no useful speech."
                     text = ""
-                    log.info("EMPTY id=%s tag=%s dur=%.1fs (%.2fs elapsed)",
+                    log.info("EMPTY id=%s tag=%s dur=%.1fs (%.2fs %s)",
                              call["id"], call["talkgroup_tag"],
-                             call["duration_sec"], elapsed)
+                             call["duration_sec"], elapsed, model_used)
                 else:
-                    log.info("OK    id=%s tag=%s dur=%.1fs (%.2fs elapsed): %s",
+                    log.info("OK    id=%s tag=%s dur=%.1fs (%.2fs %s): %s",
                              call["id"], call["talkgroup_tag"],
-                             call["duration_sec"], elapsed,
+                             call["duration_sec"], elapsed, model_used,
                              text[:80] + ("..." if len(text) > 80 else ""))
 
                 conn.execute("""
@@ -125,7 +192,7 @@ def main() -> None:
                     SET transcript = ?, transcript_model = ?,
                         transcript_at = ?, transcript_error = NULL
                     WHERE id = ?
-                """, (text, WHISPER_MODEL, int(time.time()), call["id"]))
+                """, (text, model_used, int(time.time()), call["id"]))
                 conn.commit()
 
             except Exception as e:
@@ -137,7 +204,6 @@ def main() -> None:
                     WHERE id = ?
                 """, (err[:500], int(time.time()), call["id"]))
                 conn.commit()
-                # back off briefly on error so we don't hammer the API
                 time.sleep(2)
 
 

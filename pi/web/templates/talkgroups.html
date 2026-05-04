@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo — talkgroups — {{ node_name }}</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/talkgroups.css">
+<link rel="icon" href="/static/logo.png" type="image/png">
+</head>
+<body class="tg-page">
+
+<header class="topbar">
+  <div class="brand">
+    <img class="logo-img" src="/static/logo.png" alt="jafo">
+    <span class="sub">{{ node_name }} / talkgroups</span>
+  </div>
+  <div class="actions">
+    <a href="/" class="nav-link">← Back to feed</a>
+  </div>
+</header>
+
+<main class="tg-main">
+  <div class="tg-toolbar">
+    <input id="tg-search" type="search" placeholder="Filter by name, ID, city, type…" autocomplete="off">
+    <label class="tg-toggle">
+      <input type="checkbox" id="tg-only-active">
+      <span>Only active (last 7d)</span>
+    </label>
+    <label class="tg-toggle">
+      <input type="checkbox" id="tg-only-overridden">
+      <span>Only edited</span>
+    </label>
+    <span id="tg-status" class="tg-status"></span>
+  </div>
+
+  <div class="tg-table-wrap">
+    <table class="tg-table">
+      <thead>
+        <tr>
+          <th class="num">ID</th>
+          <th>Name</th>
+          <th>City</th>
+          <th>Service</th>
+          <th>Icon</th>
+          <th>Link URL</th>
+          <th class="num">Lat</th>
+          <th class="num">Lng</th>
+          <th>Notes</th>
+          <th class="num" title="Calls in the last 7 days">7d</th>
+          <th>Source</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tg-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="/static/talkgroups.js"></script>
+</body>
+</html>

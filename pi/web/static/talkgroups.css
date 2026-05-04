@@ -1,0 +1,185 @@
+/* jafo — talkgroup editor */
+
+body.tg-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  /* Override the main grid layout from style.css */
+  grid-template-columns: none;
+  grid-template-rows: none;
+  grid-template-areas: none;
+}
+
+body.tg-page > .topbar {
+  flex: 0 0 56px;
+  height: 56px;
+}
+
+.tg-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 12px;
+  min-height: 0;
+}
+
+.tg-toolbar input[type="search"] {
+  flex: 0 1 320px;
+  min-width: 200px;
+}
+
+.tg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+.tg-toolbar input[type="search"] {
+  flex: 1 1 320px;
+  max-width: 480px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.tg-toolbar input[type="search"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.tg-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.tg-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.tg-table-wrap {
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+
+.tg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tg-table th,
+.tg-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.tg-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-alt);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  font-weight: 600;
+  z-index: 2;
+  white-space: nowrap;
+}
+.tg-table th.num,
+.tg-table td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.tg-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+.tg-table tbody tr.dirty {
+  background: rgba(88, 166, 255, 0.08);
+}
+.tg-table tbody tr.dirty:hover {
+  background: rgba(88, 166, 255, 0.14);
+}
+
+.tg-table input,
+.tg-table select {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 3px 5px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.tg-table input:hover,
+.tg-table select:hover {
+  border-color: var(--border);
+}
+.tg-table input:focus,
+.tg-table select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.tg-table .icon-select {
+  font-size: 13px;
+  min-width: 140px;
+}
+
+.tg-table .url-input {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.tg-table .save-btn,
+.tg-table .reset-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+.tg-table .save-btn.dirty {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tg-table .save-btn:hover { color: var(--text); border-color: var(--text); }
+.tg-table .reset-btn { margin-left: 4px; }
+.tg-table .reset-btn:hover { color: var(--bad); border-color: var(--bad); }
+
+.tg-table .source {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+.tg-table .source.ov { color: var(--accent); }
+
+.tg-table .id-cell {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.tg-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-faint);
+}

@@ -37,6 +37,424 @@ async function api(path) {
   return res.json();
 }
 
+// ---- Share modal ----
+// Format → typical destination:
+//   square    → IG feed, FB feed
+//   story     → IG Story / Reels (vertical)
+//   landscape → Twitter/X, FB link card
+const sharePrefs = {
+  format: localStorage.getItem("jafo.shareFormat") || "square",
+  kind: null,
+  id: null,
+  title: null,
+};
+
+function openSharePopover(_anchorEl, kind, id, title) {
+  // Kept the function name so existing call sites work.
+  sharePrefs.kind = kind;
+  sharePrefs.id = id;
+  sharePrefs.title = title || "";
+
+  const modal = document.getElementById("share-modal");
+  modal.classList.remove("hidden");
+
+  // Reflect persisted format in the toggle UI
+  modal.querySelectorAll(".share-fmt").forEach((b) =>
+    b.classList.toggle("active", b.dataset.fmt === sharePrefs.format));
+
+  refreshShareModalAssets();
+}
+
+function closeShareModal() {
+  const modal = document.getElementById("share-modal");
+  modal.classList.add("hidden");
+  // Pause and unload preview video so it stops downloading in the background
+  const v = document.getElementById("share-video");
+  try { v.pause(); v.removeAttribute("src"); v.load(); } catch {}
+}
+
+function refreshShareModalAssets() {
+  const { kind, id, format } = sharePrefs;
+  if (!kind || !id) return;
+
+  const cardUrl  = `/api/share/${kind}/${id}/card.png?format=${format}`;
+  const videoUrl = `/api/share/${kind}/${id}/video.mp4?format=${format}`;
+  const audioUrl = `/api/share/${kind}/${id}/audio.mp3`;
+
+  // Cache-bust on format toggle so the browser doesn't show stale stretched image
+  const bust = Date.now();
+  document.getElementById("share-image").src = `${cardUrl}&_=${bust}`;
+  const v = document.getElementById("share-video");
+  v.src = `${videoUrl}&_=${bust}`;
+  v.load();
+
+  const dlImg = document.getElementById("share-dl-image");
+  const dlVid = document.getElementById("share-dl-video");
+  const dlAud = document.getElementById("share-dl-audio");
+  dlImg.href = cardUrl;  dlImg.setAttribute("download", `jafo-${kind}-${id}-${format}.png`);
+  dlVid.href = videoUrl; dlVid.setAttribute("download", `jafo-${kind}-${id}-${format}.mp4`);
+  dlAud.href = audioUrl; dlAud.setAttribute("download", `jafo-${kind}-${id}.mp3`);
+}
+
+function bindShareModal() {
+  const modal = document.getElementById("share-modal");
+  if (!modal) return;
+
+  modal.querySelector(".story-modal-close")?.addEventListener("click", closeShareModal);
+  modal.querySelector(".story-modal-backdrop")?.addEventListener("click", closeShareModal);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) closeShareModal();
+  });
+
+  modal.querySelectorAll(".share-fmt").forEach((b) => {
+    b.addEventListener("click", () => {
+      sharePrefs.format = b.dataset.fmt;
+      localStorage.setItem("jafo.shareFormat", sharePrefs.format);
+      modal.querySelectorAll(".share-fmt").forEach((x) =>
+        x.classList.toggle("active", x.dataset.fmt === sharePrefs.format));
+      refreshShareModalAssets();
+    });
+  });
+
+  // Native share — passes both image and audio as files
+  const nativeBtn = document.getElementById("share-native-btn");
+  if (navigator.share && nativeBtn) {
+    nativeBtn.style.display = "block";
+    nativeBtn.addEventListener("click", async () => {
+      const { kind, id, format, title } = sharePrefs;
+      try {
+        const files = [];
+        const imgRes = await fetch(`/api/share/${kind}/${id}/card.png?format=${format}`);
+        if (imgRes.ok) {
+          const b = await imgRes.blob();
+          files.push(new File([b], `jafo-${kind}-${id}-${format}.png`, { type: "image/png" }));
+        }
+        const audRes = await fetch(`/api/share/${kind}/${id}/audio.mp3`);
+        if (audRes.ok) {
+          const b = await audRes.blob();
+          files.push(new File([b], `jafo-${kind}-${id}.mp3`, { type: "audio/mpeg" }));
+        }
+        const supportsFiles = navigator.canShare && navigator.canShare({ files });
+        if (supportsFiles && files.length) {
+          await navigator.share({ files, title: title || "jafo", text: title || "" });
+        }
+      } catch (e) { /* canceled */ }
+    });
+  }
+}
+
+// Backwards-compat shim used by the story modal close — it called this name.
+function closePopovers() { closeShareModal(); }
+
+// ---- Stories strip ----
+const storyState = {
+  all: [],         // server-returned stories (up to 12)
+  page: 0,         // current page index (0..2 for 12 stories / 4 per page)
+  rotateTimer: null,
+  rotateMs: 10000, // dwell time per page
+};
+
+async function refreshStories() {
+  try {
+    const data = await api("/api/stories");
+    storyState.all = data.stories || [];
+    if (storyState.page * 4 >= storyState.all.length) storyState.page = 0;
+    renderStoriesPage(false);
+  } catch (e) {
+    console.error("stories refresh failed", e);
+  }
+}
+
+function pageCount() {
+  return Math.max(1, Math.ceil(storyState.all.length / 4));
+}
+
+function renderStoriesPage(animate = true) {
+  const root = document.getElementById("stories-cards");
+  if (!root) return;
+  const slice = storyState.all.slice(storyState.page * 4, storyState.page * 4 + 4);
+
+  if (!storyState.all.length) {
+    root.innerHTML = `<div class="stories-empty">Stories will appear here once enough enriched calls have been clustered (~5 min after a fresh start).</div>`;
+    renderPager();
+    return;
+  }
+
+  // If animating, fade out current cards first, then swap
+  const prev = [...root.children];
+  if (animate && prev.length) {
+    prev.forEach((el) => el.classList.add("flipping-out"));
+    setTimeout(() => paint(), 420);
+  } else {
+    paint();
+  }
+
+  function paint() {
+    root.innerHTML = "";
+    slice.forEach((s, i) => {
+      const card = document.createElement("div");
+      const sev = (s.severity || "unknown").toLowerCase();
+      card.className = `story-card sev-${sev}` + (animate ? " flipping-in" : "");
+      card.style.animationDelay = animate ? `${i * 60}ms` : "";
+      card.dataset.id = s.id;
+      const ago = fmtAgo(s.last_call_at || s.created_at);
+      card.innerHTML = `
+        <div class="story-title">${escapeHtml(s.title || "(untitled)")}</div>
+        <div class="story-body">${escapeHtml(s.body || "")}</div>
+        <div class="story-meta">
+          <span><span class="sev-dot"></span>${escapeHtml(s.talkgroup_tag || `tg-${s.talkgroup}`)}</span>
+          <span>${ago}</span>
+        </div>
+      `;
+      card.onclick = () => openStoryModal(s.id);
+      root.appendChild(card);
+    });
+    renderPager();
+  }
+}
+
+function renderPager() {
+  const pager = document.getElementById("stories-pager");
+  if (!pager) return;
+  const n = pageCount();
+  if (n <= 1) { pager.innerHTML = ""; return; }
+  pager.innerHTML = Array.from({ length: n }, (_, i) =>
+    `<span class="dot${i === storyState.page ? " active" : ""}"></span>`
+  ).join("");
+}
+
+function startStoriesRotation() {
+  stopStoriesRotation();
+  storyState.rotateTimer = setInterval(() => {
+    if (pageCount() <= 1) return;
+    storyState.page = (storyState.page + 1) % pageCount();
+    renderStoriesPage(true);
+  }, storyState.rotateMs);
+}
+function stopStoriesRotation() {
+  if (storyState.rotateTimer) clearInterval(storyState.rotateTimer);
+  storyState.rotateTimer = null;
+}
+
+async function openStoryModal(id) {
+  const modal = document.getElementById("story-modal");
+  modal.classList.remove("hidden");
+  document.getElementById("story-modal-title").textContent = "Loading…";
+  document.getElementById("story-modal-meta").textContent = "";
+  document.getElementById("story-modal-body").textContent = "";
+  document.getElementById("story-modal-audio").innerHTML = "";
+
+  try {
+    const s = await api(`/api/stories/${id}`);
+    document.getElementById("story-modal-title").textContent = s.title || "(untitled)";
+    const sev = (s.severity || "unknown").toUpperCase();
+    const meta = document.getElementById("story-modal-meta");
+    meta.innerHTML =
+      `${escapeHtml(s.talkgroup_tag || `tg-${s.talkgroup}`)} · severity: ${escapeHtml(sev)} · ${(s.calls || []).length} call${(s.calls || []).length === 1 ? "" : "s"}` +
+      ` <button class="share-btn share-btn-inline" title="Share">↗ Share</button>`;
+    meta.querySelector(".share-btn").onclick = (e) => {
+      e.stopPropagation();
+      openSharePopover(e.currentTarget, "story", s.id, s.title || "");
+    };
+    document.getElementById("story-modal-body").textContent = s.body || "";
+
+    const audioRoot = document.getElementById("story-modal-audio");
+    audioRoot.innerHTML = "";
+    for (const c of (s.calls || [])) {
+      if (!c.audio_available) continue;
+      const row = document.createElement("div");
+      row.className = "audio-row";
+      row.innerHTML = `
+        <span class="ts">${fmtTime(c.start_time)}</span>
+        <audio controls preload="none">
+          <source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus">
+        </audio>
+      `;
+      audioRoot.appendChild(row);
+    }
+    if (!audioRoot.children.length) {
+      audioRoot.innerHTML = '<div style="color:var(--text-faint);font-size:12px">Audio for these calls is no longer on disk (retention).</div>';
+    }
+  } catch (e) {
+    document.getElementById("story-modal-title").textContent = "Failed to load story";
+    document.getElementById("story-modal-body").textContent = String(e);
+  }
+}
+
+function closeStoryModal() {
+  const modal = document.getElementById("story-modal");
+  modal.classList.add("hidden");
+  // Stop any audio playing in the modal
+  modal.querySelectorAll("audio").forEach((a) => { try { a.pause(); } catch {} });
+}
+
+function bindStoryModal() {
+  document.querySelector(".story-modal-close")?.addEventListener("click", closeStoryModal);
+  document.querySelector(".story-modal-backdrop")?.addEventListener("click", closeStoryModal);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("story-modal").classList.contains("hidden")) {
+      closeStoryModal();
+    }
+  });
+}
+
+// ---- Live map (Leaflet) ----
+const mapState = {
+  map: null,
+  seenIds: new Set(),
+  primed: false,           // skip animation for the first poll (don't pop the backlog)
+  heatLayer: null,
+  heatVisible: localStorage.getItem("jafo.heatVisible") !== "0", // default ON
+  heatTimer: null,
+};
+
+async function refreshHeatmap() {
+  if (!mapState.map || typeof L.heatLayer !== "function") return;
+  try {
+    const data = await api("/api/heatmap");
+    if (mapState.heatLayer) {
+      mapState.map.removeLayer(mapState.heatLayer);
+      mapState.heatLayer = null;
+    }
+    if (data.points && data.points.length) {
+      mapState.heatLayer = L.heatLayer(data.points, {
+        radius: 28,
+        blur: 22,
+        maxZoom: 13,
+        // Cool-to-hot: blue → green → yellow → orange → red.
+        gradient: { 0.0: "#3a8df0", 0.35: "#4cc06b", 0.6: "#e8d23c", 0.8: "#ec8a3c", 1.0: "#ef4848" },
+      });
+      if (mapState.heatVisible) mapState.heatLayer.addTo(mapState.map);
+    }
+    updateHeatToggleLabel(data);
+  } catch (e) {
+    console.error("heatmap refresh failed", e);
+  }
+}
+
+function toggleHeatmap() {
+  mapState.heatVisible = !mapState.heatVisible;
+  localStorage.setItem("jafo.heatVisible", mapState.heatVisible ? "1" : "0");
+  if (mapState.heatLayer) {
+    if (mapState.heatVisible) mapState.heatLayer.addTo(mapState.map);
+    else mapState.map.removeLayer(mapState.heatLayer);
+  }
+  updateHeatToggleLabel();
+}
+
+function updateHeatToggleLabel(data) {
+  const btn = document.querySelector(".heat-toggle");
+  if (!btn) return;
+  btn.classList.toggle("active", mapState.heatVisible);
+  btn.textContent = mapState.heatVisible ? "🔥 Heatmap on" : "○ Heatmap off";
+  if (data) btn.title = `${data.address_hits} address-precise + ${data.city_hits} city-level points`;
+}
+
+function addHeatToggleControl() {
+  if (!mapState.map) return;
+  const Ctl = L.Control.extend({
+    options: { position: "topright" },
+    onAdd: () => {
+      const div = L.DomUtil.create("div", "leaflet-bar heat-toggle-wrap");
+      div.innerHTML = `<button class="heat-toggle ${mapState.heatVisible ? "active" : ""}" type="button">🔥 Heatmap on</button>`;
+      L.DomEvent.disableClickPropagation(div);
+      div.querySelector(".heat-toggle").addEventListener("click", toggleHeatmap);
+      return div;
+    },
+  });
+  new Ctl().addTo(mapState.map);
+}
+
+async function initMap() {
+  if (mapState.map || typeof L === "undefined") return;
+  let cfg = { center: [26.2, -98.0], bounds: [[25.8, -98.9], [26.55, -97.1]] };
+  try { cfg = await api("/api/map-config"); } catch (e) { console.warn("map-config failed, using defaults", e); }
+
+  mapState.map = L.map("map", {
+    zoomControl: true,
+    attributionControl: true,
+    scrollWheelZoom: false,
+    minZoom: 8,
+    maxZoom: 14,
+  });
+  mapState.map.fitBounds(cfg.bounds);
+  mapState.map.setZoom(mapState.map.getZoom() + 2);
+  mapState.map.setMaxBounds(L.latLngBounds(cfg.bounds[0], cfg.bounds[1]).pad(0.5));
+
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(mapState.map);
+
+  addHeatToggleControl();
+}
+
+function popMapMarker(call) {
+  if (!mapState.map || call.lat == null || call.lng == null) return;
+  const icon = serviceIcon(call.talkgroup_tag, call.service_type, call.incident_type, call.icon) || "📡";
+
+  const div = L.divIcon({
+    html: `<div class="map-pulse">${icon}</div>`,
+    className: "",
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+  const m = L.marker([call.lat, call.lng], { icon: div, interactive: true });
+
+  const popupBits = [];
+  if (call.talkgroup_tag) popupBits.push(`<strong>${escapeHtml(call.talkgroup_tag)}</strong>`);
+  if (call.city) popupBits.push(escapeHtml(call.city));
+  if (call.incident_summary) popupBits.push(escapeHtml(call.incident_summary));
+  m.bindPopup(popupBits.join("<br>") || `tg-${call.talkgroup}`);
+  m.addTo(mapState.map);
+
+  // Self-remove after the CSS animation finishes (5s + small buffer)
+  setTimeout(() => mapState.map.removeLayer(m), 5200);
+}
+
+// Marker associated with active audio playback. Stays put while audio plays,
+// removes itself when paused/ended/seeked-to-end.
+function popPlaybackMarker(call) {
+  if (!mapState.map || call.lat == null || call.lng == null) return null;
+  const icon = serviceIcon(call.talkgroup_tag, call.service_type, call.incident_type, call.icon) || "📡";
+  const div = L.divIcon({
+    html: `<div class="map-playing">${icon}</div>`,
+    className: "",
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
+  const m = L.marker([call.lat, call.lng], { icon: div, interactive: true });
+  const popupBits = [];
+  if (call.talkgroup_tag) popupBits.push(`<strong>${escapeHtml(call.talkgroup_tag)}</strong>`);
+  if (call.city) popupBits.push(escapeHtml(call.city));
+  if (call.incident_summary) popupBits.push(escapeHtml(call.incident_summary));
+  m.bindPopup(popupBits.join("<br>") || `tg-${call.talkgroup}`);
+  m.addTo(mapState.map);
+  mapState.map.panTo([call.lat, call.lng], { animate: true, duration: 0.4 });
+  return m;
+}
+
+function feedMapFromCalls(calls) {
+  // First load: prime seenIds without popping markers (avoid animating backlog)
+  if (!mapState.primed) {
+    for (const c of calls) mapState.seenIds.add(c.id);
+    mapState.primed = true;
+    return;
+  }
+  // Newest first → animate oldest-first so they appear in chronological order
+  const fresh = calls.filter((c) => !mapState.seenIds.has(c.id));
+  fresh.reverse();
+  for (const c of fresh) {
+    mapState.seenIds.add(c.id);
+    popMapMarker(c);
+  }
+  // Keep set bounded
+  if (mapState.seenIds.size > 2000) {
+    const arr = [...mapState.seenIds].slice(-1000);
+    mapState.seenIds = new Set(arr);
+  }
+}
+
 // ---- Time formatting ----
 function fmtTime(ts) {
   if (!ts) return "—";
@@ -62,6 +480,68 @@ function fmtDur(s) {
   return `${Math.floor(s / 60)}m${Math.floor(s % 60)}s`;
 }
 
+// Map of icon ID → emoji. Kept in sync with ICON_CHOICES on the server.
+const ICON_BY_ID = {
+  police: "🚔", fire: "🚒", ems: "🚑", school: "🏫",
+  utility: "🔧", water: "💧", power: "⚡", transit: "🚌",
+  government: "🏛️", dispatch: "📞", traffic: "🚧", hazmat: "☢️",
+  rescue: "🛟", air: "🚁", aviation: "✈️", marine: "⚓",
+  hospital: "🏥", construction: "🏗️", k9: "🐕", park: "🌲",
+  emergency: "⚠️", weather: "🌪️", radio: "📡",
+};
+
+// Render the icon column on a call card. Optionally wrapped in an external link.
+function renderSvcCol(call, icon) {
+  const inner = icon ? `<span class="svc-emoji">${icon}</span>` : "";
+  if (call.link_url) {
+    return `<a class="svc-link" href="${escapeHtml(call.link_url)}"
+              target="_blank" rel="noopener noreferrer"
+              title="${escapeHtml(call.link_url)}">${inner}</a>`;
+  }
+  return inner;
+}
+
+// ---- Service category resolver ----
+// Returns a stable category key (e.g., "police", "fire") used both for icon
+// rendering and call-card background tinting.
+function serviceCategory(talkgroupTag, csvTag, incidentType, iconOverride) {
+  if (iconOverride && ICON_BY_ID[iconOverride]) return iconOverride;
+
+  const csv   = (csvTag       || "").toLowerCase();
+  const alpha = (talkgroupTag || "").toLowerCase();
+  const inc   = (incidentType || "").toLowerCase();
+
+  // CSV Tag field from RadioReference is most authoritative
+  if (/law|corrections|police/.test(csv))       return "police";
+  if (/fire/.test(csv))                          return "fire";
+  if (/ems|medical/.test(csv))                   return "ems";
+  if (/school/.test(csv))                        return "school";
+  if (/public.?works|utility/.test(csv))         return "utility";
+  if (/transit/.test(csv))                       return "transit";
+  if (/\bcity\b|\bcounty\b|municipal/.test(csv)) return "government";
+
+  // Alpha tag keyword fallback
+  if (/\bpd\b|police|sheriff|constable|marshal|\bdps\b|swat|jail/.test(alpha)) return "police";
+  if (/\bfire\b|\bfd\b|haz.?mat/.test(alpha))                                   return "fire";
+  if (/\bems\b|medic|ambulance|paramedic|lonestar/.test(alpha))                 return "ems";
+  if (/\bisd\b|school|\bhs\b|\bgms\b|elem|campus/.test(alpha))                  return "school";
+  if (/utility|utilities|\bmpu\b|public.?works/.test(alpha))                    return "utility";
+  if (/\btransit\b|valley.?metro/.test(alpha))                                  return "transit";
+
+  // Claude incident type as last resort
+  if (/fire/.test(inc))                          return "fire";
+  if (/medical|ems/.test(inc))                   return "ems";
+  if (/traffic stop|arrest|pursuit/.test(inc))   return "police";
+
+  return null;
+}
+
+// Backwards-compat thin wrapper: emoji from a category
+function serviceIcon(talkgroupTag, csvTag, incidentType, iconOverride) {
+  const cat = serviceCategory(talkgroupTag, csvTag, incidentType, iconOverride);
+  return cat ? (ICON_BY_ID[cat] || null) : null;
+}
+
 // ---- Severity normalization ----
 function normSeverity(s) {
   s = (s || "unknown").toLowerCase();
@@ -84,6 +564,21 @@ async function refreshStats() {
       back === 0
         ? `<strong style="color:var(--good)">●</strong> caught up`
         : `backlog: <strong>${back}</strong>`;
+
+    // CPU temp — color steps: <70 dim, 70-80 warn, 80-90 bad, >90 crit
+    const tempEl = document.getElementById("stat-temp");
+    if (tempEl) {
+      const t = s.cpu_temp_c;
+      if (t == null) {
+        tempEl.textContent = "";
+      } else {
+        let color = "var(--text-dim)";
+        if (t >= 90) color = "var(--crit)";
+        else if (t >= 80) color = "var(--bad)";
+        else if (t >= 70) color = "var(--warn)";
+        tempEl.innerHTML = `cpu: <strong style="color:${color}">${t.toFixed(1)}°C</strong>`;
+      }
+    }
   } catch (e) {
     console.error("Stats refresh failed:", e);
   }
@@ -125,9 +620,11 @@ async function refreshTalkgroups() {
 
       const header = document.createElement("button");
       header.className = "tg-group-header";
+      const gIcon = serviceIcon(null, group.name, null);
+      const gIconPart = gIcon ? `${gIcon} ` : "";
       header.innerHTML = `
         <span class="caret">${isExpanded ? "▾" : "▸"}</span>
-        <span class="tg-group-name">${escapeHtml(group.name)}</span>
+        <span class="tg-group-name">${gIconPart}${escapeHtml(group.name)}</span>
         <span class="count">${group.total}</span>
       `;
       header.onclick = () => {
@@ -194,8 +691,10 @@ function renderTalkgroupItem(tg) {
   li.title = tooltip;
   // Encrypted indicator from CSV mode "DE"
   const enc = (tg.mode || "").toUpperCase().includes("E");
+  const icon = serviceIcon(tg.talkgroup_tag, tg.tag, null);
+  const iconPart = icon ? `${icon} ` : "";
   li.innerHTML = `
-    <span>${escapeHtml(label)}${enc ? '<span class="enc-tag" title="Encrypted">🔒</span>' : ""}</span>
+    <span>${iconPart}${escapeHtml(label)}${enc ? '<span class="enc-tag" title="Encrypted">🔒</span>' : ""}</span>
     <span class="count">${tg.n}</span>
   `;
   if (state.filters.talkgroup === tg.talkgroup) li.classList.add("active");
@@ -357,6 +856,14 @@ async function loadCalls(append = false) {
       state.calls = state.calls.concat(items);
     } else {
       state.calls = items;
+      // Map only animates the unfiltered live feed
+      const unfiltered = !state.filters.search
+        && !state.filters.talkgroup
+        && !state.filters.service_tag
+        && !state.filters.category
+        && !state.filters.incident_type
+        && !state.filters.severity;
+      if (unfiltered) feedMapFromCalls(items);
     }
     state.total = data.total ?? items.length;
     renderCalls();
@@ -397,6 +904,10 @@ function renderCall(c) {
   const sev = normSeverity(c.incident_severity);
   div.style.borderLeft = `3px solid var(--${sevColor(sev)})`;
 
+  const cat = serviceCategory(c.talkgroup_tag, c.service_type, c.incident_type, c.icon);
+  if (cat) div.classList.add(`cat-${cat}`);
+  const svcIcon = cat ? ICON_BY_ID[cat] : null;
+
   const headerBits = [];
   if (c.talkgroup_tag) {
     headerBits.push(`<span class="tag">${escapeHtml(c.talkgroup_tag)}</span>`);
@@ -422,15 +933,17 @@ function renderCall(c) {
     ? `<div class="location">${escapeHtml(c.incident_location)}</div>`
     : "";
 
-  // Native audio element with proper preload + type. preload="metadata" lets
-  // the browser fetch enough of the file to know the duration up front, which
-  // is what was preventing playback from running to the end before.
   const audioEl = c.audio_available
-    ? `<audio controls preload="metadata" class="audio-inline">
-         <source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus">
-         Your browser doesn't support inline audio.
-       </audio>`
-    : '<span class="pending">no audio</span>';
+    ? `<div class="audio-row">
+         <audio controls preload="none" class="audio-inline">
+           <source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus">
+         </audio>
+         <button class="share-btn" title="Share">↗</button>
+       </div>`
+    : `<div class="audio-row">
+         <span class="pending">no audio</span>
+         <button class="share-btn" title="Share">↗</button>
+       </div>`;
 
   div.innerHTML = `
     <div class="when">
@@ -438,6 +951,7 @@ function renderCall(c) {
       <div>${fmtDate(c.start_time)}</div>
       <div class="ago">${fmtAgo(c.start_time)}</div>
     </div>
+    <div class="svc-col">${renderSvcCol(c, svcIcon)}</div>
     <div class="body">
       <div class="header-line">${headerBits.join("")}</div>
       ${summary}
@@ -449,6 +963,35 @@ function renderCall(c) {
       ${audioEl}
     </div>
   `;
+
+  // When this call's audio plays, drop a marker on the map at the call's
+  // location and pan to it. Remove the marker when audio pauses/ends.
+  const audioNode = div.querySelector("audio");
+  if (audioNode) {
+    let marker = null;
+    const drop = () => {
+      if (marker) return;
+      marker = popPlaybackMarker(c);
+    };
+    const lift = () => {
+      if (marker && mapState.map) mapState.map.removeLayer(marker);
+      marker = null;
+    };
+    audioNode.addEventListener("play",  drop);
+    audioNode.addEventListener("pause", lift);
+    audioNode.addEventListener("ended", lift);
+  }
+
+  // Share popover
+  const shareBtn = div.querySelector(".share-btn");
+  if (shareBtn) {
+    shareBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const title = c.incident_summary || c.talkgroup_tag || `Call #${c.id}`;
+      openSharePopover(shareBtn, "call", c.id, title);
+    });
+  }
+
   return div;
 }
 
@@ -489,6 +1032,31 @@ function bindSearch() {
   });
 }
 
+// ---- Mobile sidebar drawer ----
+function bindMobileMenu() {
+  const btn = document.getElementById("menu-btn");
+  const backdrop = document.getElementById("sidebar-backdrop");
+  const close = () => document.body.classList.remove("sidebar-open");
+
+  btn?.addEventListener("click", () => {
+    document.body.classList.toggle("sidebar-open");
+  });
+  backdrop?.addEventListener("click", close);
+
+  // Close after picking a filter from the sidebar (mobile UX)
+  document.querySelector(".sidebar")?.addEventListener("click", (e) => {
+    if (window.innerWidth > 760) return;
+    // Close on talkgroup / incident / severity / clear-filter clicks
+    const t = e.target.closest("li, .clear-btn, .tg-group-filter-all");
+    if (t) close();
+  });
+
+  // Reset state when resizing back to desktop
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 760) close();
+  });
+}
+
 // ---- Misc bindings ----
 function bindClearFilters() {
   document.getElementById("clear-filters").onclick = () => {
@@ -525,13 +1093,25 @@ function startPolling() {
   state.pollTimers.stats = setInterval(refreshStats, 10000);
   state.pollTimers.calls = setInterval(() => {
     if (state.offset === 0 && !state.filters.search) {
-      loadCalls(false);
+      // Don't wipe the DOM while audio is playing — that kills the active element.
+      const anyPlaying = [...document.querySelectorAll("audio")].some(a => !a.paused);
+      if (!anyPlaying) loadCalls(false);
     }
   }, 15000);
   state.pollTimers.sidebar = setInterval(() => {
     refreshTalkgroups();
     refreshIncidentTypes();
   }, 60000);
+  // Stories refresh from server every 2 min (server itself recomputes every 5 min)
+  state.pollTimers.stories = setInterval(() => {
+    const wasOnPage0 = storyState.page === 0;
+    refreshStories().then(() => {
+      // Don't yank the page out from under the user mid-rotation
+      if (wasOnPage0) renderStoriesPage(false);
+    });
+  }, 120000);
+  // Heatmap recomputes every 90s; geocoding cache fills in between passes
+  state.pollTimers.heat = setInterval(refreshHeatmap, 90000);
 }
 function stopPolling() {
   Object.values(state.pollTimers).forEach(clearInterval);
@@ -546,8 +1126,13 @@ async function boot() {
   bindAutoRefresh();
   bindSeverityList();
   bindGroupingToggles();
-  await Promise.all([refreshStats(), refreshTalkgroups(), refreshIncidentTypes()]);
+  bindStoryModal();
+  bindShareModal();
+  bindMobileMenu();
+  await initMap();
+  await Promise.all([refreshStats(), refreshTalkgroups(), refreshIncidentTypes(), refreshStories(), refreshHeatmap()]);
   await loadCalls(false);
   startPolling();
+  startStoriesRotation();
 }
 boot();

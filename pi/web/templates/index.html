@@ -4,29 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jafo — {{ node_name }}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E📡%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="/static/logo.png" type="image/png">
 </head>
 <body>
 
 <header class="topbar">
+  <button id="menu-btn" class="menu-btn" aria-label="Toggle filters menu" type="button">☰</button>
   <div class="brand">
-    <span class="logo">📡</span>
-    <span class="name">jafo</span>
+    <img class="logo-img" src="/static/logo.png" alt="jafo">
     <span class="sub">{{ node_name }}</span>
   </div>
   <div id="stats-bar" class="stats-bar">
     <span class="stat" id="stat-totals">…</span>
     <span class="stat" id="stat-24h">…</span>
     <span class="stat" id="stat-backlog">…</span>
+    <span class="stat" id="stat-temp"></span>
   </div>
   <div class="actions">
+    <a href="/talkgroups" class="nav-link" title="Edit talkgroup names, cities, types">Talkgroups</a>
     <label class="auto-refresh">
       <input type="checkbox" id="auto-refresh" checked>
       <span>Live</span>
     </label>
   </div>
 </header>
+
+<div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
 <aside class="sidebar">
   <div class="search-block">
@@ -73,11 +82,57 @@
 </aside>
 
 <main class="timeline">
+  <div id="map" class="map-pane" aria-label="Live map of recent calls"></div>
+  <section id="stories-strip" class="stories-strip" aria-label="Top stories">
+    <div id="stories-cards" class="stories-cards"></div>
+    <div id="stories-pager" class="stories-pager"></div>
+  </section>
   <div id="active-filters" class="active-filters"></div>
   <div id="results" class="results"></div>
   <div id="loading" class="loading hidden">Loading…</div>
   <button id="load-more" class="load-more hidden">Load more</button>
 </main>
+
+<div id="story-modal" class="story-modal hidden" role="dialog" aria-modal="true">
+  <div class="story-modal-backdrop"></div>
+  <div class="story-modal-card">
+    <button class="story-modal-close" aria-label="Close">×</button>
+    <h2 id="story-modal-title"></h2>
+    <div id="story-modal-meta" class="story-modal-meta"></div>
+    <div id="story-modal-body" class="story-modal-body"></div>
+    <div id="story-modal-audio" class="story-modal-audio"></div>
+  </div>
+</div>
+
+<div id="share-modal" class="story-modal hidden" role="dialog" aria-modal="true">
+  <div class="story-modal-backdrop"></div>
+  <div class="story-modal-card share-modal-card">
+    <button class="story-modal-close" aria-label="Close">×</button>
+    <h2>Share</h2>
+    <div class="share-modal-formats">
+      <button class="share-fmt active" data-fmt="square">Square 1:1<br><span>IG / FB feed</span></button>
+      <button class="share-fmt"        data-fmt="story">Story 9:16<br><span>IG Story / Reels</span></button>
+      <button class="share-fmt"        data-fmt="landscape">Wide 16:9<br><span>Twitter / link card</span></button>
+    </div>
+    <div class="share-modal-body">
+      <div class="share-preview">
+        <img id="share-image" alt="Share card preview" title="Right-click → Save image…">
+        <video id="share-video" controls preload="metadata"></video>
+      </div>
+      <div class="share-actions">
+        <a id="share-dl-image" class="share-download-btn primary" download>⬇ Download image (.png)</a>
+        <a id="share-dl-video" class="share-download-btn primary" download>⬇ Download video (.mp4)</a>
+        <a id="share-dl-audio" class="share-download-btn" download>⬇ Download audio only (.mp3)</a>
+        <button id="share-native-btn" class="share-download-btn" style="display:none">📲 Share with files…</button>
+        <p class="share-hint">
+          To post to <strong>Facebook</strong>: download image or video, then upload it as a new post.<br>
+          To post to <strong>Instagram</strong>: video works for Reels/Feed; image works for Stories.<br>
+          The audio file is included separately so you can use it however you like.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

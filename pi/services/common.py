@@ -18,17 +18,20 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # -----------------------------------------------------------------------------
+# Load .env first so JAFO_DATA_DIR / API keys are available before we compute
+# any path constants that depend on them.
+# -----------------------------------------------------------------------------
+ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+
+# -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
 DATA_DIR = Path(os.environ.get("JAFO_DATA_DIR", "/home/pi/jafo-data"))
 WATCH_DIR = DATA_DIR / "recordings"
 CALLS_DIR = DATA_DIR / "calls"
 DB_PATH = DATA_DIR / "jafo.db"
-ENV_FILE = Path("/home/pi/jafo/.env")
-
-# Load .env (services run with EnvironmentFile= in systemd, but also call this for CLI)
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
 
 # -----------------------------------------------------------------------------
 # Config from env
@@ -66,7 +69,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS calls (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     wav_path             TEXT UNIQUE,
-    opus_path            TEXT,             -- relative to CALLS_DIR
+    opus_path            TEXT,             -- relative to CALLS_DIR (or AUDIO_DIR on hub)
     talkgroup            INTEGER,
     talkgroup_tag        TEXT,
     start_time           INTEGER,          -- unix epoch
@@ -92,7 +95,13 @@ CREATE TABLE IF NOT EXISTS calls (
     incident_severity    TEXT,             -- low | medium | high | critical | unknown
     incident_json        TEXT,             -- full Claude JSON response
     enriched_at          INTEGER,
-    enrich_error         TEXT
+    enrich_error         TEXT,
+
+    -- multi-node fleet (Phase 1+)
+    node_id              INTEGER,          -- which node captured this call (FK nodes.id)
+    region_id            INTEGER,          -- denormalized for query speed (FK regions.id)
+    uploaded_at          INTEGER,          -- on edge: when uploader pushed to hub
+    content_hash         TEXT              -- sha256 of opus, used for ingest dedup
 );
 CREATE INDEX IF NOT EXISTS idx_status         ON calls(status);
 CREATE INDEX IF NOT EXISTS idx_processed_at   ON calls(processed_at);
@@ -102,6 +111,40 @@ CREATE INDEX IF NOT EXISTS idx_transcript_at  ON calls(transcript_at);
 CREATE INDEX IF NOT EXISTS idx_enriched_at    ON calls(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_incident_type  ON calls(incident_type);
 CREATE INDEX IF NOT EXISTS idx_severity       ON calls(incident_severity);
+
+-- regions: a logical grouping of nodes (e.g. "rgv" = Lower Rio Grande Valley)
+CREATE TABLE IF NOT EXISTS regions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug         TEXT UNIQUE NOT NULL,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    default_lat  REAL,
+    default_lng  REAL,
+    default_zoom INTEGER DEFAULT 11,
+    bbox_north   REAL,
+    bbox_south   REAL,
+    bbox_east    REAL,
+    bbox_west    REAL,
+    created_at   INTEGER
+);
+
+-- nodes: a Pi capture station belonging to one region
+CREATE TABLE IF NOT EXISTS nodes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug          TEXT UNIQUE NOT NULL,
+    region_id     INTEGER NOT NULL,
+    display_name  TEXT NOT NULL,
+    owner_email   TEXT,
+    lat           REAL,
+    lng           REAL,
+    token_hash    TEXT,                  -- sha256(token); NULL until admin add-node sets it
+    notes         TEXT,
+    status        TEXT DEFAULT 'active', -- active | disabled
+    created_at    INTEGER,
+    last_seen_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_nodes_region ON nodes(region_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_token  ON nodes(token_hash);
 
 -- Full-text search on transcripts and summaries
 CREATE VIRTUAL TABLE IF NOT EXISTS calls_fts USING fts5(
@@ -130,6 +173,31 @@ CREATE TRIGGER IF NOT EXISTS calls_au AFTER UPDATE ON calls BEGIN
 END;
 """
 
+_PHASE1_NEW_CALL_COLS = [
+    ("node_id",      "INTEGER"),
+    ("region_id",    "INTEGER"),
+    ("uploaded_at",  "INTEGER"),
+    ("content_hash", "TEXT"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent column additions for pre-existing DBs.
+
+    Runs AFTER the SCHEMA executescript (which creates new tables but cannot
+    ALTER existing ones). Adds Phase 1 columns + their indexes.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(calls)")}
+    for name, defn in _PHASE1_NEW_CALL_COLS:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE calls ADD COLUMN {name} {defn}")
+    # Indexes on the new columns — only safe to create after the ALTERs above.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_node     ON calls(node_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_region   ON calls(region_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_uploaded ON calls(uploaded_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_hash     ON calls(content_hash)")
+
+
 def db_connect() -> sqlite3.Connection:
     """Open the DB and ensure schema exists. Safe to call from multiple processes."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,5 +210,6 @@ def db_connect() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=30000;")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     return conn
