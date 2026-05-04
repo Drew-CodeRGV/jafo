@@ -134,6 +134,39 @@
   </div>
 </div>
 
+{% if hub_link %}
+<div id="cloud-banner" class="cloud-banner hidden" role="dialog" aria-modal="true" aria-labelledby="cloud-banner-title">
+  <div class="cloud-banner-backdrop" data-action="dismiss"></div>
+  <div class="cloud-banner-card">
+    <button class="cloud-banner-close" aria-label="Close" data-action="dismiss">×</button>
+    <img class="cloud-banner-logo" src="/static/logo.png" alt="">
+    <h2 id="cloud-banner-title">This is a jafo node — feeding jafo.live</h2>
+    <p>
+      All calls captured by <strong>{{ hub_link.display_name }}</strong> are being routed
+      to the central clearing house at <strong>jafo.live</strong>, where they're
+      transcribed, enriched, and combined with calls from other nodes in the
+      <strong>{{ hub_link.region_name }}</strong> region.
+    </p>
+    <p class="cloud-banner-link-row">
+      View this node on jafo.live:<br>
+      <a id="cloud-banner-link" href="{{ hub_link.url }}" target="_blank" rel="noopener">{{ hub_link.url }}</a>
+    </p>
+    <div class="cloud-banner-actions">
+      <a class="cloud-banner-btn primary" href="{{ hub_link.url }}" target="_blank" rel="noopener">Open on jafo.live →</a>
+      <button class="cloud-banner-btn" data-action="dismiss">Stay on this device</button>
+    </div>
+    <p class="cloud-banner-hint">
+      Closing this keeps you on the local UI at <code>jafo.local</code>. No cloud
+      connection is required to view what this Pi has captured locally.
+      You can always return to jafo.live from any browser.
+    </p>
+  </div>
+</div>
+<script>
+window.JAFO_HUB_LINK = {{ hub_link | tojson }};
+</script>
+{% endif %}
+
 <script src="/static/app.js"></script>
 </body>
 </html>

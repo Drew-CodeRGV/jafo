@@ -285,6 +285,33 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
 # -----------------------------------------------------------------------------
 # UI — fleet (root) + per-region + per-node + admin
 # -----------------------------------------------------------------------------
+def _hub_link_for_this_node() -> dict | None:
+    """If we're an edge node (JAFO_HUB_URL + JAFO_NODE_SLUG set), return the
+    public link to this node's page on the hub. None on the hub itself."""
+    hub_url   = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+    node_slug = os.environ.get("JAFO_NODE_SLUG", "").strip()
+    if not hub_url or not node_slug:
+        return None
+    conn = get_db()
+    n = conn.execute("""
+        SELECT n.slug, n.display_name, r.slug AS region_slug, r.name AS region_name
+        FROM nodes n LEFT JOIN regions r ON r.id = n.region_id
+        WHERE n.slug = ?
+    """, (node_slug,)).fetchone()
+    conn.close()
+    if not n or not n["region_slug"]:
+        return None
+    return {
+        "hub_url":      hub_url,
+        "url":          f"{hub_url}/r/{n['region_slug']}/n/{n['slug']}",
+        "region_url":   f"{hub_url}/r/{n['region_slug']}",
+        "node_slug":    n["slug"],
+        "region_slug":  n["region_slug"],
+        "region_name":  n["region_name"] or n["region_slug"],
+        "display_name": n["display_name"] or n["slug"],
+    }
+
+
 @app.route("/")
 def index():
     """Root: fleet view if multiple regions exist, else just the regional dash."""
@@ -292,9 +319,9 @@ def index():
     n_regions = conn.execute("SELECT COUNT(*) FROM regions").fetchone()[0]
     conn.close()
     if n_regions <= 1:
-        # Single-region deployment — root IS the dashboard, no fleet picker yet
         return render_template("index.html", node_name=NODE_NAME,
-                               region_slug=None, node_slug=None)
+                               region_slug=None, node_slug=None,
+                               hub_link=_hub_link_for_this_node())
     return render_template("fleet.html", node_name=NODE_NAME)
 
 
@@ -307,7 +334,8 @@ def region_dashboard(slug: str):
     if not r:
         abort(404)
     return render_template("index.html", node_name=NODE_NAME,
-                           region_slug=slug, region_name=r["name"], node_slug=None)
+                           region_slug=slug, region_name=r["name"], node_slug=None,
+                           hub_link=_hub_link_for_this_node())
 
 
 @app.route("/r/<slug>/n/<node_slug>")
@@ -324,12 +352,14 @@ def node_detail(slug: str, node_slug: str):
         abort(404)
     return render_template("index.html", node_name=NODE_NAME,
                            region_slug=slug, node_slug=node_slug,
-                           node_display_name=n["display_name"])
+                           node_display_name=n["display_name"],
+                           hub_link=_hub_link_for_this_node())
 
 
 @app.route("/talkgroups")
 def talkgroups_editor():
-    return render_template("talkgroups.html", node_name=NODE_NAME)
+    return render_template("talkgroups.html", node_name=NODE_NAME,
+                           hub_link=_hub_link_for_this_node())
 
 
 # -----------------------------------------------------------------------------

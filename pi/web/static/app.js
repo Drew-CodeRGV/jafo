@@ -1118,8 +1118,36 @@ function stopPolling() {
   state.pollTimers = {};
 }
 
+// ---- Cloud banner (edge-only — server gates on JAFO_HUB_URL) ----
+function maybeShowCloudBanner() {
+  const link = window.JAFO_HUB_LINK;
+  const banner = document.getElementById("cloud-banner");
+  if (!link || !banner) return;
+  if (localStorage.getItem("jafo.cloudBannerDismissed") === "1") return;
+  banner.classList.remove("hidden");
+}
+
+function bindCloudBanner() {
+  const banner = document.getElementById("cloud-banner");
+  if (!banner) return;
+  banner.querySelectorAll('[data-action="dismiss"]').forEach((el) => {
+    el.addEventListener("click", () => {
+      banner.classList.add("hidden");
+      localStorage.setItem("jafo.cloudBannerDismissed", "1");
+    });
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !banner.classList.contains("hidden")) {
+      banner.classList.add("hidden");
+      localStorage.setItem("jafo.cloudBannerDismissed", "1");
+    }
+  });
+}
+
 // ---- Boot ----
 async function boot() {
+  bindCloudBanner();
+  maybeShowCloudBanner();
   bindSearch();
   bindClearFilters();
   bindLoadMore();
