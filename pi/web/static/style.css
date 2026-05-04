@@ -1240,3 +1240,78 @@ audio.audio-inline {
   .cloud-banner-actions { flex-direction: column; }
   .cloud-banner-btn { width: 100%; }
 }
+
+/* ---------- Enhance Call button (Groq re-transcribe) ---------- */
+.enhance-btn,
+.enhance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+  user-select: none;
+  margin-left: 6px;
+}
+.enhance-btn {
+  cursor: pointer;
+  background: linear-gradient(135deg, rgba(120, 90, 255, 0.10), rgba(80, 200, 255, 0.10));
+  color: #b9a6ff;
+  border-color: rgba(150, 120, 255, 0.45);
+  transition: all 0.18s ease;
+}
+.enhance-btn:hover {
+  background: linear-gradient(135deg, rgba(120, 90, 255, 0.22), rgba(80, 200, 255, 0.22));
+  color: #d8c8ff;
+  border-color: rgba(180, 150, 255, 0.75);
+  box-shadow: 0 0 12px rgba(150, 120, 255, 0.25);
+}
+.enhance-btn:disabled,
+.enhance-btn.enhancing {
+  cursor: progress;
+  opacity: 0.7;
+}
+.enhance-btn.enhancing .ai-star {
+  animation: enhance-spin 1.4s linear infinite;
+}
+.enhance-btn.enhance-failed {
+  border-color: var(--bad, #ec5050);
+  color: var(--bad, #ec8a8a);
+  background: rgba(255, 80, 80, 0.10);
+}
+.enhance-badge {
+  cursor: default;
+  background: rgba(76, 192, 107, 0.10);
+  color: #7ed79a;
+  border-color: rgba(76, 192, 107, 0.45);
+}
+.ai-star {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+@keyframes enhance-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* When a transcript is the enhanced (premium) version, give it a subtle ring */
+.transcript-enhanced {
+  position: relative;
+  border-left: 2px solid rgba(150, 120, 255, 0.55);
+  padding-left: 8px;
+}
+
+/* On narrow viewports, allow the audio-row buttons to wrap below the player */
+@media (max-width: 640px) {
+  .enhance-btn span,
+  .enhance-badge span { display: none; }     /* icon-only on phones */
+  .enhance-btn,
+  .enhance-badge {
+    padding: 6px 8px;
+    margin-left: 4px;
+  }
+}

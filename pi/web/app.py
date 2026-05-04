@@ -265,6 +265,7 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
         "transcript": r["transcript"],
         "transcript_at": r["transcript_at"],
         "transcript_error": r["transcript_error"],
+        "transcript_model": r["transcript_model"],
         "incident_type": r["incident_type"],
         "incident_summary": r["incident_summary"],
         "incident_location": r["incident_location"],
@@ -632,6 +633,105 @@ def call_detail(call_id: int):
     if not row:
         abort(404)
     return jsonify(call_row_to_dict(row, load_talkgroup_metadata(), load_overrides()))
+
+
+# -----------------------------------------------------------------------------
+# Enhance — re-run a single call's audio through Groq for higher-quality
+# transcription. Used by the "✨ Enhance Call" button on the dashboard. The
+# original (local) transcript is preserved in transcript_original so we can
+# always show what was replaced.
+# -----------------------------------------------------------------------------
+GROQ_PREMIUM_MODEL = "whisper-large-v3-turbo"
+
+
+def _ensure_enhance_columns(conn) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(calls)")}
+    if "transcript_original" not in cols:
+        conn.execute("ALTER TABLE calls ADD COLUMN transcript_original TEXT")
+    if "transcript_original_model" not in cols:
+        conn.execute("ALTER TABLE calls ADD COLUMN transcript_original_model TEXT")
+    conn.commit()
+
+
+@app.route("/api/calls/<int:call_id>/enhance", methods=["POST"])
+def call_enhance(call_id: int):
+    from common import GROQ_API_KEY  # late import: not all deployments have key
+    if not GROQ_API_KEY:
+        return jsonify({"error": "Groq API key not configured on this hub"}), 503
+
+    conn = get_db()
+    _ensure_enhance_columns(conn)
+
+    row = conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+    if not row:
+        conn.close()
+        abort(404)
+
+    if not row["opus_path"] or row["audio_deleted"]:
+        conn.close()
+        return jsonify({"error": "audio not available"}), 400
+
+    opus_full = (CALLS_DIR / row["opus_path"]).resolve()
+    try:
+        opus_full.relative_to(CALLS_DIR.resolve())
+    except ValueError:
+        conn.close()
+        return jsonify({"error": "invalid path"}), 400
+    if not opus_full.exists():
+        conn.close()
+        return jsonify({"error": "audio file missing"}), 410
+
+    # If already enhanced (transcript_model is the premium one), short-circuit
+    if (row["transcript_model"] or "").startswith(GROQ_PREMIUM_MODEL):
+        conn.close()
+        return jsonify({
+            "ok": True, "already_enhanced": True,
+            "transcript": row["transcript"],
+            "transcript_model": row["transcript_model"],
+        })
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY, max_retries=1)
+        with open(opus_full, "rb") as f:
+            result = client.audio.transcriptions.create(
+                file=(opus_full.name, f.read()),
+                model=GROQ_PREMIUM_MODEL,
+                prompt=(
+                    "Police, fire, and EMS radio dispatch. "
+                    "Common terms: 10-4, 10-50, en route, code 3, dispatch, copy, on scene."
+                ),
+                response_format="verbose_json",
+                temperature=0.0,
+            )
+        new_text = (result.text or "").strip()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"Groq error: {type(e).__name__}: {e}"}), 502
+
+    # Preserve the original (local) transcript before overwriting
+    if row["transcript"] and not row["transcript_original"]:
+        conn.execute("""
+            UPDATE calls
+            SET transcript_original = ?, transcript_original_model = ?
+            WHERE id = ?
+        """, (row["transcript"], row["transcript_model"], call_id))
+
+    conn.execute("""
+        UPDATE calls
+        SET transcript = ?, transcript_model = ?, transcript_at = ?, transcript_error = NULL
+        WHERE id = ?
+    """, (new_text, GROQ_PREMIUM_MODEL, int(time.time()), call_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "call_id": call_id,
+        "transcript": new_text,
+        "transcript_model": GROQ_PREMIUM_MODEL,
+        "previous_model": row["transcript_model"],
+    })
 
 
 # -----------------------------------------------------------------------------

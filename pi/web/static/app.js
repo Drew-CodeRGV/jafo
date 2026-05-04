@@ -490,6 +490,14 @@ const ICON_BY_ID = {
   emergency: "⚠️", weather: "🌪️", radio: "📡",
 };
 
+// Inline SVG matching the "AI sparkles" icon convention (one big 4-point star
+// + two smaller ones). Tinted via currentColor in CSS.
+const AI_STAR_SVG = `<svg class="ai-star" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+  <path fill="currentColor" d="M12 3 13.5 9 19.5 10.5 13.5 12 12 18 10.5 12 4.5 10.5 10.5 9z"/>
+  <path fill="currentColor" opacity="0.85" d="M19 4 19.6 6.4 22 7 19.6 7.6 19 10 18.4 7.6 16 7 18.4 6.4z"/>
+  <path fill="currentColor" opacity="0.7" d="M5 16 5.5 17.6 7 18 5.5 18.4 5 20 4.5 18.4 3 18 4.5 17.6z"/>
+</svg>`;
+
 // Render the icon column on a call card. Optionally wrapped in an external link.
 function renderSvcCol(call, icon) {
   const inner = icon ? `<span class="svc-emoji">${icon}</span>` : "";
@@ -933,11 +941,21 @@ function renderCall(c) {
     ? `<div class="location">${escapeHtml(c.incident_location)}</div>`
     : "";
 
+  // Enhance button: visible if we have audio and the transcript isn't already
+  // from the premium model. Replaces with "Enhanced ✓" once Groq has run.
+  const isEnhanced = (c.transcript_model || "").startsWith("whisper-large-v3-turbo");
+  const enhanceBtn = c.audio_available
+    ? (isEnhanced
+        ? `<span class="enhance-badge" title="Already enhanced via ${escapeHtml(c.transcript_model || "")}">${AI_STAR_SVG}<span>Enhanced</span></span>`
+        : `<button class="enhance-btn" title="Re-run this call's audio through Groq Whisper-Large for higher-quality transcription">${AI_STAR_SVG}<span>Enhance Call</span></button>`)
+    : "";
+
   const audioEl = c.audio_available
     ? `<div class="audio-row">
          <audio controls preload="none" class="audio-inline">
            <source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus">
          </audio>
+         ${enhanceBtn}
          <button class="share-btn" title="Share">↗</button>
        </div>`
     : `<div class="audio-row">
@@ -989,6 +1007,52 @@ function renderCall(c) {
       e.stopPropagation();
       const title = c.incident_summary || c.talkgroup_tag || `Call #${c.id}`;
       openSharePopover(shareBtn, "call", c.id, title);
+    });
+  }
+
+  // Enhance Call — POST to /api/calls/<id>/enhance, swap transcript on success
+  const enhanceBtn = div.querySelector(".enhance-btn");
+  if (enhanceBtn) {
+    enhanceBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      enhanceBtn.disabled = true;
+      enhanceBtn.classList.add("enhancing");
+      const labelEl = enhanceBtn.querySelector("span");
+      const origLabel = labelEl ? labelEl.textContent : "";
+      if (labelEl) labelEl.textContent = "Enhancing…";
+      try {
+        const r = await fetch(`/api/calls/${c.id}/enhance`, { method: "POST" });
+        const payload = await r.json();
+        if (!r.ok || payload.error) {
+          throw new Error(payload.error || `HTTP ${r.status}`);
+        }
+        // Swap in the enhanced transcript and replace the button with a badge
+        const tEl = div.querySelector(".transcript");
+        if (tEl) {
+          tEl.classList.add("transcript-enhanced");
+          tEl.innerHTML = highlight(payload.transcript, state.filters.search);
+        } else if (payload.transcript) {
+          // No prior transcript element — insert one now
+          const body = div.querySelector(".body");
+          const newT = document.createElement("div");
+          newT.className = "transcript transcript-enhanced";
+          newT.innerHTML = highlight(payload.transcript, state.filters.search);
+          body.appendChild(newT);
+        }
+        const newBadge = document.createElement("span");
+        newBadge.className = "enhance-badge";
+        newBadge.title = `Enhanced via ${payload.transcript_model}`;
+        newBadge.innerHTML = `${AI_STAR_SVG}<span>Enhanced</span>`;
+        enhanceBtn.replaceWith(newBadge);
+      } catch (err) {
+        if (labelEl) labelEl.textContent = origLabel;
+        enhanceBtn.disabled = false;
+        enhanceBtn.classList.remove("enhancing");
+        enhanceBtn.classList.add("enhance-failed");
+        enhanceBtn.title = `Enhance failed: ${err.message}`;
+        setTimeout(() => enhanceBtn.classList.remove("enhance-failed"), 3000);
+        console.error("enhance failed", err);
+      }
     });
   }
 
