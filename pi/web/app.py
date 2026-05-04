@@ -1409,6 +1409,33 @@ def _synthesize_story(cluster: list[dict]) -> dict | None:
         except Exception as e:
             print(f"anthropic story synth failed: {e}", file=sys.stderr)
             return None
+    elif _STORY_BACKEND == "groq":
+        from common import GROQ_API_KEY
+        if not GROQ_API_KEY:
+            return None
+        try:
+            from groq import Groq
+            gclient = Groq(api_key=GROQ_API_KEY, max_retries=2)
+            groq_chat_model = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
+            resp = gclient.chat.completions.create(
+                model=groq_chat_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user_msg},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=400,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            data = json.loads(text)
+        except Exception as e:
+            print(f"groq story synth failed: {e}", file=sys.stderr)
+            return None
     else:  # ollama default
         data = _ollama_chat_json(system, user_msg, _STORY_MODEL_OLLAMA, num_predict=400)
         if not data:

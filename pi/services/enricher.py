@@ -25,7 +25,7 @@ import time
 import requests
 
 from common import (
-    ANTHROPIC_API_KEY, REGION, db_connect, setup_logging,
+    ANTHROPIC_API_KEY, GROQ_API_KEY, REGION, db_connect, setup_logging,
 )
 
 log = setup_logging("jafo-enricher")
@@ -37,6 +37,7 @@ BACKEND     = os.environ.get("JAFO_LLM_BACKEND", "ollama").strip().lower()
 LLM_MODEL   = os.environ.get("JAFO_LLM_MODEL", "gemma2:2b").strip()
 LLM_HOST    = os.environ.get("JAFO_LLM_HOST", "http://127.0.0.1:11434").strip().rstrip("/")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
 
 POLL_INTERVAL_SEC = 10
 BATCH_SIZE = 10
@@ -159,6 +160,23 @@ def enrich_via_anthropic(client, transcript: str, talkgroup_tag: str) -> dict:
     return json.loads(_strip_fences(text))
 
 
+def enrich_via_groq(client, transcript: str, talkgroup_tag: str) -> dict:
+    """Hit Groq's OpenAI-compatible chat endpoint with JSON-mode."""
+    user_message = f"Talkgroup: {talkgroup_tag or 'unknown'}\nTranscript: {transcript}"
+    resp = client.chat.completions.create(
+        model=GROQ_CHAT_MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        max_tokens=MAX_TOKENS,
+    )
+    text = resp.choices[0].message.content or ""
+    return json.loads(_strip_fences(text))
+
+
 def enrich_via_ollama(transcript: str, talkgroup_tag: str) -> dict:
     """Hit Ollama's /api/chat with format: 'json' for guaranteed JSON output."""
     user_message = f"Talkgroup: {talkgroup_tag or 'unknown'}\nTranscript: {transcript}"
@@ -186,6 +204,9 @@ def enrich_via_ollama(transcript: str, talkgroup_tag: str) -> dict:
 # Main loop
 # -----------------------------------------------------------------------------
 def main() -> None:
+    anthropic_client = None
+    groq_client = None
+
     if BACKEND == "anthropic":
         if not ANTHROPIC_API_KEY:
             log.warning("BACKEND=anthropic but ANTHROPIC_API_KEY not set — sleeping.")
@@ -194,9 +215,16 @@ def main() -> None:
         from anthropic import Anthropic
         anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
         log.info("Starting jafo-enricher. backend=anthropic model=%s region=%s", CLAUDE_MODEL, REGION)
+    elif BACKEND == "groq":
+        if not GROQ_API_KEY:
+            log.warning("BACKEND=groq but GROQ_API_KEY not set — sleeping.")
+            while True:
+                time.sleep(60)
+        from groq import Groq
+        # max_retries=2 lets the SDK back off if we ever brush a rate-limit
+        groq_client = Groq(api_key=GROQ_API_KEY, max_retries=2)
+        log.info("Starting jafo-enricher. backend=groq model=%s region=%s", GROQ_CHAT_MODEL, REGION)
     else:  # ollama (default)
-        anthropic_client = None
-        # Smoke-test the Ollama endpoint at startup so we fail fast if it's down
         try:
             r = requests.get(f"{LLM_HOST}/api/version", timeout=5)
             r.raise_for_status()
@@ -232,6 +260,8 @@ def main() -> None:
                 t0 = time.time()
                 if BACKEND == "anthropic":
                     payload = enrich_via_anthropic(anthropic_client, transcript, call["talkgroup_tag"] or "")
+                elif BACKEND == "groq":
+                    payload = enrich_via_groq(groq_client, transcript, call["talkgroup_tag"] or "")
                 else:
                     payload = enrich_via_ollama(transcript, call["talkgroup_tag"] or "")
                 elapsed = time.time() - t0
