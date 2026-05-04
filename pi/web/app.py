@@ -2443,12 +2443,37 @@ def api_aircraft():
                 if not (south <= lat <= north and west <= lon <= east):
                     continue
                 alt = a.get("alt_baro") if a.get("alt_baro") not in (None, "ground") else a.get("alt_geom")
+                # Determine airframe class for icon rendering.
+                # ADS-B category codes: A1-A6 = fixed-wing, A7 = rotorcraft,
+                # B1 = glider, B2 = lighter-than-air, B6 = UAV, B7 = space.
+                cat = (a.get("category") or "").upper()
+                desc = (a.get("desc") or "").upper()
+                tcode = (a.get("t") or "").upper()
+                kind = "plane"
+                if cat == "A7" or "HELI" in desc or tcode in {
+                    "EC30", "EC35", "EC45", "EC75", "EC20", "EC55",
+                    "AS50", "AS55", "AS65", "AS32", "AS35", "AS50",
+                    "B06", "B06T", "B407", "B412", "B429", "B505",
+                    "R22", "R44", "R66", "S76", "S92", "S70",
+                    "H145", "H160", "H125", "H130", "H175",
+                    "MD50", "MD52", "MD60", "MD90",
+                }:
+                    kind = "helicopter"
+                elif cat == "B1":
+                    kind = "glider"
+                elif cat == "B6":
+                    kind = "uav"
+                elif cat == "B2":
+                    kind = "balloon"
+
                 aircraft.append({
                     "icao24":      a.get("hex"),
                     "callsign":    (a.get("flight") or "").strip(),
                     "registration": a.get("r"),
                     "type_code":   a.get("t"),
                     "description": a.get("desc"),
+                    "category":    cat or None,
+                    "kind":        kind,
                     "lat":         lat,
                     "lon":         lon,
                     "altitude_ft": int(alt) if isinstance(alt, (int, float)) else None,

@@ -472,11 +472,62 @@ function _altColor(ft) {
   return "#4cc06b";
 }
 
-function _aircraftSvg(altitudeFt) {
+function _aircraftSvg(altitudeFt, kind) {
   const fill = _altColor(altitudeFt || 0);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
-    <path fill="${fill}" stroke="#000" stroke-width="0.6"
-          d="M7 0.5 L9.6 11 L7 9 L4.4 11 Z"/>
+  // 20×20 viewBox with cinematic outer-glow stroke. The marker element's
+  // CSS gives it an additional drop-shadow halo (war-room aesthetic).
+  const stroke = "rgba(0,0,0,0.85)";
+  if (kind === "helicopter") {
+    // Rotor disc (translucent ellipse) + small fuselage + tail boom.
+    // Shape reads "helicopter" at small size; rotated to track.
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+      <ellipse cx="10" cy="9" rx="8" ry="1.6" fill="${fill}" opacity="0.35" stroke="${stroke}" stroke-width="0.5"/>
+      <rect x="8" y="7.5" width="4" height="5" rx="1.6" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+      <rect x="9.4" y="11.5" width="1.2" height="5" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
+      <rect x="8.4" y="16" width="3.2" height="0.9" fill="${fill}" stroke="${stroke}" stroke-width="0.3"/>
+    </svg>`;
+  }
+  if (kind === "uav") {
+    // Small + diamond shape with antenna
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+      <path d="M8 2 L13 8 L8 14 L3 8 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+      <line x1="8" y1="2" x2="8" y2="0" stroke="${fill}" stroke-width="1"/>
+    </svg>`;
+  }
+  if (kind === "glider") {
+    // Long flat wing
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+      <path d="M10 2 L11 14 L10 12 L9 14 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+      <ellipse cx="10" cy="8" rx="9" ry="1.1" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+    </svg>`;
+  }
+  if (kind === "balloon") {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+      <ellipse cx="9" cy="7" rx="5" ry="6" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+      <rect x="7" y="13" width="4" height="2.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+    </svg>`;
+  }
+  // Default: airplane (fixed-wing). A more recognizable plane silhouette
+  // than the bare triangle — fuselage + swept wings + tailplane.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+    <path d="M10 1
+             L11.2 8.5
+             L18 11
+             L18 12.4
+             L11 11.4
+             L11 15
+             L13 16.4
+             L13 17.4
+             L10 16.6
+             L7 17.4
+             L7 16.4
+             L9 15
+             L9 11.4
+             L2 12.4
+             L2 11
+             L8.8 8.5 Z"
+          fill="${fill}" stroke="${stroke}" stroke-width="0.7"
+          stroke-linejoin="round"/>
   </svg>`;
 }
 
@@ -499,7 +550,8 @@ async function refreshAircraft() {
     if (!m) {
       const wrap = document.createElement("div");
       wrap.className = "ac-marker";
-      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0);
+      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind);
+      wrap.dataset.kind = a.kind || "plane";
       m = new maplibregl.Marker({ element: wrap, rotationAlignment: "map" })
         .setLngLat([a.lon, a.lat])
         .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }))
@@ -508,8 +560,13 @@ async function refreshAircraft() {
     }
     m.setLngLat([a.lon, a.lat]);
     m.setRotation(a.track_deg || 0);
-    // Re-color in case it climbed/descended into a new band
-    m.getElement().innerHTML = _aircraftSvg(a.altitude_ft || 0);
+    // Re-color in case it climbed/descended into a new band, and re-shape
+    // if the airframe class changed.
+    const el = m.getElement();
+    if (el.dataset.kind !== (a.kind || "plane")) {
+      el.dataset.kind = a.kind || "plane";
+    }
+    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind);
     const cs = a.callsign || a.icao24;
     const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "—";
     const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "";

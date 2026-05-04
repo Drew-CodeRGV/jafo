@@ -195,8 +195,76 @@ body {
   height: 100%;
   position: relative;
   background: #000;
+  /* War-room aesthetic — push the satellite tiles cool/dark and crank
+     contrast so terrain reads as relief rather than tourism photo. */
+  isolation: isolate;
+  overflow: hidden;
 }
-.map-pane .map-3d canvas { outline: none; }
+.map-pane .map-3d .maplibregl-canvas {
+  outline: none;
+  filter: brightness(0.55) contrast(1.45) saturate(0.55) hue-rotate(170deg);
+}
+/* Scanlines layer — thin cyan stripes, very low opacity. CRT war-room. */
+.map-pane .map-3d::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(96, 200, 255, 0.045) 0,
+    rgba(96, 200, 255, 0.045) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 4;
+  mix-blend-mode: screen;
+}
+/* Vignette + edge glow — soft dark falloff at the rim, faint cyan inner glow. */
+.map-pane .map-3d::after {
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at center,
+      transparent 45%,
+      rgba(0, 0, 0, 0.65) 100%),
+    inset 0 0 40px rgba(96, 200, 255, 0.18);
+  box-shadow: inset 0 0 60px rgba(96, 200, 255, 0.18),
+              inset 0 0 12px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+  z-index: 5;
+  mix-blend-mode: multiply;
+}
+/* Aircraft markers — bright with a glowing halo so they punch through
+   the dark imagery. Color comes from the SVG fill at altitude band. */
+.map-pane .map-3d .ac-marker {
+  width: 20px; height: 20px;
+  background: transparent;
+  filter:
+    drop-shadow(0 0 2px rgba(255,255,255,0.7))
+    drop-shadow(0 0 5px rgba(120,220,255,0.55))
+    drop-shadow(0 0 10px rgba(120,220,255,0.35));
+}
+.map-pane .map-3d .ac-marker[data-kind="helicopter"] {
+  /* helicopters get a slightly stronger pulse — they tend to loiter, so
+     this draws the eye to "something is hovering here" */
+  animation: ac-heli-pulse 2.6s ease-in-out infinite;
+}
+@keyframes ac-heli-pulse {
+  0%, 100% { filter:
+    drop-shadow(0 0 2px rgba(255,255,255,0.7))
+    drop-shadow(0 0 6px rgba(120,220,255,0.55))
+    drop-shadow(0 0 12px rgba(120,220,255,0.35)); }
+  50% { filter:
+    drop-shadow(0 0 4px rgba(255,255,255,0.9))
+    drop-shadow(0 0 10px rgba(120,220,255,0.85))
+    drop-shadow(0 0 18px rgba(120,220,255,0.5)); }
+}
+/* Make the existing call-pop marker match the war-room tone. */
+.map-pane .map-3d .maplibregl-marker > div[style*="background:#ec4848"] {
+  filter:
+    drop-shadow(0 0 4px #ec4848)
+    drop-shadow(0 0 10px rgba(236, 72, 72, 0.6));
+}
 .map-3d-overlay {
   position: absolute; left: 8px; top: 8px; right: 8px;
   z-index: 5;
@@ -204,23 +272,34 @@ body {
   pointer-events: none;
 }
 .map-3d-title {
-  background: rgba(0,0,0,0.55);
-  color: #fff;
+  background: rgba(0, 16, 24, 0.75);
+  color: #b8f4ff;
   padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: 3px;
+  border: 1px solid rgba(96, 200, 255, 0.35);
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  font-size: 10.5px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(96, 200, 255, 0.55);
+  z-index: 7;
+  pointer-events: auto;
+}
+.map-3d-title #aircraft-count { color: #4cc06b; margin-left: 4px; text-shadow: 0 0 6px rgba(76, 192, 107, 0.7); }
+.map-3d-legend {
+  background: rgba(0, 16, 24, 0.75);
+  color: #b8f4ff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(96, 200, 255, 0.35);
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  font-size: 9.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-.map-3d-title #aircraft-count { color: #4cc06b; margin-left: 4px; }
-.map-3d-legend {
-  background: rgba(0,0,0,0.55);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 10px;
   display: flex; gap: 8px;
+  z-index: 7;
+  pointer-events: auto;
 }
 .map-3d-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 3px; }
 .map-3d-legend .leg-call { background: #ec4848; }
