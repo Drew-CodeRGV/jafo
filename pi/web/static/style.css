@@ -848,6 +848,14 @@ audio.visible { display: block; }
   backdrop-filter: blur(2px);
 }
 
+/* Touch-primary devices (phones, tablets, touchscreen laptops): hide the
+   3D air-traffic pane regardless of viewport width. Keeps the 2D map full
+   width and avoids loading MapLibre + polling /api/aircraft on cellular. */
+@media (pointer: coarse) {
+  .map-pane .map-2d { flex: 1 1 100% !important; border-right: 0 !important; }
+  .map-pane .map-3d { display: none !important; }
+}
+
 /* Responsive — mobile */
 @media (max-width: 760px) {
   body {
@@ -896,8 +904,8 @@ audio.visible { display: block; }
     grid-area: auto;
     height: calc(100vh - 56px);
   }
-  /* On phones, drop the 3D air-traffic pane entirely — too small to read,
-     not worth the cell-data and battery cost of polling /api/aircraft. */
+  /* Width-only fallback for legacy browsers without pointer media-query.
+     The real rule lives in the (pointer: coarse) block below. */
   .map-pane { height: 36vh; max-height: 36vh; }
   .map-pane .map-2d { flex: 1 1 100%; border-right: 0; }
   .map-pane .map-3d { display: none; }
