@@ -264,10 +264,13 @@ async function openStoryModal(id) {
       if (!c.audio_available) continue;
       const row = document.createElement("div");
       row.className = "audio-row";
+      // audio_url (absolute) is set by the edge proxy when stories come from
+      // the hub — files live on the hub's filesystem, not this Pi's.
+      const src = c.audio_url || `/audio/${escapeHtml(c.opus_path)}`;
       row.innerHTML = `
         <span class="ts">${fmtTime(c.start_time)}</span>
         <audio controls preload="none">
-          <source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus">
+          <source src="${escapeHtml(src)}" type="audio/ogg; codecs=opus">
         </audio>
       `;
       audioRoot.appendChild(row);

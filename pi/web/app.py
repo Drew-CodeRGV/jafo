@@ -41,6 +41,46 @@ from common import (
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # -----------------------------------------------------------------------------
+# Static-asset cache busting.
+# Browsers (especially mobile) hold onto /static/style.css and /static/app.js
+# aggressively; there's no reliable hard-reload on iOS/Android Safari. Append
+# ?v=<mtime> so any change to the file changes the URL and forces a fresh
+# download. Computed once at boot, refreshed only on file mtime change.
+# -----------------------------------------------------------------------------
+_STATIC_VERSION_CACHE: dict[str, str] = {}
+
+def _static_version(filename: str) -> str:
+    static_dir = Path(__file__).parent / "static"
+    p = static_dir / filename
+    try:
+        m = int(p.stat().st_mtime)
+    except OSError:
+        m = int(time.time())
+    return str(m)
+
+@app.context_processor
+def _inject_static_helper():
+    def static_v(filename: str) -> str:
+        if filename not in _STATIC_VERSION_CACHE:
+            _STATIC_VERSION_CACHE[filename] = _static_version(filename)
+        else:
+            # Always re-stat so live edits during dev/restart bust correctly.
+            _STATIC_VERSION_CACHE[filename] = _static_version(filename)
+        return f"/static/{filename}?v={_STATIC_VERSION_CACHE[filename]}"
+    return dict(static_v=static_v)
+
+
+@app.after_request
+def _add_no_cache_for_html(resp):
+    """HTML pages must not be cached — they reference versioned static URLs,
+    so a stale HTML would point at a stale version. Static files keep their
+    long cache lifetime; only the document itself becomes uncacheable."""
+    ctype = resp.headers.get("Content-Type", "")
+    if ctype.startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
+# -----------------------------------------------------------------------------
 # Rio Grande Valley city/area coordinates for the live map.
 #
 # Used to plot calls when no per-call lat/lng exists. The lookup is fuzzy:
@@ -1663,9 +1703,47 @@ def _start_stories_thread():
     t.start()
 
 
+_STORIES_PROXY_CACHE: dict = {"at": 0, "data": None}
+_STORIES_PROXY_TTL_SEC = 30
+
+
+def _proxy_stories_from_hub():
+    """Edge-only: fetch the hub's stories list, cache 30s. The hub runs the
+    real enricher (Groq) and stories synthesizer; the edge has at most a weak
+    Ollama enrichment that classifies everything as 'Radio Chatter'."""
+    now = int(time.time())
+    cache = _STORIES_PROXY_CACHE
+    if cache["data"] is not None and (now - cache["at"]) < _STORIES_PROXY_TTL_SEC:
+        return cache["data"]
+
+    hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+    if not hub_url:
+        return None
+    try:
+        import requests as _r
+        resp = _r.get(f"{hub_url}/api/stories", timeout=8)
+        if resp.status_code != 200:
+            return cache["data"]  # serve last-known on hub error
+        data = resp.json()
+    except Exception as e:
+        print(f"[stories-proxy] hub fetch failed: {e}", file=sys.stderr)
+        return cache["data"]
+    cache["at"] = now
+    cache["data"] = data
+    return data
+
+
 @app.route("/api/stories")
 def stories_list():
     """Top stories, ordered by score desc."""
+    if _is_edge_node():
+        data = _proxy_stories_from_hub()
+        if data is not None:
+            return jsonify(data)
+        # Hub unreachable — return empty list rather than serving stale May-3
+        # rows from the local stories table.
+        return jsonify({"stories": [], "now": int(time.time())})
+
     conn = get_db()
     cur = conn.execute("""
         SELECT id, title, body, severity, talkgroup, talkgroup_tag,
@@ -1689,6 +1767,27 @@ def stories_list():
 @app.route("/api/stories/<int:story_id>")
 def story_detail(story_id: int):
     """Full story + audio info for the related calls."""
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if not hub_url:
+            abort(503)
+        try:
+            import requests as _r
+            resp = _r.get(f"{hub_url}/api/stories/{story_id}", timeout=8)
+        except Exception as e:
+            print(f"[stories-proxy] hub detail fetch failed: {e}", file=sys.stderr)
+            abort(502)
+        if resp.status_code != 200:
+            return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
+        data = resp.json()
+        # Audio lives on the hub (different filesystem than this Pi). Add an
+        # absolute audio_url so the browser plays directly from jafo.live and
+        # we don't have to mirror /audio/ on the edge.
+        for c in data.get("calls") or []:
+            if c.get("opus_path") and c.get("audio_available"):
+                c["audio_url"] = f"{hub_url}/audio/{c['opus_path']}"
+        return jsonify(data)
+
     conn = get_db()
     s = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
     if not s:
@@ -2530,7 +2629,11 @@ def api_aircraft():
 
 # Ensure the overrides table exists. Safe to call repeatedly.
 ensure_overrides_table()
-_start_stories_thread()
+# Stories generation only runs on the hub. Edge nodes proxy /api/stories
+# from the hub instead — they don't have a Groq key, and Ollama enrichment
+# is too weak to produce useful clusters.
+if not _is_edge_node():
+    _start_stories_thread()
 _start_heatmap_thread()
 
 
