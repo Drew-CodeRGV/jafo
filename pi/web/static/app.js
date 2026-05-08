@@ -147,22 +147,53 @@ function bindShareModal() {
 function closePopovers() { closeShareModal(); }
 
 // ---- Stories strip ----
+const STORY_SORT_KEY = "jafo.storySort";
 const storyState = {
-  all: [],         // server-returned stories (up to 12)
+  raw: [],         // server-returned stories, original order (impact-sorted)
+  all: [],         // sorted view used for rendering
   page: 0,         // current page index (0..2 for 12 stories / 4 per page)
+  sort: localStorage.getItem(STORY_SORT_KEY) || "impact",  // "impact" | "time"
   rotateTimer: null,
   rotateMs: 10000, // dwell time per page
 };
 
+function applyStorySort() {
+  const arr = storyState.raw.slice();
+  if (storyState.sort === "time") {
+    arr.sort((a, b) =>
+      (b.last_call_at || b.created_at || 0) - (a.last_call_at || a.created_at || 0)
+    );
+  } else {
+    // "impact" — server already returns score-sorted, but resort to be safe
+    // in case the proxy or future backend changes that.
+    arr.sort((a, b) => (b.score || 0) - (a.score || 0));
+  }
+  storyState.all = arr;
+}
+
 async function refreshStories() {
   try {
     const data = await api("/api/stories");
-    storyState.all = data.stories || [];
+    storyState.raw = data.stories || [];
+    applyStorySort();
     if (storyState.page * 4 >= storyState.all.length) storyState.page = 0;
     renderStoriesPage(false);
   } catch (e) {
     console.error("stories refresh failed", e);
   }
+}
+
+function setStorySort(mode) {
+  if (mode !== "impact" && mode !== "time") return;
+  if (storyState.sort === mode) return;
+  storyState.sort = mode;
+  localStorage.setItem(STORY_SORT_KEY, mode);
+  document.querySelectorAll("[data-story-sort]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.storySort === mode);
+  });
+  applyStorySort();
+  storyState.page = 0;
+  renderStoriesPage(true);
 }
 
 function pageCount() {
@@ -1079,6 +1110,12 @@ function bindGroupingToggles() {
       );
       refreshTalkgroups();
     };
+  });
+
+  // Stories sort toggle (Impact / Recent)
+  document.querySelectorAll("[data-story-sort]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.storySort === storyState.sort);
+    btn.onclick = () => setStorySort(btn.dataset.storySort);
   });
 }
 

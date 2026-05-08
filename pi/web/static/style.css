@@ -360,6 +360,23 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+.stories-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px 0;
+}
+.stories-title {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.stories-sort { font-size: 11px; }
+.stories-sort .seg-btn { padding: 3px 8px; font-size: 11px; }
 .stories-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -906,12 +923,15 @@ audio.visible { display: block; }
   }
   /* Width-only fallback for legacy browsers without pointer media-query.
      The real rule lives in the (pointer: coarse) block below. */
-  .map-pane { height: 36vh; max-height: 36vh; }
+  .map-pane { height: 24vh; max-height: 24vh; }
   .map-pane .map-2d { flex: 1 1 100%; border-right: 0; }
   .map-pane .map-3d { display: none; }
 
   /* Stories: 2x2 grid on mobile so all 4 stay visible */
   .stories-strip { padding: 8px 12px 4px 12px; }
+  .stories-header { margin-bottom: 6px; }
+  .stories-title { font-size: 10px; }
+  .stories-sort .seg-btn { padding: 2px 7px; font-size: 10px; }
   .stories-cards {
     grid-template-columns: repeat(2, 1fr);
     gap: 6px;
