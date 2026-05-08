@@ -332,6 +332,19 @@ body {
   color: #d8eef9;
   min-width: 200px;
 }
+.maplibregl-popup .ac-pop-logo-wrap {
+  display: flex; align-items: center; justify-content: center;
+  margin: -2px -4px 6px -4px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.92);
+  border-radius: 4px;
+}
+.maplibregl-popup .ac-pop-logo {
+  max-width: 200px;
+  max-height: 44px;
+  object-fit: contain;
+  display: block;
+}
 .maplibregl-popup .ac-pop-head {
   display: flex; justify-content: space-between; align-items: center;
   gap: 8px; margin-bottom: 4px;

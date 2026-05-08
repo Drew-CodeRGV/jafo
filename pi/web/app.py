@@ -2515,6 +2515,29 @@ def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2 * R_NM * math.asin(math.sqrt(a))
 
+# Maps the 3-letter ICAO airline code (first 3 chars of an airline callsign)
+# to the 2-letter IATA code we use to fetch a logo from images.kiwi.com.
+# Scoped to carriers that actually fly in or over the RGV; anything else
+# falls through to "no logo, just the callsign as a chip."
+_AIRLINE_ICAO_TO_IATA = {
+    # US majors / LCC
+    "AAL": "AA", "DAL": "DL", "UAL": "UA", "SWA": "WN",
+    "FFT": "F9", "NKS": "NK", "AAY": "G4", "ASA": "AS",
+    "JBU": "B6", "HAL": "HA",
+    # US regional partners
+    "ENY": "MQ", "EDV": "9E", "SKW": "OO", "RPA": "YX",
+    "PDT": "ZW", "JIA": "OH",
+    # Mexico
+    "AMX": "AM", "VOI": "Y4", "VIV": "VB", "MAA": "MX",
+    "AIJ": "4O", "AVA": "AV",
+    # Cargo
+    "FDX": "FX", "UPS": "5X", "GTI": "5Y", "ABX": "GB",
+    "CKS": "K4", "ATN": "8C", "ASH": "8L", "CFS": "CC",
+    # Hemisphere carriers that overfly
+    "ACA": "AC", "WJA": "WS", "CMP": "CM", "LAN": "LA",
+    "TAM": "JJ", "LRC": "LR",
+}
+
 
 @app.route("/api/aircraft")
 def api_aircraft():
@@ -2622,6 +2645,16 @@ def api_aircraft():
                 squawk = a.get("squawk")
                 emergency = squawk in ("7500", "7600", "7700")
 
+                # Airline ICAO is the leading 3 letters of the callsign for
+                # commercial flights ("AAL249" → "AAL"). Bail if the callsign
+                # is a tail number ("N12AX") — pattern: letter immediately
+                # followed by a digit means N-numbered registration, not airline.
+                airline_icao = None
+                airline_iata = None
+                if len(csign) >= 4 and csign[:3].isalpha() and csign[3:].lstrip()[:1].isdigit():
+                    airline_icao = csign[:3]
+                    airline_iata = _AIRLINE_ICAO_TO_IATA.get(airline_icao)
+
                 aircraft.append({
                     "icao24":      a.get("hex"),
                     "callsign":    csign,
@@ -2632,6 +2665,8 @@ def api_aircraft():
                     "kind":        kind,
                     "is_military": is_military,
                     "emergency":   emergency,
+                    "airline_icao": airline_icao,
+                    "airline_iata": airline_iata,
                     "lat":         lat,
                     "lon":         lon,
                     "altitude_ft": int(alt) if isinstance(alt, (int, float)) else None,

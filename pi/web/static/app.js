@@ -903,8 +903,23 @@ async function refreshAircraft() {
       : "";
     const reg = a.registration ? `· ${a.registration}` : "";
     const tcode = a.type_code ? ` ${a.type_code}` : "";
+    // Airline logo banner: only for commercial-class aircraft with a known
+    // ICAO→IATA mapping. Image is hotlinked from images.kiwi.com (free,
+    // public, follows 303 redirects in the browser). On failure we hide the
+    // <img> and the ICAO chip already in the head row stays as-is.
+    const isAirlineKind = ["commercial", "heavy", "jet"].includes(a.kind);
+    const logoHtml = (isAirlineKind && a.airline_iata)
+      ? `<div class="ac-pop-logo-wrap">
+           <img class="ac-pop-logo"
+                src="https://images.kiwi.com/airlines/128/${a.airline_iata}.png"
+                alt="${escapeHtml(a.airline_icao || a.airline_iata)}"
+                loading="lazy"
+                onerror="this.parentElement.style.display='none'"/>
+         </div>`
+      : "";
     m.getPopup().setHTML(
       `<div class="ac-pop">
+        ${logoHtml}
         <div class="ac-pop-head">
           <strong>${cs}</strong>
           <span class="ac-pop-kind ac-kind-${a.kind || "light"}">${kindLabel}</span>
