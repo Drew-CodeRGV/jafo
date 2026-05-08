@@ -188,7 +188,36 @@ body {
 .map-pane .map-2d {
   flex: 0 0 70%;
   height: 100%;
-  border-right: 1px solid var(--border);
+}
+/* Draggable column splitter between the 2D street map and the 3D
+   air-traffic view. Width-based resize is persisted to localStorage. */
+.map-splitter {
+  flex: 0 0 6px;
+  height: 100%;
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  z-index: 7;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.12s;
+}
+.map-splitter::before {
+  content: "";
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px; height: 38px;
+  background: var(--text-faint, #888);
+  border-radius: 1px;
+  opacity: 0.7;
+  transition: background 0.12s, opacity 0.12s;
+}
+.map-splitter:hover, .map-splitter.dragging {
+  background: var(--accent, #4cc06b);
+}
+.map-splitter:hover::before, .map-splitter.dragging::before {
+  background: #fff;
+  opacity: 1;
 }
 .map-pane .map-3d {
   flex: 0 0 30%;
@@ -892,6 +921,7 @@ audio.visible { display: block; }
 @media (pointer: coarse) {
   .map-pane .map-2d { flex: 1 1 100% !important; border-right: 0 !important; }
   .map-pane .map-3d { display: none !important; }
+  .map-splitter   { display: none !important; }
 }
 
 /* Responsive — mobile */
@@ -947,6 +977,7 @@ audio.visible { display: block; }
   .map-pane { height: 24vh; max-height: 24vh; }
   .map-pane .map-2d { flex: 1 1 100%; border-right: 0; }
   .map-pane .map-3d { display: none; }
+  .map-splitter   { display: none; }
 
   /* Stories: 2x2 grid on mobile so all 4 stay visible */
   .stories-strip { padding: 8px 12px 4px 12px; }

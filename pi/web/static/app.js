@@ -581,11 +581,29 @@ function init3DMap(cfg) {
       },
     });
 
-    // Departure / arrival event lines — connect aircraft to nearby airport.
-    // Color from feature property so DEP (green) and ARR (orange) read at a glance.
+    // Departure / arrival event lines — a direct solid line anchored at the
+    // airport and tracking the aircraft each refresh. Stacked halo + core
+    // so the line punches through the imagery clearly (DEP green, ARR amber).
     map3dState.map.addSource("ac-events", {
       type: "geojson",
       data: { type: "FeatureCollection", features: [] },
+    });
+    map3dState.map.addLayer({
+      id: "ac-event-halo",
+      type: "line",
+      source: "ac-events",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          5,  6,
+          12, 10,
+          16, 18,
+        ],
+        "line-blur": 4,
+        "line-opacity": 0.45,
+      },
     });
     map3dState.map.addLayer({
       id: "ac-event-lines",
@@ -594,9 +612,13 @@ function init3DMap(cfg) {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": ["get", "color"],
-        "line-width": 2.5,
-        "line-opacity": 0.85,
-        "line-dasharray": [2, 2],
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          5,  2,
+          12, 3.5,
+          16, 6,
+        ],
+        "line-opacity": 0.95,
       },
     });
 
@@ -1698,5 +1720,76 @@ async function boot() {
   startPolling();
   startStoriesRotation();
   attachStoriesSwipe();
+  attachMapSplitter();
+}
+
+// Drag-resize between the 2D street map and the 3D air-traffic pane.
+// Persists as a 0–1 fraction (left-pane width / total) in localStorage.
+// Skipped on touch devices where the 3D pane is hidden.
+const MAP_SPLIT_KEY = "jafo.mapSplit";
+const MAP_SPLIT_MIN = 0.20;   // never let either pane go below 20%
+const MAP_SPLIT_MAX = 0.85;
+function attachMapSplitter() {
+  const splitter = document.getElementById("map-splitter");
+  const pane2d   = document.getElementById("map");
+  const pane3d   = document.getElementById("map-3d");
+  const wrap     = splitter && splitter.parentElement;
+  if (!splitter || !pane2d || !pane3d || !wrap) return;
+  if (window.matchMedia("(pointer: coarse)").matches) return;
+
+  const applyFraction = (f) => {
+    f = Math.max(MAP_SPLIT_MIN, Math.min(MAP_SPLIT_MAX, f));
+    pane2d.style.flex = `0 0 ${(f * 100).toFixed(2)}%`;
+    pane3d.style.flex = `0 0 calc(${((1 - f) * 100).toFixed(2)}% - 6px)`;
+    // Both libs need a kick to re-measure their canvases.
+    if (mapState.map && mapState.map.invalidateSize) mapState.map.invalidateSize();
+    if (map3dState.map && map3dState.map.resize)     map3dState.map.resize();
+    return f;
+  };
+
+  // Restore saved split, if any.
+  const saved = parseFloat(localStorage.getItem(MAP_SPLIT_KEY) || "");
+  if (!Number.isNaN(saved)) applyFraction(saved);
+
+  let dragging = false, raf = 0, lastF = 0;
+  const onMove = (clientX) => {
+    const r = wrap.getBoundingClientRect();
+    if (r.width <= 0) return;
+    lastF = (clientX - r.left) / r.width;
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; applyFraction(lastF); });
+  };
+
+  splitter.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  splitter.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    onMove(e.clientX);
+  });
+  const stop = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    splitter.classList.remove("dragging");
+    if (e && e.pointerId !== undefined) {
+      try { splitter.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+    const f = applyFraction(lastF || saved || 0.7);
+    localStorage.setItem(MAP_SPLIT_KEY, f.toFixed(3));
+  };
+  splitter.addEventListener("pointerup", stop);
+  splitter.addEventListener("pointercancel", stop);
+
+  // Keyboard nudge for accessibility — left/right arrows shift 2% per keypress.
+  splitter.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const cur = parseFloat(localStorage.getItem(MAP_SPLIT_KEY) || "0.7") || 0.7;
+    const f = applyFraction(cur + (e.key === "ArrowRight" ? 0.02 : -0.02));
+    localStorage.setItem(MAP_SPLIT_KEY, f.toFixed(3));
+    e.preventDefault();
+  });
 }
 boot();
