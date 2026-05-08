@@ -501,10 +501,10 @@ function init3DMap(cfg) {
       layers: [{ id: "sat", type: "raster", source: "sat" }],
     },
     center: lngLat,
-    zoom: 8.6,
-    pitch: 78,        // looking-across-the-ground perspective
+    zoom: 8.9,
+    pitch: 84,        // looking across — ground at bottom, horizon ~35% up
     bearing: -8,
-    maxPitch: 85,     // raise from default 60° so we can see actual horizon
+    maxPitch: 85,     // hard MapLibre cap is 85° (any higher = under-the-ground)
     interactive: true,
     attributionControl: false,
   });
