@@ -239,23 +239,20 @@ body {
    Scale multiplier (--ac-scale) is set per-marker by JS on map zoom so
    the icon grows when you zoom in. */
 .map-pane .map-3d .ac-marker {
-  width: 28px; height: 28px;
+  /* The SVG sets its own width/height — the wrapper just floats. Wrapper
+     anchored to the marker's bottom (ground) by MapLibre; the SVG is the
+     full sky-tail-shadow stack so altitude reads as visual height. */
   background: transparent;
   cursor: pointer;
-  transform-origin: center center;
-  --ac-scale: 1;
-  /* MapLibre rotates the marker via its own transform; we layer scale on
-     via the SVG element so we don't fight MapLibre's rotation. */
+  /* Glow only on the icon part — applying a giant drop-shadow to a tall
+     SVG makes the dashed tail glow too, which looks bad. Use a tighter
+     shadow that mostly affects the icon at the top. */
   filter:
-    drop-shadow(0 0 3px rgba(255,255,255,0.85))
-    drop-shadow(0 0 8px rgba(120,220,255,0.7))
-    drop-shadow(0 0 16px rgba(120,220,255,0.4));
+    drop-shadow(0 0 2px rgba(255,255,255,0.75))
+    drop-shadow(0 0 6px rgba(120,220,255,0.55));
 }
 .map-pane .map-3d .ac-marker > svg {
-  width: 100%; height: 100%;
-  transform: scale(var(--ac-scale));
-  transform-origin: center center;
-  transition: transform 0.18s ease-out;
+  display: block;
 }
 .map-pane .map-3d .ac-marker[data-kind="helicopter"] {
   /* helicopters get a slightly stronger pulse — they tend to loiter, so

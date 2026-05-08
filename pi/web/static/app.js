@@ -501,9 +501,10 @@ function init3DMap(cfg) {
       layers: [{ id: "sat", type: "raster", source: "sat" }],
     },
     center: lngLat,
-    zoom: 8.2,
-    pitch: 60,        // tilt for the "from space staring at it" feel
-    bearing: -12,     // slight rotation, north-ish
+    zoom: 8.6,
+    pitch: 78,        // looking-across-the-ground perspective
+    bearing: -8,
+    maxPitch: 85,     // raise from default 60° so we can see actual horizon
     interactive: true,
     attributionControl: false,
   });
@@ -512,16 +513,31 @@ function init3DMap(cfg) {
   );
 
   map3dState.map.on("load", () => {
-    // Trail rendering — bold neon. Stack two line layers for a halo:
-    //   1) a thick blurred halo (cyan glow) — hits the eye first
-    //   2) a thinner bright core (white-hot to faded) — gives the gradient fade
+    // Sky / atmosphere layer — at pitch 78° we see well past the horizon, so
+    // the empty area above must read as sky, not as the page background.
+    try {
+      map3dState.map.addLayer({
+        id: "sky",
+        type: "sky",
+        paint: {
+          "sky-type": "atmosphere",
+          "sky-atmosphere-color": "#08111a",
+          "sky-atmosphere-halo-color": "#0fb5b0",
+          "sky-atmosphere-sun": [0.0, 92.0],
+          "sky-atmosphere-sun-intensity": 5,
+        },
+      });
+    } catch (_) { /* older MapLibre — degrade silently */ }
+
+    // Trail rendering — semi-transparent so the satellite imagery still
+    // reads through the line. Two stacked layers: a soft cyan halo for
+    // glow, and a thin gradient-faded core that brightens toward "now".
     map3dState.map.addSource("trails", {
       type: "geojson",
       lineMetrics: true,           // enables along-line gradient on the core
       data: { type: "FeatureCollection", features: [] },
     });
 
-    // Outer halo — wide, blurred, neon cyan, no gradient (uniform glow).
     map3dState.map.addLayer({
       id: "trail-halo",
       type: "line",
@@ -531,15 +547,14 @@ function init3DMap(cfg) {
         "line-color": "#00ffe7",
         "line-width": [
           "interpolate", ["linear"], ["zoom"],
-          5, 6,
-          12, 12,
-          16, 22,
+          5, 4,
+          12, 8,
+          16, 14,
         ],
-        "line-blur": 6,
-        "line-opacity": 0.55,
+        "line-blur": 5,
+        "line-opacity": 0.22,        // semi-transparent halo
       },
     });
-    // Inner core — bright, gradient-faded, narrow.
     map3dState.map.addLayer({
       id: "trail-lines",
       type: "line",
@@ -549,35 +564,21 @@ function init3DMap(cfg) {
         "line-color": ["get", "color"],
         "line-width": [
           "interpolate", ["linear"], ["zoom"],
-          5, 2.5,
-          12, 4,
-          16, 7,
+          5, 1.5,
+          12, 2.5,
+          16, 4.5,
         ],
-        // Older portions fade; current end is bright white-hot
+        // Fade older portions; "now" end is brightest but still translucent.
         "line-gradient": [
           "interpolate", ["linear"], ["line-progress"],
-          0,    "rgba(255,255,255,0.10)",
-          0.45, "rgba(255,255,255,0.50)",
-          0.85, "rgba(255,255,255,0.95)",
-          1,    "rgba(255,255,255,1.0)",
+          0,    "rgba(255,255,255,0.04)",
+          0.45, "rgba(255,255,255,0.22)",
+          0.85, "rgba(255,255,255,0.50)",
+          1,    "rgba(255,255,255,0.72)",
         ],
-        "line-opacity": 1,
+        "line-opacity": 0.85,
       },
     });
-
-    // Scale up aircraft markers as the user zooms in so they don't get
-    // dwarfed by the imagery. Base CSS gives each marker a defined size
-    // (28px); we multiply via transform: scale().
-    const applyZoomScale = () => {
-      const z = map3dState.map.getZoom();
-      // Scale ramp: 1.0 at z=8, up to 2.0 at z=14
-      const scale = Math.max(1.0, Math.min(2.2, 1.0 + (z - 8) * 0.20));
-      for (const m of map3dState.aircraftMarkers.values()) {
-        m.getElement().style.setProperty("--ac-scale", scale.toFixed(2));
-      }
-    };
-    map3dState.map.on("zoom", applyZoomScale);
-    map3dState.applyZoomScale = applyZoomScale;
 
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
@@ -591,65 +592,84 @@ function _altColor(ft) {
   return "#4cc06b";
 }
 
-function _aircraftSvg(altitudeFt, kind) {
-  const fill = _altColor(altitudeFt || 0);
-  const stroke = "rgba(0,0,0,0.85)";
-  // Transparent hit-rect spanning the full viewBox makes the WHOLE
-  // 28×28 region clickable, not just the silhouette. Solves the
-  // "I keep missing the plane" problem.
-  const hit = '<rect width="100%" height="100%" fill="transparent"/>';
+// Pixels of vertical screen offset per foot of altitude. Tuned so a typical
+// commercial cruise (~35k ft) sits visibly above its ground shadow at our
+// default zoom 8.6 / pitch 78 without floating off the top of the pane.
+function _altPx(ft) {
+  const f = ft || 0;
+  if (f <= 0) return 0;
+  return Math.min(220, f * 0.0055);
+}
+
+// Aircraft icon SVG only — used inside _aircraftMarker(), which wraps it in
+// a taller SVG that includes a dashed connector down to the ground shadow.
+function _aircraftIconShape(kind, fill, stroke) {
   if (kind === "helicopter") {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
-      ${hit}
-      <ellipse cx="14" cy="13" rx="11" ry="2.1" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
-      <rect x="11" y="11" width="6" height="7" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-      <rect x="13" y="17.5" width="2" height="7" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
-      <rect x="11.5" y="23.5" width="5" height="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
-    </svg>`;
+    return `<g>
+      <ellipse cx="14" cy="11" rx="11" ry="2.1" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
+      <rect x="11" y="9"  width="6" height="7" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+      <rect x="13" y="15.5" width="2" height="6" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+      <rect x="11.5" y="21" width="5" height="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
+    </g>`;
   }
   if (kind === "uav") {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-      ${hit}
+    return `<g transform="translate(2 2)">
       <path d="M12 3 L19.5 12 L12 21 L4.5 12 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8"/>
       <line x1="12" y1="3" x2="12" y2="0" stroke="${fill}" stroke-width="1.5"/>
-    </svg>`;
+    </g>`;
   }
   if (kind === "glider") {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
-      ${hit}
+    return `<g>
       <path d="M14 3 L15.5 22 L14 19 L12.5 22 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
       <ellipse cx="14" cy="11" rx="13" ry="1.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-    </svg>`;
+    </g>`;
   }
   if (kind === "balloon") {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
-      ${hit}
+    return `<g transform="translate(1 1)">
       <ellipse cx="13" cy="10" rx="7" ry="9" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
       <rect x="10" y="19" width="6" height="3.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-    </svg>`;
+    </g>`;
   }
-  // Default airplane silhouette — same shape, scaled up to 28×28 with
-  // a transparent hit rect spanning the full bounds.
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 20 20">
-    ${hit}
-    <path d="M10 1
-             L11.2 8.5
-             L18 11
-             L18 12.4
-             L11 11.4
-             L11 15
-             L13 16.4
-             L13 17.4
-             L10 16.6
-             L7 17.4
-             L7 16.4
-             L9 15
-             L9 11.4
-             L2 12.4
-             L2 11
-             L8.8 8.5 Z"
-          fill="${fill}" stroke="${stroke}" stroke-width="0.7"
-          stroke-linejoin="round"/>
+  return `<g transform="translate(4 4) scale(1)">
+    <path d="M10 1 L11.2 8.5 L18 11 L18 12.4 L11 11.4 L11 15 L13 16.4 L13 17.4 L10 16.6 L7 17.4 L7 16.4 L9 15 L9 11.4 L2 12.4 L2 11 L8.8 8.5 Z"
+          fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+  </g>`;
+}
+
+// Builds the entire marker SVG: icon at top (sky), dashed line down to a
+// small shadow dot at the bottom (ground). Marker anchor is "bottom", so
+// the bottom of this SVG lines up with the aircraft's actual lat/lon and
+// the icon floats `altPx` pixels above it. Only the icon glyph rotates
+// to flight track — the connector and shadow stay vertical/horizontal.
+function _aircraftSvg(altitudeFt, kind, trackDeg) {
+  const fill = _altColor(altitudeFt || 0);
+  const stroke = "rgba(0,0,0,0.85)";
+  const ICON = 28;
+  const altPx = Math.round(_altPx(altitudeFt));
+  const totalH = ICON + altPx + 6;
+  const cx = ICON / 2;
+  const iconBottomY = ICON;
+  const groundY = totalH - 4;
+
+  const connector = altPx > 4
+    ? `<line x1="${cx}" y1="${iconBottomY}" x2="${cx}" y2="${groundY}"
+            stroke="rgba(0,255,231,0.55)" stroke-width="1"
+            stroke-dasharray="2,3"/>`
+    : "";
+  const shadow = altPx > 4
+    ? `<ellipse cx="${cx}" cy="${groundY + 1}" rx="3.2" ry="1.1"
+            fill="rgba(0,0,0,0.55)" stroke="rgba(0,255,231,0.65)" stroke-width="0.6"/>`
+    : "";
+
+  const rot = trackDeg ? trackDeg : 0;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${totalH}"
+              viewBox="0 0 ${ICON} ${totalH}">
+    <rect width="100%" height="100%" fill="transparent"/>
+    <g transform="rotate(${rot} ${cx} ${ICON/2})">
+      ${_aircraftIconShape(kind, fill, stroke)}
+    </g>
+    ${connector}
+    ${shadow}
   </svg>`;
 }
 
@@ -672,23 +692,32 @@ async function refreshAircraft() {
     if (!m) {
       const wrap = document.createElement("div");
       wrap.className = "ac-marker";
-      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind);
+      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0);
       wrap.dataset.kind = a.kind || "plane";
-      m = new maplibregl.Marker({ element: wrap, rotationAlignment: "map" })
+      // anchor: "bottom" → bottom of SVG (the shadow) sits at the lat/lon,
+      // icon floats above. pitchAlignment: "viewport" keeps the SVG upright
+      // even at pitch 78° so altitude reads as visual height on screen.
+      m = new maplibregl.Marker({
+        element: wrap,
+        anchor: "bottom",
+        rotationAlignment: "map",
+        pitchAlignment: "viewport",
+      })
         .setLngLat([a.lon, a.lat])
         .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }))
         .addTo(map3dState.map);
       map3dState.aircraftMarkers.set(a.icao24, m);
     }
     m.setLngLat([a.lon, a.lat]);
-    m.setRotation(a.track_deg || 0);
-    // Re-color in case it climbed/descended into a new band, and re-shape
-    // if the airframe class changed.
+    // Note: track_deg only rotates the icon glyph, but with the entire SVG
+    // (which now includes a vertical tail) we must keep the wrapper itself
+    // upright. Apply rotation to the inner icon group only — see CSS.
+    m.setRotation(0);
     const el = m.getElement();
     if (el.dataset.kind !== (a.kind || "plane")) {
       el.dataset.kind = a.kind || "plane";
     }
-    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind);
+    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0);
     const cs = a.callsign || a.icao24;
     const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "—";
     const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "";
@@ -705,8 +734,6 @@ async function refreshAircraft() {
       map3dState.aircraftMarkers.delete(icao);
     }
   }
-  // Make sure newly-added markers pick up the current zoom scale
-  if (map3dState.applyZoomScale) map3dState.applyZoomScale();
   // Update trail lines — one LineString per aircraft with at least 2 points.
   // The line-gradient (configured at layer creation) fades older segments.
   const features = [];
