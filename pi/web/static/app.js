@@ -623,7 +623,7 @@ function init3DMap(cfg) {
     });
 
     refreshAircraft();      // first pull
-    map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
+    map3dState.pollTimer = setInterval(refreshAircraft, 20_000);  // matches server cache TTL
   });
 }
 
@@ -632,6 +632,25 @@ function _altColor(ft) {
   if (ft > 15000) return "#ec8a3c";
   if (ft >  5000) return "#e8d23c";
   return "#4cc06b";
+}
+
+// Color per aircraft kind — matches what most flight-tracking sites do
+// (commercial = warm yellow, military = red, helicopter = green, etc.) so
+// the type is readable at a glance without needing the popup.
+function _kindColor(kind, emergency) {
+  if (emergency) return "#ff2a2a";
+  switch (kind) {
+    case "military":   return "#ff5b3a";
+    case "helicopter": return "#7af07a";
+    case "heavy":      return "#ff9b3a";
+    case "commercial": return "#ffe87a";
+    case "jet":        return "#9be8ff";
+    case "uav":        return "#b48cff";
+    case "glider":     return "#e8e8e8";
+    case "balloon":    return "#ffa8d8";
+    case "light":
+    default:           return "#5fb7e8";
+  }
 }
 
 // Pixels of vertical screen offset per foot of altitude. Tuned so a typical
@@ -643,39 +662,93 @@ function _altPx(ft) {
   return Math.min(220, f * 0.0055);
 }
 
-// Aircraft icon SVG only — used inside _aircraftMarker(), which wraps it in
-// a taller SVG that includes a dashed connector down to the ground shadow.
+// Aircraft icon SVG only — used inside _aircraftSvg(), which wraps it in a
+// taller SVG that includes a dashed connector down to the ground shadow.
+// All shapes are authored in a 28×28 grid with the icon centered at (14,14)
+// pointing straight up (north / 0° track). The wrapping <g> rotates the
+// whole shape to match the live track. Each kind gets a visually distinct
+// silhouette so private vs. commercial vs. military vs. heli reads at a glance.
 function _aircraftIconShape(kind, fill, stroke) {
-  if (kind === "helicopter") {
-    return `<g>
-      <ellipse cx="14" cy="11" rx="11" ry="2.1" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
-      <rect x="11" y="9"  width="6" height="7" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-      <rect x="13" y="15.5" width="2" height="6" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
-      <rect x="11.5" y="21" width="5" height="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
-    </g>`;
+  switch (kind) {
+    case "helicopter":
+      return `<g>
+        <ellipse cx="14" cy="10" rx="11.5" ry="2.2" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
+        <rect x="10.5" y="8"  width="7" height="8" rx="2.5" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+        <rect x="13" y="15.5" width="2" height="6.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+        <rect x="11" y="21.5" width="6" height="1.5" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
+      </g>`;
+    case "uav":
+      return `<g>
+        <path d="M14 4 L20 14 L14 20 L8 14 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8"/>
+        <line x1="14" y1="4" x2="14" y2="1" stroke="${fill}" stroke-width="1.5"/>
+      </g>`;
+    case "glider":
+      return `<g>
+        <path d="M14 3 L15.2 22 L14 19.5 L12.8 22 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+        <ellipse cx="14" cy="12" rx="13.5" ry="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+      </g>`;
+    case "balloon":
+      return `<g>
+        <ellipse cx="14" cy="10" rx="7" ry="9" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
+        <rect x="11" y="19" width="6" height="3.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+      </g>`;
+    case "military":
+      // Sharp delta wing, sleek nose — fighter/jet silhouette.
+      return `<g>
+        <path d="M14 2
+                 L15.6 14
+                 L24 19 L24 20 L15.4 18.5
+                 L15 22 L17.5 23.5 L17.5 24.5 L14 23.5
+                 L10.5 24.5 L10.5 23.5 L13 22 L12.6 18.5
+                 L4 20 L4 19 L12.4 14 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.8" stroke-linejoin="round"/>
+      </g>`;
+    case "heavy":
+      // Large airliner — broader wings, longer fuselage.
+      return `<g>
+        <path d="M14 1
+                 L15.4 9.5
+                 L25 13 L25 14.6 L15 13.6
+                 L15 18 L17.5 19.6 L17.5 20.6 L14 19.6
+                 L10.5 20.6 L10.5 19.6 L13 18
+                 L13 13.6 L3 14.6 L3 13 L12.6 9.5 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+      </g>`;
+    case "commercial":
+      // Standard airliner — current FR24-style silhouette.
+      return `<g>
+        <path d="M14 1.5
+                 L15.3 10
+                 L23 12.7 L23 14.1 L15 13.1
+                 L15 17.5 L17 18.9 L17 19.9 L14 19.1
+                 L11 19.9 L11 18.9 L13 17.5
+                 L13 13.1 L5 14.1 L5 12.7 L12.7 10 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+      </g>`;
+    case "jet":
+      // Bizjet / regional — sleeker wings, smaller body.
+      return `<g>
+        <path d="M14 2.5
+                 L15 10.2
+                 L21.5 13 L21.5 14.2 L15 13.4
+                 L15 17.6 L16.5 18.8 L16.5 19.6 L14 19
+                 L11.5 19.6 L11.5 18.8 L13 17.6
+                 L13 13.4 L6.5 14.2 L6.5 13 L13 10.2 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+      </g>`;
+    case "light":
+    default:
+      // Small GA / private — short fuselage, simple wings.
+      return `<g>
+        <path d="M14 4
+                 L14.8 11
+                 L20 13 L20 14 L14.8 13.5
+                 L14.8 17 L16 18.2 L16 19.1 L14 18.6
+                 L12 19.1 L12 18.2 L13.2 17
+                 L13.2 13.5 L8 14 L8 13 L13.2 11 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+      </g>`;
   }
-  if (kind === "uav") {
-    return `<g transform="translate(2 2)">
-      <path d="M12 3 L19.5 12 L12 21 L4.5 12 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8"/>
-      <line x1="12" y1="3" x2="12" y2="0" stroke="${fill}" stroke-width="1.5"/>
-    </g>`;
-  }
-  if (kind === "glider") {
-    return `<g>
-      <path d="M14 3 L15.5 22 L14 19 L12.5 22 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-      <ellipse cx="14" cy="11" rx="13" ry="1.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-    </g>`;
-  }
-  if (kind === "balloon") {
-    return `<g transform="translate(1 1)">
-      <ellipse cx="13" cy="10" rx="7" ry="9" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-      <rect x="10" y="19" width="6" height="3.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-    </g>`;
-  }
-  return `<g transform="translate(4 4) scale(1)">
-    <path d="M10 1 L11.2 8.5 L18 11 L18 12.4 L11 11.4 L11 15 L13 16.4 L13 17.4 L10 16.6 L7 17.4 L7 16.4 L9 15 L9 11.4 L2 12.4 L2 11 L8.8 8.5 Z"
-          fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
-  </g>`;
 }
 
 // Builds the entire marker SVG: icon at top (sky), dashed line down to a
@@ -683,8 +756,8 @@ function _aircraftIconShape(kind, fill, stroke) {
 // the bottom of this SVG lines up with the aircraft's actual lat/lon and
 // the icon floats `altPx` pixels above it. Only the icon glyph rotates
 // to flight track — the connector and shadow stay vertical/horizontal.
-function _aircraftSvg(altitudeFt, kind, trackDeg) {
-  const fill = _altColor(altitudeFt || 0);
+function _aircraftSvg(altitudeFt, kind, trackDeg, emergency) {
+  const fill = _kindColor(kind, emergency);
   const stroke = "rgba(0,0,0,0.95)";
   // ICON was 28 — bumped to 38 for stronger visual emphasis on the lighter
   // map. The icon shapes are still drawn in their native 28-coord space and
@@ -771,15 +844,18 @@ async function refreshAircraft() {
   const seen = new Set();
   for (const a of list) {
     seen.add(a.icao24);
+    const altPx = Math.round(_altPx(a.altitude_ft || 0));
+    const totalH = 38 + altPx + 6;     // matches _aircraftSvg geometry
     let m = map3dState.aircraftMarkers.get(a.icao24);
     if (!m) {
       const wrap = document.createElement("div");
       wrap.className = "ac-marker";
-      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0);
-      wrap.dataset.kind = a.kind || "plane";
+      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0, a.emergency);
+      wrap.dataset.kind = a.kind || "light";
+      if (a.emergency) wrap.classList.add("ac-emergency");
       // anchor: "bottom" → bottom of SVG (the shadow) sits at the lat/lon,
       // icon floats above. pitchAlignment: "viewport" keeps the SVG upright
-      // even at pitch 78° so altitude reads as visual height on screen.
+      // so altitude reads as visual height on screen.
       m = new maplibregl.Marker({
         element: wrap,
         anchor: "bottom",
@@ -787,30 +863,61 @@ async function refreshAircraft() {
         pitchAlignment: "viewport",
       })
         .setLngLat([a.lon, a.lat])
-        .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }))
+        .setPopup(new maplibregl.Popup({
+          offset: [0, -(totalH + 8)],   // anchor popup just above the icon, not the ground shadow
+          closeButton: true,
+          maxWidth: "280px",
+        }))
         .addTo(map3dState.map);
       map3dState.aircraftMarkers.set(a.icao24, m);
     }
     m.setLngLat([a.lon, a.lat]);
-    // Note: track_deg only rotates the icon glyph, but with the entire SVG
-    // (which now includes a vertical tail) we must keep the wrapper itself
-    // upright. Apply rotation to the inner icon group only — see CSS.
     m.setRotation(0);
     const el = m.getElement();
-    if (el.dataset.kind !== (a.kind || "plane")) {
-      el.dataset.kind = a.kind || "plane";
+    el.dataset.kind = a.kind || "light";
+    el.classList.toggle("ac-emergency", !!a.emergency);
+    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0, a.emergency);
+    // Re-anchor popup to the (possibly new) altitude offset. setOffset
+    // accepts a [x, y] tuple — negative y = above the marker anchor.
+    if (m.getPopup() && m.getPopup().setOffset) {
+      m.getPopup().setOffset([0, -(totalH + 8)]);
     }
-    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0);
     const cs = a.callsign || a.icao24;
-    const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "—";
-    const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "";
+    const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "ground";
+    const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "—";
+    const trkTxt = a.track_deg != null ? `${Math.round(a.track_deg)}°` : "—";
+    const vrTxt = a.vertical_rate_fpm
+      ? `${a.vertical_rate_fpm > 0 ? "↑" : "↓"} ${Math.abs(a.vertical_rate_fpm).toLocaleString()} fpm`
+      : "level";
+    const kindLabel = {
+      light:"Light/GA", commercial:"Commercial", heavy:"Heavy", jet:"Jet",
+      military:"MILITARY", helicopter:"Helicopter", uav:"UAV", glider:"Glider", balloon:"Balloon",
+    }[a.kind] || "Aircraft";
     const evTxt = a.airport_event
-      ? `<br><strong style="color:${a.airport_event.type === "DEP" ? "#7af07a" : "#ffb35a"}">${a.airport_event.type}</strong> ${a.airport_event.icao} · ${a.airport_event.distance_nm} nm`
+      ? `<div class="ac-pop-event ${a.airport_event.type.toLowerCase()}">
+           <strong>${a.airport_event.type}</strong> ${a.airport_event.icao} · ${a.airport_event.distance_nm} nm
+         </div>`
       : "";
+    const emergTxt = a.emergency
+      ? `<div class="ac-pop-event arr" style="background:#ff2a2a;color:#fff">⚠ EMERGENCY · squawk ${a.squawk}</div>`
+      : "";
+    const reg = a.registration ? `· ${a.registration}` : "";
+    const tcode = a.type_code ? ` ${a.type_code}` : "";
     m.getPopup().setHTML(
-      `<strong>${cs}</strong>${evTxt}<br>` +
-      `<small>alt: ${altTxt}${ktTxt ? " · " + ktTxt : ""}<br>` +
-      `${a.country || ""} · ${a.icao24}</small>`
+      `<div class="ac-pop">
+        <div class="ac-pop-head">
+          <strong>${cs}</strong>
+          <span class="ac-pop-kind ac-kind-${a.kind || "light"}">${kindLabel}</span>
+        </div>
+        ${emergTxt}${evTxt}
+        <table class="ac-pop-tbl">
+          <tr><td>alt</td><td>${altTxt}</td></tr>
+          <tr><td>spd</td><td>${ktTxt}</td></tr>
+          <tr><td>hdg</td><td>${trkTxt}</td></tr>
+          <tr><td>v/s</td><td>${vrTxt}</td></tr>
+        </table>
+        <div class="ac-pop-foot">${a.icao24}${tcode} ${reg}</div>
+      </div>`
     );
   }
   // Drop stale markers (planes that left the bbox)
@@ -830,7 +937,7 @@ async function refreshAircraft() {
         geometry: { type: "LineString", coordinates: a.trail },
         properties: {
           icao24: a.icao24,
-          color:  _altColor(a.altitude_ft || 0),
+          color:  _kindColor(a.kind, a.emergency),
         },
       });
     }

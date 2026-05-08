@@ -2486,14 +2486,14 @@ def map_config():
 # -----------------------------------------------------------------------------
 _AIRCRAFT_CACHE: dict[str, dict] = {}   # region_slug → {"ts", "payload"}
 _AIRCRAFT_LOCK = threading.Lock()
-AIRCRAFT_TTL_SEC = 60
+AIRCRAFT_TTL_SEC = 20  # poll adsb.lol every 20s for smoother in-flight tracking
 
 # Per-aircraft positional history for trail rendering. Keyed by icao24.
-# Kept in memory (small) — at ~10-30 active aircraft × 30 points × ~32 bytes
-# per point that's < 30 KB. Lost on web restart, which is fine.
+# Kept in memory (small) — at ~10-30 active aircraft × 90 points × ~32 bytes
+# per point that's < 90 KB. Lost on web restart, which is fine.
 _AIRCRAFT_HISTORY: dict[str, list[tuple[int, float, float, int | None]]] = {}
 _AIRCRAFT_HISTORY_LOCK = threading.Lock()
-TRAIL_MAX_POINTS = 30          # ~30 minutes at 60s polling
+TRAIL_MAX_POINTS = 90          # ~30 minutes at 20s polling
 TRAIL_TTL_SEC    = 30 * 60     # drop a plane's trail after 30 min of silence
 
 # Airports we annotate with departing/arriving lines when an aircraft is in
@@ -2563,43 +2563,82 @@ def api_aircraft():
                     continue
                 alt = a.get("alt_baro") if a.get("alt_baro") not in (None, "ground") else a.get("alt_geom")
                 # Determine airframe class for icon rendering.
-                # ADS-B category codes: A1-A6 = fixed-wing, A7 = rotorcraft,
-                # B1 = glider, B2 = lighter-than-air, B6 = UAV, B7 = space.
-                cat = (a.get("category") or "").upper()
-                desc = (a.get("desc") or "").upper()
+                # ICAO emitter category — primary classifier for kind.
+                #   A1 = light (< 15.5k lb, GA / private)
+                #   A2 = small (15.5k–75k lb, regional jet, biz jet)
+                #   A3 = large (75k–300k lb, A320/737)
+                #   A4 = high vortex large (B757)
+                #   A5 = heavy (> 300k lb, 777, A380)
+                #   A6 = high performance (military jets, supersonic)
+                #   A7 = rotorcraft
+                #   B1 = glider, B2 = lighter-than-air, B6 = UAV
+                cat   = (a.get("category") or "").upper()
+                desc  = (a.get("desc") or "").upper()
                 tcode = (a.get("t") or "").upper()
-                kind = "plane"
-                if cat == "A7" or "HELI" in desc or tcode in {
-                    "EC30", "EC35", "EC45", "EC75", "EC20", "EC55",
-                    "AS50", "AS55", "AS65", "AS32", "AS35", "AS50",
-                    "B06", "B06T", "B407", "B412", "B429", "B505",
-                    "R22", "R44", "R66", "S76", "S92", "S70",
-                    "H145", "H160", "H125", "H130", "H175",
-                    "MD50", "MD52", "MD60", "MD90",
-                }:
+                csign = (a.get("flight") or "").strip().upper()
+                db_flags = a.get("dbFlags") or 0  # bit 1 = military, 8 = LADD
+                is_military = bool(db_flags & 1)
+                # Callsign-prefix fallback for military (USAF/USN call patterns)
+                if not is_military and csign:
+                    mil_prefixes = ("RCH", "REACH", "SAM", "EVAC", "PAT", "MAGMA",
+                                    "JAKE", "POOL", "GHOST", "TANK", "NAVY", "DOOM",
+                                    "KNIFE", "EAGLE", "SHARK", "SOL")
+                    if any(csign.startswith(p) for p in mil_prefixes):
+                        is_military = True
+
+                helo_types = {
+                    "EC30","EC35","EC45","EC75","EC20","EC55",
+                    "AS50","AS55","AS65","AS32","AS35",
+                    "B06","B06T","B407","B412","B429","B505",
+                    "R22","R44","R66","S76","S92","S70",
+                    "H145","H160","H125","H130","H175",
+                    "MD50","MD52","MD60","MD90",
+                }
+                # Order matters — most-specific first.
+                if is_military:
+                    kind = "military"
+                elif cat == "A7" or "HELI" in desc or tcode in helo_types:
                     kind = "helicopter"
-                elif cat == "B1":
-                    kind = "glider"
                 elif cat == "B6":
                     kind = "uav"
+                elif cat == "B1":
+                    kind = "glider"
                 elif cat == "B2":
                     kind = "balloon"
+                elif cat in ("A4", "A5"):
+                    kind = "heavy"
+                elif cat == "A3":
+                    kind = "commercial"
+                elif cat == "A6":
+                    kind = "jet"        # high-performance / fighter-class
+                elif cat == "A2":
+                    kind = "jet"        # bizjet / regional — same icon
+                elif cat == "A1":
+                    kind = "light"      # GA / private
+                else:
+                    kind = "light"
+
+                # Emergency squawks: 7500 (hijack), 7600 (radio fail), 7700 (general)
+                squawk = a.get("squawk")
+                emergency = squawk in ("7500", "7600", "7700")
 
                 aircraft.append({
                     "icao24":      a.get("hex"),
-                    "callsign":    (a.get("flight") or "").strip(),
+                    "callsign":    csign,
                     "registration": a.get("r"),
                     "type_code":   a.get("t"),
                     "description": a.get("desc"),
                     "category":    cat or None,
                     "kind":        kind,
+                    "is_military": is_military,
+                    "emergency":   emergency,
                     "lat":         lat,
                     "lon":         lon,
                     "altitude_ft": int(alt) if isinstance(alt, (int, float)) else None,
                     "velocity_kt": int(a.get("gs")) if a.get("gs") is not None else None,
                     "track_deg":   a.get("track"),
                     "vertical_rate_fpm": a.get("baro_rate"),
-                    "squawk":      a.get("squawk"),
+                    "squawk":      squawk,
                     "on_ground":   a.get("alt_baro") == "ground",
                 })
             # Update per-aircraft trail history; attach trail to each outgoing record.
@@ -2639,25 +2678,27 @@ def api_aircraft():
             # Departure / arrival detection: an aircraft is "tied" to an
             # airport if it's in the air, low, near the field, and either
             # climbing (DEP) or descending (ARR). Heuristic, not flight-plan.
+            # Thresholds: alt<8000, dist<10nm, |vr|>200fpm — wide enough to
+            # catch traffic still on a downwind/base or just airborne.
             for a in aircraft:
                 a["airport_event"] = None
                 if a.get("on_ground"):
                     continue
                 alt = a.get("altitude_ft")
                 vr  = a.get("vertical_rate_fpm")
-                if alt is None or alt > 6000 or vr is None:
+                if alt is None or alt > 8000 or vr is None:
                     continue
                 nearest, nearest_d = None, 999.0
                 for ap in airports_visible:
                     d = _haversine_nm(a["lat"], a["lon"], ap["lat"], ap["lon"])
                     if d < nearest_d:
                         nearest, nearest_d = ap, d
-                if nearest is None or nearest_d > 6.0:
+                if nearest is None or nearest_d > 10.0:
                     continue
-                if vr > 400:
+                if vr > 200:
                     a["airport_event"] = {"type": "DEP", "icao": nearest["icao"],
                                           "distance_nm": round(nearest_d, 1)}
-                elif vr < -400:
+                elif vr < -200:
                     a["airport_event"] = {"type": "ARR", "icao": nearest["icao"],
                                           "distance_nm": round(nearest_d, 1)}
 
