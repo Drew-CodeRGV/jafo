@@ -404,6 +404,9 @@ async function initMap() {
 function init3DMap(cfg) {
   const el = document.getElementById("map-3d");
   if (!el || typeof maplibregl === "undefined") return;
+  // Mobile: skip the 3D pane entirely — CSS hides it, we also skip init so we
+  // don't load MapLibre tiles or poll /api/aircraft every minute on cell data.
+  if (window.matchMedia("(max-width: 760px)").matches) return;
 
   const center = cfg.center || [26.2, -98.0];
   // MapLibre uses [lng, lat]; our cfg.center is [lat, lng] (Leaflet convention).

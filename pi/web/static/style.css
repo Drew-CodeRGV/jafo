@@ -896,11 +896,11 @@ audio.visible { display: block; }
     grid-area: auto;
     height: calc(100vh - 56px);
   }
-  /* On phones, stack the two map panes vertically (street on top, sat below).
-     The 3D view at 25% width on a 360 px screen is too small to be useful. */
-  .map-pane { height: 36vh; max-height: 36vh; flex-direction: column; }
-  .map-pane .map-2d { flex: 0 0 65%; border-right: 0; border-bottom: 1px solid var(--border); }
-  .map-pane .map-3d { flex: 0 0 35%; }
+  /* On phones, drop the 3D air-traffic pane entirely — too small to read,
+     not worth the cell-data and battery cost of polling /api/aircraft. */
+  .map-pane { height: 36vh; max-height: 36vh; }
+  .map-pane .map-2d { flex: 1 1 100%; border-right: 0; }
+  .map-pane .map-3d { display: none; }
 
   /* Stories: 2x2 grid on mobile so all 4 stay visible */
   .stories-strip { padding: 8px 12px 4px 12px; }
