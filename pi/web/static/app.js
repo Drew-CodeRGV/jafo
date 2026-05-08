@@ -624,6 +624,21 @@ function init3DMap(cfg) {
 
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 20_000);  // matches server cache TTL
+
+    // Re-orient icons whenever the map moves/rotates/zooms so the nose
+    // always points along the actual direction of motion on screen.
+    let rotRaf = 0;
+    const scheduleRot = () => {
+      if (rotRaf) return;
+      rotRaf = requestAnimationFrame(() => {
+        rotRaf = 0;
+        _updateAircraftRotations();
+      });
+    };
+    map3dState.map.on("move", scheduleRot);
+    map3dState.map.on("rotate", scheduleRot);
+    map3dState.map.on("pitch", scheduleRot);
+    map3dState.map.on("zoom", scheduleRot);
   });
 }
 
@@ -662,91 +677,100 @@ function _altPx(ft) {
   return Math.min(220, f * 0.0055);
 }
 
-// Aircraft icon SVG only — used inside _aircraftSvg(), which wraps it in a
-// taller SVG that includes a dashed connector down to the ground shadow.
-// All shapes are authored in a 28×28 grid with the icon centered at (14,14)
-// pointing straight up (north / 0° track). The wrapping <g> rotates the
-// whole shape to match the live track. Each kind gets a visually distinct
-// silhouette so private vs. commercial vs. military vs. heli reads at a glance.
+// Aircraft icon SVG. All shapes are authored in a 28×28 grid pointing straight
+// up (nose at top, fuselage centered on x=14). The wrapping <g> rotates them
+// to match each plane's screen-space track angle (computed at draw-time so
+// pitch/bearing are accounted for). Cleaner silhouettes — fewer points,
+// pronounced nose, clearly readable wings/tail per kind.
 function _aircraftIconShape(kind, fill, stroke) {
+  const sw = 0.7;
   switch (kind) {
     case "helicopter":
+      // Top-down rotor disk + body + tail boom.
       return `<g>
-        <ellipse cx="14" cy="10" rx="11.5" ry="2.2" fill="${fill}" opacity="0.4" stroke="${stroke}" stroke-width="0.6"/>
-        <rect x="10.5" y="8"  width="7" height="8" rx="2.5" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-        <rect x="13" y="15.5" width="2" height="6.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
-        <rect x="11" y="21.5" width="6" height="1.5" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
+        <ellipse cx="14" cy="13" rx="12" ry="2.2" fill="${fill}" opacity="0.35" stroke="${stroke}" stroke-width="0.5"/>
+        <ellipse cx="14" cy="11.5" rx="3.6" ry="4.5" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+        <rect x="13.3" y="15.5" width="1.4" height="6.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+        <path d="M11 22.4 L17 22.4 L17 23.4 L11 23.4 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
       </g>`;
     case "uav":
+      // Dart shape with antenna on top — clearly small and pointy.
       return `<g>
-        <path d="M14 4 L20 14 L14 20 L8 14 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8"/>
-        <line x1="14" y1="4" x2="14" y2="1" stroke="${fill}" stroke-width="1.5"/>
+        <path d="M14 3 L19 14 L14 21 L9 14 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.8" stroke-linejoin="round"/>
+        <line x1="14" y1="3" x2="14" y2="0.5" stroke="${fill}" stroke-width="1.4" stroke-linecap="round"/>
       </g>`;
     case "glider":
+      // Long thin wings, slender fuselage.
       return `<g>
-        <path d="M14 3 L15.2 22 L14 19.5 L12.8 22 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
-        <ellipse cx="14" cy="12" rx="13.5" ry="1.3" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
+        <path d="M14 3 L14.8 21 L14 18.5 L13.2 21 Z" fill="${fill}" stroke="${stroke}" stroke-width="0.55"/>
+        <path d="M0.5 12.4 L27.5 12.4 L27.5 13.6 L14.8 13.6 L14.8 18 L13.2 18 L13.2 13.6 L0.5 13.6 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.5" stroke-linejoin="round"/>
       </g>`;
     case "balloon":
+      // Hot-air balloon envelope + basket.
       return `<g>
-        <ellipse cx="14" cy="10" rx="7" ry="9" fill="${fill}" stroke="${stroke}" stroke-width="0.7"/>
-        <rect x="11" y="19" width="6" height="3.5" fill="${fill}" stroke="${stroke}" stroke-width="0.6"/>
+        <path d="M14 1 C20 1 21 9 19.5 13 L8.5 13 C7 9 8 1 14 1 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+        <line x1="9.5" y1="13" x2="11.5" y2="18" stroke="${stroke}" stroke-width="0.5"/>
+        <line x1="18.5" y1="13" x2="16.5" y2="18" stroke="${stroke}" stroke-width="0.5"/>
+        <rect x="11" y="18" width="6" height="3.5" rx="0.5" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>
       </g>`;
     case "military":
-      // Sharp delta wing, sleek nose — fighter/jet silhouette.
+      // Sharp delta — pointy nose, swept wings, twin tail fins.
       return `<g>
-        <path d="M14 2
-                 L15.6 14
-                 L24 19 L24 20 L15.4 18.5
-                 L15 22 L17.5 23.5 L17.5 24.5 L14 23.5
-                 L10.5 24.5 L10.5 23.5 L13 22 L12.6 18.5
-                 L4 20 L4 19 L12.4 14 Z"
+        <path d="M14 1.5
+                 L15.4 13.5
+                 L24 18.5 L24 19.6 L15.6 17.5
+                 L15.6 21 L17 22.2 L17.4 23.6 L14 22.5
+                 L10.6 23.6 L11 22.2 L12.4 21
+                 L12.4 17.5 L4 19.6 L4 18.5 L12.6 13.5 Z"
               fill="${fill}" stroke="${stroke}" stroke-width="0.8" stroke-linejoin="round"/>
       </g>`;
     case "heavy":
-      // Large airliner — broader wings, longer fuselage.
+      // Big jet — broad wings start higher, longer fuselage, distinct horizontal stab.
       return `<g>
         <path d="M14 1
-                 L15.4 9.5
-                 L25 13 L25 14.6 L15 13.6
-                 L15 18 L17.5 19.6 L17.5 20.6 L14 19.6
-                 L10.5 20.6 L10.5 19.6 L13 18
-                 L13 13.6 L3 14.6 L3 13 L12.6 9.5 Z"
-              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+                 L15.5 10
+                 L26 14 L26 15.4 L15.5 14
+                 L15.5 18.5 L18 20 L18 21 L14 20
+                 L10 21 L10 20 L12.5 18.5
+                 L12.5 14 L2 15.4 L2 14 L12.5 10 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
       </g>`;
     case "commercial":
-      // Standard airliner — current FR24-style silhouette.
+      // Standard airliner — symmetric, cleaner geometry than before.
       return `<g>
-        <path d="M14 1.5
-                 L15.3 10
-                 L23 12.7 L23 14.1 L15 13.1
-                 L15 17.5 L17 18.9 L17 19.9 L14 19.1
-                 L11 19.9 L11 18.9 L13 17.5
-                 L13 13.1 L5 14.1 L5 12.7 L12.7 10 Z"
-              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+        <path d="M14 2
+                 L15.3 10.5
+                 L23.5 13.4 L23.5 14.6 L15.3 13.6
+                 L15.3 18 L17.4 19.4 L17.4 20.4 L14 19.6
+                 L10.6 20.4 L10.6 19.4 L12.7 18
+                 L12.7 13.6 L4.5 14.6 L4.5 13.4 L12.7 10.5 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
       </g>`;
     case "jet":
-      // Bizjet / regional — sleeker wings, smaller body.
+      // Bizjet / regional — narrower wings.
       return `<g>
         <path d="M14 2.5
-                 L15 10.2
-                 L21.5 13 L21.5 14.2 L15 13.4
-                 L15 17.6 L16.5 18.8 L16.5 19.6 L14 19
-                 L11.5 19.6 L11.5 18.8 L13 17.6
-                 L13 13.4 L6.5 14.2 L6.5 13 L13 10.2 Z"
-              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+                 L15 10.5
+                 L21.5 13 L21.5 14 L15 13.5
+                 L15 17.5 L16.7 18.7 L16.7 19.6 L14 19
+                 L11.3 19.6 L11.3 18.7 L13 17.5
+                 L13 13.5 L6.5 14 L6.5 13 L13 10.5 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
       </g>`;
     case "light":
     default:
-      // Small GA / private — short fuselage, simple wings.
+      // GA / private — small high-wing silhouette, prominent prop nub.
       return `<g>
-        <path d="M14 4
-                 L14.8 11
-                 L20 13 L20 14 L14.8 13.5
-                 L14.8 17 L16 18.2 L16 19.1 L14 18.6
-                 L12 19.1 L12 18.2 L13.2 17
-                 L13.2 13.5 L8 14 L8 13 L13.2 11 Z"
-              fill="${fill}" stroke="${stroke}" stroke-width="0.7" stroke-linejoin="round"/>
+        <circle cx="14" cy="3.4" r="1.1" fill="${fill}" stroke="${stroke}" stroke-width="0.4"/>
+        <path d="M14 4.2
+                 L15 11
+                 L19.5 13 L19.5 13.9 L15 13.4
+                 L15 17.2 L16.4 18.4 L16.4 19.1 L14 18.6
+                 L11.6 19.1 L11.6 18.4 L13 17.2
+                 L13 13.4 L8.5 13.9 L8.5 13 L13 11 Z"
+              fill="${fill}" stroke="${stroke}" stroke-width="0.65" stroke-linejoin="round"/>
       </g>`;
   }
 }
@@ -781,16 +805,59 @@ function _aircraftSvg(altitudeFt, kind, trackDeg, emergency) {
             fill="rgba(0,0,0,0.55)" stroke="rgba(0,255,231,0.65)" stroke-width="0.6"/>`
     : "";
 
+  // trackDeg here is the screen-space angle (clockwise from screen-up) the
+  // caller has already computed via _screenTrackAngle. SVG rotate uses the
+  // same convention, so it slots in directly.
   const rot = trackDeg ? trackDeg : 0;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${totalH}"
               viewBox="0 0 ${ICON} ${totalH}">
     <rect width="100%" height="100%" fill="transparent"/>
-    <g transform="rotate(${rot} ${cx} ${ICON/2}) scale(${SCALE})">
+    <g class="ac-icon-grp" transform="rotate(${rot.toFixed(1)} ${cx} ${ICON/2}) scale(${SCALE})">
       ${_aircraftIconShape(kind, fill, stroke)}
     </g>
     ${connector}
     ${shadow}
   </svg>`;
+}
+
+// Compute the icon-rotation angle in screen-pixel space. Pure track_deg
+// (compass clockwise from true north) is a map-frame angle; at high pitch
+// or non-zero bearing it doesn't visually match the direction the plane is
+// moving on screen. Project the position + a small step along the track
+// and take the screen-pixel angle from one to the other — that's the angle
+// the icon should rotate to on screen, regardless of map pitch/bearing.
+function _screenTrackAngle(map, lat, lon, trackDeg) {
+  if (!map || trackDeg == null || !Number.isFinite(trackDeg)) return 0;
+  try {
+    const here = map.project([lon, lat]);
+    const rad = trackDeg * Math.PI / 180;
+    const stepLat = lat + 0.005 * Math.cos(rad);
+    const stepLon = lon + 0.005 * Math.sin(rad) /
+                          Math.max(0.05, Math.cos(lat * Math.PI / 180));
+    const ahead = map.project([stepLon, stepLat]);
+    const dx = ahead.x - here.x;
+    const dy = ahead.y - here.y;
+    if (dx === 0 && dy === 0) return 0;
+    // SVG rotate(0) points up; screen "up" is -y. Clockwise positive.
+    return Math.atan2(dx, -dy) * 180 / Math.PI;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Re-rotate every aircraft icon based on the current map view. Cheap —
+// just sets one transform attribute per marker; no SVG rebuild.
+function _updateAircraftRotations() {
+  if (!map3dState.map) return;
+  const SCALE = 38 / 28;
+  for (const m of map3dState.aircraftMarkers.values()) {
+    const d = m._jafoData;
+    if (!d) continue;
+    const ang = _screenTrackAngle(map3dState.map, d.lat, d.lon, d.track);
+    const grp = m.getElement().querySelector(".ac-icon-grp");
+    if (grp) grp.setAttribute("transform",
+      `rotate(${ang.toFixed(1)} 19 19) scale(${SCALE})`);
+  }
 }
 
 function _airportSvg() {
@@ -846,25 +913,29 @@ async function refreshAircraft() {
     seen.add(a.icao24);
     const altPx = Math.round(_altPx(a.altitude_ft || 0));
     const totalH = 38 + altPx + 6;     // matches _aircraftSvg geometry
+    // Screen-space rotation, computed against the live map view. We pass
+    // this into _aircraftSvg as the SVG-rotate angle, then keep it in sync
+    // on map move via _updateAircraftRotations.
+    const screenAng = _screenTrackAngle(map3dState.map, a.lat, a.lon, a.track_deg);
     let m = map3dState.aircraftMarkers.get(a.icao24);
     if (!m) {
       const wrap = document.createElement("div");
       wrap.className = "ac-marker";
-      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0, a.emergency);
+      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, screenAng, a.emergency);
       wrap.dataset.kind = a.kind || "light";
       if (a.emergency) wrap.classList.add("ac-emergency");
-      // anchor: "bottom" → bottom of SVG (the shadow) sits at the lat/lon,
-      // icon floats above. pitchAlignment: "viewport" keeps the SVG upright
-      // so altitude reads as visual height on screen.
+      // rotationAlignment: "viewport" so MapLibre doesn't add map-bearing
+      // to our marker — we already encode track in screen space inside
+      // the SVG. pitchAlignment: "viewport" keeps it upright at any pitch.
       m = new maplibregl.Marker({
         element: wrap,
         anchor: "bottom",
-        rotationAlignment: "map",
+        rotationAlignment: "viewport",
         pitchAlignment: "viewport",
       })
         .setLngLat([a.lon, a.lat])
         .setPopup(new maplibregl.Popup({
-          offset: [0, -(totalH + 8)],   // anchor popup just above the icon, not the ground shadow
+          offset: [0, -(totalH + 8)],
           closeButton: true,
           maxWidth: "280px",
         }))
@@ -873,10 +944,12 @@ async function refreshAircraft() {
     }
     m.setLngLat([a.lon, a.lat]);
     m.setRotation(0);
+    // Stash position + track for cheap re-rotation on map move.
+    m._jafoData = { lat: a.lat, lon: a.lon, track: a.track_deg };
     const el = m.getElement();
     el.dataset.kind = a.kind || "light";
     el.classList.toggle("ac-emergency", !!a.emergency);
-    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, a.track_deg || 0, a.emergency);
+    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, screenAng, a.emergency);
     // Re-anchor popup to the (possibly new) altitude offset. setOffset
     // accepts a [x, y] tuple — negative y = above the marker anchor.
     if (m.getPopup() && m.getPopup().setOffset) {
