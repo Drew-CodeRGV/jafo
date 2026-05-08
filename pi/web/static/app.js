@@ -151,7 +151,7 @@ const STORY_SORT_KEY = "jafo.storySort";
 const storyState = {
   raw: [],         // server-returned stories, original order (impact-sorted)
   all: [],         // sorted view used for rendering
-  page: 0,         // current page index (0..2 for 12 stories / 4 per page)
+  page: 0,         // current page index (0..3 for 16 stories / 4 per page)
   sort: localStorage.getItem(STORY_SORT_KEY) || "impact",  // "impact" | "time"
   rotateTimer: null,
   rotateMs: 10000, // dwell time per page
@@ -265,6 +265,40 @@ function startStoriesRotation() {
 function stopStoriesRotation() {
   if (storyState.rotateTimer) clearInterval(storyState.rotateTimer);
   storyState.rotateTimer = null;
+}
+
+// Touch/pointer swipe on the stories grid: left = next page, right = prev page.
+// Reset the auto-rotate timer on swipe so the user gets the full dwell on
+// their chosen page instead of the timer flipping it 1s later.
+function attachStoriesSwipe() {
+  const root = document.getElementById("stories-cards");
+  if (!root) return;
+  let startX = 0, startY = 0, tracking = false;
+  const SWIPE_MIN_PX = 40;
+
+  root.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+
+  root.addEventListener("touchend", (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if (Math.abs(dx) < SWIPE_MIN_PX) return;        // not enough movement
+    if (Math.abs(dy) > Math.abs(dx)) return;        // mostly vertical (page scroll)
+    const n = pageCount();
+    if (n <= 1) return;
+    storyState.page = dx < 0
+      ? (storyState.page + 1) % n                   // swipe-left → next
+      : (storyState.page - 1 + n) % n;              // swipe-right → prev
+    renderStoriesPage(true);
+    startStoriesRotation();
+  }, { passive: true });
 }
 
 async function openStoryModal(id) {
@@ -1551,5 +1585,6 @@ async function boot() {
   await loadCalls(false);
   startPolling();
   startStoriesRotation();
+  attachStoriesSwipe();
 }
 boot();

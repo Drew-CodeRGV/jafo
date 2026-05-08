@@ -1408,6 +1408,7 @@ STORY_LOOKBACK_HOURS       = 12
 STORY_BUCKET_SEC           = 15 * 60     # 15-min cluster window
 STORY_MAX_NEW_PER_PASS     = 6           # cap Claude calls per refresh
 STORY_RETENTION_HOURS      = 24
+STORY_KEEP_MAX             = 16          # how many top stories to keep + serve
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
 
@@ -1664,11 +1665,11 @@ def _refresh_stories_once() -> tuple[int, int]:
         except sqlite3.Error as e:
             print(f"story insert failed: {e}", file=sys.stderr)
 
-    # Trim to top 12
-    conn.execute("""
+    # Trim to top STORY_KEEP_MAX
+    conn.execute(f"""
         DELETE FROM stories
         WHERE id NOT IN (
-            SELECT id FROM stories ORDER BY score DESC, last_call_at DESC LIMIT 12
+            SELECT id FROM stories ORDER BY score DESC, last_call_at DESC LIMIT {STORY_KEEP_MAX}
         )
     """)
     conn.commit()
@@ -1745,12 +1746,12 @@ def stories_list():
         return jsonify({"stories": [], "now": int(time.time())})
 
     conn = get_db()
-    cur = conn.execute("""
+    cur = conn.execute(f"""
         SELECT id, title, body, severity, talkgroup, talkgroup_tag,
                primary_call_id, related_call_ids, score, last_call_at, created_at
         FROM stories
         ORDER BY score DESC, last_call_at DESC
-        LIMIT 12
+        LIMIT {STORY_KEEP_MAX}
     """)
     out = []
     for r in cur:
