@@ -379,8 +379,9 @@ const mapState = {
 // ---- 3D map (MapLibre, satellite + air traffic) ----
 const map3dState = {
   map: null,            // maplibre Map instance
-  callMarkers: new Map(), // call.id → marker
-  aircraftMarkers: new Map(), // icao24 → marker
+  callMarkers: new Map(),       // call.id → marker
+  aircraftMarkers: new Map(),   // icao24 → marker
+  airportMarkers: new Map(),    // ICAO → marker (persistent)
   pollTimer: null,
 };
 
@@ -580,6 +581,25 @@ function init3DMap(cfg) {
       },
     });
 
+    // Departure / arrival event lines — connect aircraft to nearby airport.
+    // Color from feature property so DEP (green) and ARR (orange) read at a glance.
+    map3dState.map.addSource("ac-events", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map3dState.map.addLayer({
+      id: "ac-event-lines",
+      type: "line",
+      source: "ac-events",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 2.5,
+        "line-opacity": 0.85,
+        "line-dasharray": [2, 2],
+      },
+    });
+
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 60_000);  // honor the 60s server cache
   });
@@ -643,8 +663,13 @@ function _aircraftIconShape(kind, fill, stroke) {
 // to flight track — the connector and shadow stay vertical/horizontal.
 function _aircraftSvg(altitudeFt, kind, trackDeg) {
   const fill = _altColor(altitudeFt || 0);
-  const stroke = "rgba(0,0,0,0.85)";
-  const ICON = 28;
+  const stroke = "rgba(0,0,0,0.95)";
+  // ICON was 28 — bumped to 38 for stronger visual emphasis on the lighter
+  // map. The icon shapes are still drawn in their native 28-coord space and
+  // scaled up by ICON/28 in the wrapping <g>, so we don't have to re-author.
+  const ICON = 38;
+  const NATIVE = 28;
+  const SCALE = ICON / NATIVE;
   const altPx = Math.round(_altPx(altitudeFt));
   const totalH = ICON + altPx + 6;
   const cx = ICON / 2;
@@ -657,7 +682,7 @@ function _aircraftSvg(altitudeFt, kind, trackDeg) {
             stroke-dasharray="2,3"/>`
     : "";
   const shadow = altPx > 4
-    ? `<ellipse cx="${cx}" cy="${groundY + 1}" rx="3.2" ry="1.1"
+    ? `<ellipse cx="${cx}" cy="${groundY + 1}" rx="3.6" ry="1.3"
             fill="rgba(0,0,0,0.55)" stroke="rgba(0,255,231,0.65)" stroke-width="0.6"/>`
     : "";
 
@@ -665,12 +690,44 @@ function _aircraftSvg(altitudeFt, kind, trackDeg) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${totalH}"
               viewBox="0 0 ${ICON} ${totalH}">
     <rect width="100%" height="100%" fill="transparent"/>
-    <g transform="rotate(${rot} ${cx} ${ICON/2})">
+    <g transform="rotate(${rot} ${cx} ${ICON/2}) scale(${SCALE})">
       ${_aircraftIconShape(kind, fill, stroke)}
     </g>
     ${connector}
     ${shadow}
   </svg>`;
+}
+
+function _airportSvg() {
+  // Bright triangle on a dark plate — reads on imagery + against the sky.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+    <circle cx="11" cy="11" r="10" fill="rgba(0,18,30,0.85)" stroke="rgba(255,232,122,0.8)" stroke-width="1"/>
+    <polygon points="11,4 18,17 11,14 4,17" fill="#ffe87a" stroke="rgba(0,0,0,0.85)" stroke-width="0.6"/>
+  </svg>`;
+}
+
+function _renderAirports(airports) {
+  const seen = new Set();
+  for (const ap of (airports || [])) {
+    seen.add(ap.icao);
+    if (map3dState.airportMarkers.has(ap.icao)) continue;
+    const el = document.createElement("div");
+    el.className = "airport-marker";
+    el.innerHTML = `${_airportSvg()}<div class="airport-label">${ap.icao}</div>`;
+    const m = new maplibregl.Marker({
+      element: el, anchor: "top", pitchAlignment: "viewport",
+    })
+      .setLngLat([ap.lon, ap.lat])
+      .addTo(map3dState.map);
+    map3dState.airportMarkers.set(ap.icao, m);
+  }
+  // Drop airports no longer in viewport (e.g. user shifted the map programmatically)
+  for (const [icao, m] of map3dState.airportMarkers) {
+    if (!seen.has(icao)) {
+      m.remove();
+      map3dState.airportMarkers.delete(icao);
+    }
+  }
 }
 
 async function refreshAircraft() {
@@ -684,6 +741,10 @@ async function refreshAircraft() {
     console.warn("aircraft fetch failed", e);
     return;
   }
+  _renderAirports(payload.airports || []);
+  const airportByIcao = Object.fromEntries(
+    (payload.airports || []).map((a) => [a.icao, a])
+  );
   const list = payload.aircraft || [];
   const seen = new Set();
   for (const a of list) {
@@ -721,8 +782,11 @@ async function refreshAircraft() {
     const cs = a.callsign || a.icao24;
     const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "—";
     const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "";
+    const evTxt = a.airport_event
+      ? `<br><strong style="color:${a.airport_event.type === "DEP" ? "#7af07a" : "#ffb35a"}">${a.airport_event.type}</strong> ${a.airport_event.icao} · ${a.airport_event.distance_nm} nm`
+      : "";
     m.getPopup().setHTML(
-      `<strong>${cs}</strong><br>` +
+      `<strong>${cs}</strong>${evTxt}<br>` +
       `<small>alt: ${altTxt}${ktTxt ? " · " + ktTxt : ""}<br>` +
       `${a.country || ""} · ${a.icao24}</small>`
     );
@@ -752,6 +816,27 @@ async function refreshAircraft() {
   const trailSrc = map3dState.map.getSource("trails");
   if (trailSrc) {
     trailSrc.setData({ type: "FeatureCollection", features });
+  }
+
+  // DEP / ARR connector lines — one segment from aircraft → airport for
+  // each plane the server tagged as climbing-out / inbound to a visible field.
+  const eventFeatures = [];
+  for (const a of list) {
+    if (!a.airport_event) continue;
+    const ap = airportByIcao[a.airport_event.icao];
+    if (!ap) continue;
+    eventFeatures.push({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: [[a.lon, a.lat], [ap.lon, ap.lat]] },
+      properties: {
+        kind: a.airport_event.type,
+        color: a.airport_event.type === "DEP" ? "#7af07a" : "#ffb35a",
+      },
+    });
+  }
+  const eventSrc = map3dState.map.getSource("ac-events");
+  if (eventSrc) {
+    eventSrc.setData({ type: "FeatureCollection", features: eventFeatures });
   }
   const counter = document.getElementById("aircraft-count");
   if (counter) counter.textContent = `· ${list.length}`;

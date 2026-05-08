@@ -2496,6 +2496,25 @@ _AIRCRAFT_HISTORY_LOCK = threading.Lock()
 TRAIL_MAX_POINTS = 30          # ~30 minutes at 60s polling
 TRAIL_TTL_SEC    = 30 * 60     # drop a plane's trail after 30 min of silence
 
+# Airports we annotate with departing/arriving lines when an aircraft is in
+# the bbox, low, and climbing/descending near one. Coordinates from FAA AFD.
+RGV_AIRPORTS = [
+    {"icao": "KMFE", "name": "McAllen Intl",          "lat": 26.17578, "lon": -98.23861},
+    {"icao": "KHRL", "name": "Valley Intl (Harlingen)","lat": 26.22844, "lon": -97.65436},
+    {"icao": "KBRO", "name": "Brownsville/SPI",       "lat": 25.90681, "lon": -97.42589},
+    {"icao": "KEDB", "name": "Edinburg Intl",         "lat": 26.44167, "lon": -98.12083},
+    {"icao": "KRWV", "name": "Caldwell (Mid-Valley)", "lat": 26.17556, "lon": -97.97306},
+]
+
+def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+    R_NM = 3440.065  # earth radius in nautical miles
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2 * R_NM * math.asin(math.sqrt(a))
+
 
 @app.route("/api/aircraft")
 def api_aircraft():
@@ -2610,6 +2629,38 @@ def api_aircraft():
                     hist = _AIRCRAFT_HISTORY.get(icao, [])
                     a["trail"] = [[lon, lat] for (_, lat, lon, _) in hist]
 
+            # Airports that fall inside the visible bbox — these are the
+            # candidates for departure / arrival annotation.
+            airports_visible = [
+                ap for ap in RGV_AIRPORTS
+                if south <= ap["lat"] <= north and west <= ap["lon"] <= east
+            ]
+
+            # Departure / arrival detection: an aircraft is "tied" to an
+            # airport if it's in the air, low, near the field, and either
+            # climbing (DEP) or descending (ARR). Heuristic, not flight-plan.
+            for a in aircraft:
+                a["airport_event"] = None
+                if a.get("on_ground"):
+                    continue
+                alt = a.get("altitude_ft")
+                vr  = a.get("vertical_rate_fpm")
+                if alt is None or alt > 6000 or vr is None:
+                    continue
+                nearest, nearest_d = None, 999.0
+                for ap in airports_visible:
+                    d = _haversine_nm(a["lat"], a["lon"], ap["lat"], ap["lon"])
+                    if d < nearest_d:
+                        nearest, nearest_d = ap, d
+                if nearest is None or nearest_d > 6.0:
+                    continue
+                if vr > 400:
+                    a["airport_event"] = {"type": "DEP", "icao": nearest["icao"],
+                                          "distance_nm": round(nearest_d, 1)}
+                elif vr < -400:
+                    a["airport_event"] = {"type": "ARR", "icao": nearest["icao"],
+                                          "distance_nm": round(nearest_d, 1)}
+
             payload = {
                 "region": region_slug,
                 "bbox": {"north": north, "south": south, "east": east, "west": west},
@@ -2617,6 +2668,7 @@ def api_aircraft():
                 "upstream_time": data.get("now"),
                 "count": len(aircraft),
                 "aircraft": aircraft,
+                "airports": airports_visible,
             }
             _AIRCRAFT_CACHE[region_slug] = {"ts": now, "payload": payload}
             return jsonify(payload)

@@ -202,16 +202,19 @@ body {
 }
 .map-pane .map-3d .maplibregl-canvas {
   outline: none;
-  filter: brightness(0.55) contrast(1.45) saturate(0.55) hue-rotate(170deg);
+  /* Lighter than the original war-room treatment — terrain reads clearly
+     so aircraft icons can be the visual focus rather than fighting a
+     near-black background. Hue rotate dropped, brightness raised. */
+  filter: brightness(0.95) contrast(1.10) saturate(0.85);
 }
-/* Scanlines layer — thin cyan stripes, very low opacity. CRT war-room. */
+/* Scanlines — kept but very faint so they don't dim the imagery. */
 .map-pane .map-3d::before {
   content: "";
   position: absolute; inset: 0;
   background: repeating-linear-gradient(
     0deg,
-    rgba(96, 200, 255, 0.045) 0,
-    rgba(96, 200, 255, 0.045) 1px,
+    rgba(96, 200, 255, 0.025) 0,
+    rgba(96, 200, 255, 0.025) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -219,17 +222,14 @@ body {
   z-index: 4;
   mix-blend-mode: screen;
 }
-/* Vignette + edge glow — soft dark falloff at the rim, faint cyan inner glow. */
+/* Vignette — soft, mostly to keep the edges from washing out at high pitch.
+   Much subtler than before so the map center stays bright. */
 .map-pane .map-3d::after {
   content: "";
   position: absolute; inset: 0;
-  background:
-    radial-gradient(ellipse at center,
-      transparent 45%,
-      rgba(0, 0, 0, 0.65) 100%),
-    inset 0 0 40px rgba(96, 200, 255, 0.18);
-  box-shadow: inset 0 0 60px rgba(96, 200, 255, 0.18),
-              inset 0 0 12px rgba(255, 255, 255, 0.08);
+  background: radial-gradient(ellipse at center,
+      transparent 60%,
+      rgba(0, 0, 0, 0.35) 100%);
   pointer-events: none;
   z-index: 5;
   mix-blend-mode: multiply;
@@ -244,15 +244,39 @@ body {
      full sky-tail-shadow stack so altitude reads as visual height. */
   background: transparent;
   cursor: pointer;
-  /* Glow only on the icon part — applying a giant drop-shadow to a tall
-     SVG makes the dashed tail glow too, which looks bad. Use a tighter
-     shadow that mostly affects the icon at the top. */
+  z-index: 10;
+  /* Strong, layered glow so the icon punches through any background tone. */
   filter:
-    drop-shadow(0 0 2px rgba(255,255,255,0.75))
-    drop-shadow(0 0 6px rgba(120,220,255,0.55));
+    drop-shadow(0 0 1px rgba(0,0,0,0.95))
+    drop-shadow(0 0 3px rgba(255,255,255,0.95))
+    drop-shadow(0 0 9px rgba(255,220,120,0.85))
+    drop-shadow(0 0 18px rgba(255,180,60,0.55));
 }
 .map-pane .map-3d .ac-marker > svg {
   display: block;
+}
+
+/* Airport markers — bright triangle on a dark plate so they read on
+   the (now-lighter) satellite imagery. Label rides below the icon. */
+.map-pane .map-3d .airport-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.85));
+  z-index: 6;
+}
+.map-pane .map-3d .airport-marker svg { display: block; }
+.map-pane .map-3d .airport-marker .airport-label {
+  font: 600 9px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: #ffe87a;
+  background: rgba(0, 18, 30, 0.85);
+  border: 1px solid rgba(255, 232, 122, 0.5);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 .map-pane .map-3d .ac-marker[data-kind="helicopter"] {
   /* helicopters get a slightly stronger pulse — they tend to loiter, so
