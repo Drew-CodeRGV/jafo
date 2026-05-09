@@ -55,20 +55,12 @@
 
   <div class="filter-block">
     <div class="filter-header">
-      <h3>Talkgroups</h3>
-      <div class="filter-controls">
-        <div class="seg-toggle" role="tablist" aria-label="Group by">
-          <button class="seg-btn active" data-group="service" title="Group by service type">Service</button>
-          <button class="seg-btn" data-group="category" title="Group by city/agency">City</button>
-          <button class="seg-btn" data-group="flat" title="No grouping">All</button>
-        </div>
-        <div class="seg-toggle" role="tablist" aria-label="Sort">
-          <button class="seg-btn active" data-sort="count" title="Sort by activity">Active</button>
-          <button class="seg-btn" data-sort="alpha" title="Sort A→Z">A–Z</button>
-        </div>
-      </div>
+      <h3>Aircraft seen</h3>
+      <span class="ac-types-now" id="ac-types-count">—</span>
     </div>
-    <div id="talkgroup-groups" class="filter-groups"></div>
+    <ul id="ac-types-list" class="ac-types-list">
+      <li class="ac-types-empty">no aircraft</li>
+    </ul>
   </div>
 
   <div class="filter-block">
@@ -89,12 +81,20 @@
 
   <div class="filter-block">
     <div class="filter-header">
-      <h3>Aircraft seen</h3>
-      <span class="ac-types-now" id="ac-types-count">—</span>
+      <h3>Talkgroups</h3>
+      <div class="filter-controls">
+        <div class="seg-toggle" role="tablist" aria-label="Group by">
+          <button class="seg-btn active" data-group="service" title="Group by service type">Service</button>
+          <button class="seg-btn" data-group="category" title="Group by city/agency">City</button>
+          <button class="seg-btn" data-group="flat" title="No grouping">All</button>
+        </div>
+        <div class="seg-toggle" role="tablist" aria-label="Sort">
+          <button class="seg-btn active" data-sort="count" title="Sort by activity">Active</button>
+          <button class="seg-btn" data-sort="alpha" title="Sort A→Z">A–Z</button>
+        </div>
+      </div>
     </div>
-    <ul id="ac-types-list" class="ac-types-list">
-      <li class="ac-types-empty">no aircraft</li>
-    </ul>
+    <div id="talkgroup-groups" class="filter-groups"></div>
   </div>
 
   <div class="filter-block">
