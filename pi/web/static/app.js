@@ -154,7 +154,7 @@ const storyState = {
   page: 0,         // current page index (0..3 for 16 stories / 4 per page)
   sort: localStorage.getItem(STORY_SORT_KEY) || "impact",  // "impact" | "time"
   rotateTimer: null,
-  rotateMs: 10000, // dwell time per page
+  rotateMs: 20000, // dwell time per page (was 10s — doubled per user request)
 };
 
 function applyStorySort() {
@@ -265,6 +265,30 @@ function startStoriesRotation() {
 function stopStoriesRotation() {
   if (storyState.rotateTimer) clearInterval(storyState.rotateTimer);
   storyState.rotateTimer = null;
+}
+
+// Manual page navigation via arrow buttons next to the pager dots. Same
+// behavior as a swipe — wraps around at the ends, resets the rotation
+// timer so the user gets the full dwell on the page they jumped to.
+function pagePrev() {
+  const n = pageCount();
+  if (n <= 1) return;
+  storyState.page = (storyState.page - 1 + n) % n;
+  renderStoriesPage(true);
+  startStoriesRotation();
+}
+function pageNext() {
+  const n = pageCount();
+  if (n <= 1) return;
+  storyState.page = (storyState.page + 1) % n;
+  renderStoriesPage(true);
+  startStoriesRotation();
+}
+function attachStoriesArrows() {
+  const prev = document.getElementById("stories-prev");
+  const next = document.getElementById("stories-next");
+  if (prev) prev.addEventListener("click", pagePrev);
+  if (next) next.addEventListener("click", pageNext);
 }
 
 // Touch/pointer swipe on the stories grid: left = next page, right = prev page.
@@ -1948,6 +1972,7 @@ async function boot() {
   startPolling();
   startStoriesRotation();
   attachStoriesSwipe();
+  attachStoriesArrows();
 }
 
 boot();

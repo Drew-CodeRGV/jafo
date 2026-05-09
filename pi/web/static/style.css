@@ -1075,12 +1075,45 @@ body {
   font-style: italic;
 }
 
+/* Stories pager row — left arrow, dots, right arrow. The arrows are
+   visible at all sizes (touch users get the swipe gesture too, but
+   tappable arrows are more discoverable for trackpad/mouse users). */
+.stories-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 6px;
+  height: 22px;
+}
+.stories-arrow {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  font: 14px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.stories-arrow:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.stories-arrow:active { transform: translateY(1px); }
 .stories-pager {
   display: flex;
   justify-content: center;
   gap: 6px;
-  margin-top: 6px;
   height: 14px;
+  align-items: center;
 }
 .stories-pager .dot {
   width: 6px; height: 6px;
