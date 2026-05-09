@@ -379,11 +379,24 @@ const mapState = {
 // ---- 3D map (MapLibre, satellite + air traffic) ----
 const map3dState = {
   map: null,            // maplibre Map instance
-  callMarkers: new Map(),       // call.id → marker
+  callMarkers: new Map(),       // call.id → marker (recent-calls overlay)
   aircraftMarkers: new Map(),   // icao24 → marker
   airportMarkers: new Map(),    // ICAO → marker (persistent)
   pollTimer: null,
+  callsTimer: null,
 };
+
+// Hardcoded so airports render the moment the 3D map is ready, before any
+// /api/aircraft round-trip — and they STAY on screen even if adsb.lol fails
+// (which used to wipe airport markers between refreshes). These match the
+// RGV_AIRPORTS list in app.py; if you add a region, add it both places.
+const RGV_AIRPORTS_JS = [
+  { icao: "KMFE", name: "McAllen Intl",       lat: 26.17578, lon: -98.23861 },
+  { icao: "KHRL", name: "Valley Intl (HRL)",  lat: 26.22844, lon: -97.65436 },
+  { icao: "KBRO", name: "Brownsville/SPI",    lat: 25.90681, lon: -97.42589 },
+  { icao: "KEDB", name: "Edinburg Intl",      lat: 26.44167, lon: -98.12083 },
+  { icao: "KRWV", name: "Caldwell (Mid-Vly)", lat: 26.17556, lon: -97.97306 },
+];
 
 async function refreshHeatmap() {
   if (!mapState.map || typeof L.heatLayer !== "function") return;
@@ -622,8 +635,18 @@ function init3DMap(cfg) {
       },
     });
 
+    // Seed airports immediately so the field references are visible before
+    // any /api/aircraft response (and remain visible if that endpoint fails).
+    _renderAirports(RGV_AIRPORTS_JS);
+
     refreshAircraft();      // first pull
     map3dState.pollTimer = setInterval(refreshAircraft, 20_000);  // matches server cache TTL
+
+    // Recent-calls overlay: persistent markers for every call in the last
+    // 15 minutes, so a helicopter response on the 3D pane lines up
+    // visually with the dispatch traffic that called it in.
+    refreshCalls3d();
+    map3dState.callsTimer = setInterval(refreshCalls3d, 30_000);
 
     // Re-orient icons whenever the map moves/rotates/zooms so the nose
     // always points along the actual direction of motion on screen.
@@ -869,25 +892,127 @@ function _airportSvg() {
 }
 
 function _renderAirports(airports) {
-  const seen = new Set();
+  // Add any airport we haven't already placed. We never remove them — once
+  // an airport is on the map it stays there, so a transient adsb.lol failure
+  // (which would return zero airports) doesn't blank the field references.
   for (const ap of (airports || [])) {
-    seen.add(ap.icao);
     if (map3dState.airportMarkers.has(ap.icao)) continue;
     const el = document.createElement("div");
     el.className = "airport-marker";
     el.innerHTML = `${_airportSvg()}<div class="airport-label">${ap.icao}</div>`;
     const m = new maplibregl.Marker({
-      element: el, anchor: "top", pitchAlignment: "viewport",
+      element: el, anchor: "bottom", pitchAlignment: "viewport",
     })
       .setLngLat([ap.lon, ap.lat])
       .addTo(map3dState.map);
     map3dState.airportMarkers.set(ap.icao, m);
   }
-  // Drop airports no longer in viewport (e.g. user shifted the map programmatically)
-  for (const [icao, m] of map3dState.airportMarkers) {
-    if (!seen.has(icao)) {
+}
+
+// SVG for a recent-call ring marker. Color = service kind (fire/law/ems).
+// Outer ring at higher opacity acts as a halo so the dot reads on imagery.
+function _callMarkerSvg(kind) {
+  const colors = {
+    fire:  "#ef4848",  // red — fire dispatch
+    law:   "#3a8df0",  // blue — police / sheriff / DPS
+    ems:   "#4cc06b",  // green — EMS / hospital
+    other: "#cccccc",  // gray — utility / other
+  };
+  const c = colors[kind] || colors.other;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+    <circle cx="11" cy="11" r="9.5" fill="none" stroke="${c}" stroke-width="1.2" opacity="0.55"/>
+    <circle cx="11" cy="11" r="6"   fill="${c}" stroke="#ffffff" stroke-width="1.6"/>
+  </svg>`;
+}
+
+async function refreshCalls3d() {
+  if (!map3dState.map) return;
+  let payload;
+  try {
+    const r = await fetch("/api/recent-calls-geo?minutes=15");
+    payload = await r.json();
+  } catch (e) {
+    console.warn("recent-calls fetch failed", e);
+    return;
+  }
+  const calls = payload.calls || [];
+  const now   = payload.now || (Date.now() / 1000);
+  const seen  = new Set();
+
+  for (const c of calls) {
+    if (c.lat == null || c.lng == null) continue;
+    seen.add(c.id);
+
+    // Deterministic per-id jitter so multiple calls at the same talkgroup-
+    // city centroid don't perfectly stack. ~13 m at 26°N — enough to fan out
+    // a busy dispatch without misrepresenting the location materially.
+    const jLat = (((c.id * 97) % 100) - 50) * 0.00012;
+    const jLng = (((c.id * 31) % 100) - 50) * 0.00012;
+    const lng = c.lng + jLng;
+    const lat = c.lat + jLat;
+
+    // Fade older calls across the 15-minute window so the freshest ones pop.
+    const ageMin = Math.max(0, (now - c.start_time) / 60);
+    const opacity = Math.max(0.25, 1 - ageMin / 16).toFixed(2);
+
+    let m = map3dState.callMarkers.get(c.id);
+    if (!m) {
+      const el = document.createElement("div");
+      el.className = `call-marker-3d kind-${c.kind || "other"}` +
+                     (c.precise ? "" : " imprecise");
+      el.innerHTML = _callMarkerSvg(c.kind);
+      const sumTxt = c.incident_summary
+        ? `<div class="ac-pop-summary">${escapeHtml(c.incident_summary)}</div>` : "";
+      const typeTxt = c.incident_type && c.incident_type !== "radio_chatter"
+        ? `<div class="ac-pop-row"><span class="ac-pop-key">Type</span><span>${escapeHtml(c.incident_type)}</span></div>` : "";
+      const sevTxt = c.incident_severity && c.incident_severity !== "unknown"
+        ? `<div class="ac-pop-row"><span class="ac-pop-key">Severity</span><span class="sev sev-${c.incident_severity}">${c.incident_severity}</span></div>` : "";
+      const locTxt = c.incident_location
+        ? `<div class="ac-pop-row"><span class="ac-pop-key">Location</span><span>${escapeHtml(c.incident_location)}${c.precise ? "" : " <em>(approx.)</em>"}</span></div>` : "";
+      const popupHtml = `
+        <div class="ac-pop">
+          <div class="ac-pop-head">
+            <strong>${escapeHtml(c.talkgroup_tag || ("tg-" + c.talkgroup))}</strong>
+            <span class="ac-pop-time">${fmtTime(c.start_time)}</span>
+          </div>
+          ${typeTxt}${sevTxt}${locTxt}${sumTxt}
+          <div class="ac-pop-actions">
+            <a href="#" data-call-id="${c.id}" class="ac-pop-link">Open in timeline ↓</a>
+          </div>
+        </div>`;
+      m = new maplibregl.Marker({
+        element: el,
+        anchor: "center",
+        pitchAlignment: "viewport",
+        rotationAlignment: "viewport",
+      })
+        .setLngLat([lng, lat])
+        .setPopup(new maplibregl.Popup({ offset: 14, maxWidth: "300px" }).setHTML(popupHtml))
+        .addTo(map3dState.map);
+      // Click on "Open in timeline" inside popup → scroll the call into view.
+      m.getPopup().on("open", () => {
+        const a = m.getPopup().getElement().querySelector(".ac-pop-link");
+        if (a) a.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          const row = document.querySelector(`.call[data-id="${c.id}"]`);
+          if (row) {
+            row.scrollIntoView({ behavior: "smooth", block: "center" });
+            row.classList.add("flash");
+            setTimeout(() => row.classList.remove("flash"), 1800);
+          }
+        });
+      });
+      map3dState.callMarkers.set(c.id, m);
+    } else {
+      m.setLngLat([lng, lat]);
+    }
+    m.getElement().style.opacity = opacity;
+  }
+  // Drop calls that have aged past the 15-min window
+  for (const [id, m] of map3dState.callMarkers) {
+    if (!seen.has(id)) {
       m.remove();
-      map3dState.airportMarkers.delete(icao);
+      map3dState.callMarkers.delete(id);
     }
   }
 }
@@ -1057,6 +1182,19 @@ async function refreshAircraft() {
   }
   const counter = document.getElementById("aircraft-count");
   if (counter) counter.textContent = `· ${list.length}`;
+  // Data-source badge — green "LOCAL" when reading from a co-resident
+  // dump1090/readsb, gray "CLOUD" when proxying adsb.lol.
+  const badge = document.getElementById("aircraft-source");
+  if (badge) {
+    const src = payload.data_source || "";
+    const local = src === "readsb-local";
+    badge.textContent = local ? "LOCAL" : "CLOUD";
+    badge.classList.toggle("local", local);
+    badge.classList.toggle("cloud", !local);
+    badge.title = local
+      ? "Live ADS-B feed from local dump1090/readsb (~1s updates)"
+      : "Falling back to adsb.lol cloud API (~20s updates) — local decoder offline";
+  }
 }
 
 function popMapMarker3D(call) {

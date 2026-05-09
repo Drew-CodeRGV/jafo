@@ -307,6 +307,54 @@ body {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+/* Recent-call markers on the 3D pane — small kind-colored ring at the
+   call's geocoded location (street-precise where the enricher pulled an
+   address, otherwise the talkgroup's city centroid jittered slightly so
+   they don't perfectly stack). Sit between airports and aircraft in z-order
+   so planes still read as "in front of / overhead" the dispatch site. */
+.map-pane .map-3d .call-marker-3d {
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 8;
+  transition: opacity 0.4s ease, transform 0.15s ease;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.85))
+          drop-shadow(0 0 6px rgba(0,0,0,0.55));
+}
+.map-pane .map-3d .call-marker-3d:hover {
+  transform: scale(1.25);
+  z-index: 9;
+}
+.map-pane .map-3d .call-marker-3d > svg { display: block; }
+.map-pane .map-3d .call-marker-3d.imprecise > svg {
+  /* Approximate (city-centroid) calls — visibly softer so a precise marker
+     and a city-level marker can be told apart at a glance. */
+  opacity: 0.85;
+}
+.map-pane .map-3d .call-marker-3d.kind-fire { animation: call-pulse-fire 2.4s ease-in-out infinite; }
+.map-pane .map-3d .call-marker-3d.kind-law  { animation: call-pulse-law  2.4s ease-in-out infinite; }
+.map-pane .map-3d .call-marker-3d.kind-ems  { animation: call-pulse-ems  2.4s ease-in-out infinite; }
+
+@keyframes call-pulse-fire {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 4px rgba(239,72,72,0.55)); }
+  50%      { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 12px rgba(239,72,72,0.95)); }
+}
+@keyframes call-pulse-law {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 4px rgba(58,141,240,0.55)); }
+  50%      { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 12px rgba(58,141,240,0.95)); }
+}
+@keyframes call-pulse-ems {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 4px rgba(76,192,107,0.55)); }
+  50%      { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 12px rgba(76,192,107,0.95)); }
+}
+
+/* Briefly highlight a call row in the timeline when the user clicks
+   "Open in timeline" inside a 3D-map call popup. */
+.call.flash {
+  background: rgba(255, 232, 122, 0.18);
+  box-shadow: inset 3px 0 0 #ffe87a;
+  transition: background 1.6s ease, box-shadow 1.6s ease;
+}
+
 .map-pane .map-3d .ac-marker[data-kind="helicopter"] {
   /* helicopters get a slightly stronger pulse — they tend to loiter, so
      this draws the eye to "something is hovering here" */
@@ -443,6 +491,20 @@ body {
   pointer-events: auto;
 }
 .map-3d-title #aircraft-count { color: #4cc06b; margin-left: 4px; text-shadow: 0 0 6px rgba(76, 192, 107, 0.7); }
+/* ADS-B data-source badge — green when reading from local readsb/dump1090,
+   gray when falling back to adsb.lol cloud API. */
+.map-3d-title .ac-source {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font: 600 9px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  vertical-align: 1px;
+}
+.map-3d-title .ac-source.local { color: #4cc06b; box-shadow: 0 0 6px rgba(76, 192, 107, 0.5); }
+.map-3d-title .ac-source.cloud { color: #b0b0b0; }
 .map-3d-legend {
   background: rgba(0, 16, 24, 0.75);
   color: #b8f4ff;
@@ -1012,21 +1074,54 @@ audio.visible { display: block; }
    3D air-traffic pane regardless of viewport width. Keeps the 2D map full
    width and avoids loading MapLibre + polling /api/aircraft on cellular. */
 @media (pointer: coarse) {
+  /* Hide the 3D air-traffic pane on every touch device (covers phones,
+     tablets, and touch laptops regardless of viewport width). */
   .map-pane .map-2d { flex: 1 1 100% !important; border-right: 0 !important; }
   .map-pane .map-3d { display: none !important; }
   .map-splitter   { display: none !important; }
+
+  /* Unlock natural document scroll on touch devices. The desktop layout
+     uses overflow: hidden + height: 100vh on body to drive a per-pane
+     scroll model; that's wrong for touch where users expect the whole
+     page to scroll. !important here intentionally — we need to win
+     against the unconditional base body rule on tablets > 760px wide. */
+  html, body {
+    height: auto !important;
+    min-height: 100vh;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .timeline {
+    height: auto !important;
+    overflow: visible !important;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 56px);
+  }
+  /* Map at the bottom of the column so stories + calls show first. */
+  .timeline > .stories-strip   { order: 1; }
+  .timeline > .active-filters  { order: 2; }
+  .timeline > .results         { order: 3; overflow: visible !important; flex: 0 0 auto !important; }
+  .timeline > #loading         { order: 4; }
+  .timeline > #load-more       { order: 4; }
+  .timeline > .map-pane        { order: 5; }
+  .map-pane                    { flex: 0 0 auto !important; }
 }
 
 /* Responsive — mobile */
 @media (max-width: 760px) {
   body {
-    /* Abandon the desktop grid; topbar is sticky, timeline scrolls below */
+    /* Abandon the desktop grid; let the document scroll naturally so the
+       user can swipe through stories → calls → map without fighting nested
+       scroll containers. Topbar is sticky at top. */
     display: block;
     grid-template-columns: none;
     grid-template-rows: none;
     grid-template-areas: none;
-    height: 100vh;
-    overflow: hidden;
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .menu-btn { display: inline-block; }
@@ -1060,17 +1155,30 @@ audio.visible { display: block; }
   body.sidebar-open .sidebar { transform: translateX(0); }
   body.sidebar-open .sidebar-backdrop { display: block; }
 
-  /* Timeline takes the rest of the viewport */
+  /* Timeline grows with content rather than capping at viewport. */
   .timeline {
     grid-area: auto;
-    height: calc(100vh - 56px);
+    height: auto;
+    min-height: calc(100vh - 56px);
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
   }
-  /* Width-only fallback for legacy browsers without pointer media-query.
-     The real rule lives in the (pointer: coarse) block below. */
-  .map-pane { height: 24vh; max-height: 24vh; }
+  /* Push the map to the bottom of the timeline column on mobile so
+     stories + calls are immediately visible under the topbar. */
+  .timeline > .stories-strip   { order: 1; }
+  .timeline > .active-filters  { order: 2; }
+  .timeline > .results         { order: 3; }
+  .timeline > #loading         { order: 4; }
+  .timeline > #load-more       { order: 4; }
+  .timeline > .map-pane        { order: 5; }
+  /* Map stays the same fixed height block but is now last in the column. */
+  .map-pane { height: 32vh; max-height: 32vh; flex: 0 0 auto; }
   .map-pane .map-2d { flex: 1 1 100%; border-right: 0; }
   .map-pane .map-3d { display: none; }
   .map-splitter   { display: none; }
+  /* Results pane is no longer a nested scroller — let the body scroll. */
+  .timeline > .results { overflow: visible; flex: 0 0 auto; }
 
   /* Stories: 2x2 grid on mobile so all 4 stay visible */
   .stories-strip { padding: 8px 12px 4px 12px; }
