@@ -1262,6 +1262,107 @@ def audio(rel_path: str):
 # Each upload: multipart with `audio` file + `metadata` JSON form field.
 # Idempotent: dedup by (node_id, content_hash).
 # =============================================================================
+@app.route("/api/ingest/cell-sites", methods=["POST"])
+def api_ingest_cell_sites():
+    """Edge nodes POST a snapshot of their cell_sites table here every few
+    minutes. The hub upserts each row, tagging it with the originating
+    node_id so future multi-tenant filtering works out.
+
+    Request body: JSON object {"sites": [<row>, ...]} where each row has
+    the same shape as the edge's cell_sites table (site_key, rat, mcc,
+    mnc, cell_id, pci, earfcn, band, operator, first_seen_at,
+    last_seen_at, last_rsrp_dbm, obs_count, lat, lng, geo_source,
+    asr_number, notes).
+
+    Auth: Bearer <node token> — same scheme as /api/ingest for calls.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"error": "missing bearer token"}), 401
+    token = auth[7:].strip()
+    if not token:
+        return jsonify({"error": "empty token"}), 401
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    try:
+        body = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "body must be JSON"}), 400
+    sites = body.get("sites") or []
+    if not isinstance(sites, list):
+        return jsonify({"error": "sites must be a list"}), 400
+
+    conn = get_db()
+    try:
+        node = conn.execute(
+            "SELECT id, status FROM nodes WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if not node:
+            return jsonify({"error": "unknown token"}), 403
+        if node["status"] != "active":
+            return jsonify({"error": "node disabled"}), 403
+
+        upserts = 0
+        for s in sites:
+            if not isinstance(s, dict) or not s.get("site_key"):
+                continue
+            existing = conn.execute(
+                "SELECT id FROM cell_sites WHERE site_key = ? AND (node_id = ? OR node_id IS NULL)",
+                (s["site_key"], node["id"])
+            ).fetchone()
+            if existing:
+                conn.execute("""
+                    UPDATE cell_sites
+                    SET rat            = COALESCE(?, rat),
+                        mcc            = COALESCE(?, mcc),
+                        mnc            = COALESCE(?, mnc),
+                        cell_id        = COALESCE(?, cell_id),
+                        pci            = COALESCE(?, pci),
+                        earfcn         = COALESCE(?, earfcn),
+                        band           = COALESCE(?, band),
+                        operator       = COALESCE(?, operator),
+                        first_seen_at  = COALESCE(first_seen_at, ?),
+                        last_seen_at   = MAX(COALESCE(last_seen_at, 0), COALESCE(?, 0)),
+                        last_rsrp_dbm  = COALESCE(?, last_rsrp_dbm),
+                        obs_count      = COALESCE(?, obs_count),
+                        lat            = COALESCE(?, lat),
+                        lng            = COALESCE(?, lng),
+                        geo_source     = COALESCE(?, geo_source),
+                        asr_number     = COALESCE(?, asr_number),
+                        notes          = COALESCE(?, notes),
+                        node_id        = ?
+                    WHERE id = ?
+                """, (s.get("rat"), s.get("mcc"), s.get("mnc"), s.get("cell_id"),
+                      s.get("pci"), s.get("earfcn"), s.get("band"), s.get("operator"),
+                      s.get("first_seen_at"), s.get("last_seen_at"),
+                      s.get("last_rsrp_dbm"), s.get("obs_count"),
+                      s.get("lat"), s.get("lng"),
+                      s.get("geo_source"), s.get("asr_number"), s.get("notes"),
+                      node["id"], existing["id"]))
+            else:
+                conn.execute("""
+                    INSERT INTO cell_sites
+                        (site_key, rat, mcc, mnc, cell_id, pci, earfcn, band,
+                         operator, first_seen_at, last_seen_at, last_rsrp_dbm,
+                         obs_count, lat, lng, geo_source, asr_number, notes, node_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (s.get("site_key"), s.get("rat"), s.get("mcc"), s.get("mnc"),
+                      s.get("cell_id"), s.get("pci"), s.get("earfcn"), s.get("band"),
+                      s.get("operator"), s.get("first_seen_at"), s.get("last_seen_at"),
+                      s.get("last_rsrp_dbm"), s.get("obs_count"),
+                      s.get("lat"), s.get("lng"),
+                      s.get("geo_source"), s.get("asr_number"), s.get("notes"),
+                      node["id"]))
+            upserts += 1
+
+        conn.execute("UPDATE nodes SET last_seen_at = ? WHERE id = ?",
+                     (int(time.time()), node["id"]))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "upserts": upserts})
+
+
 @app.route("/api/ingest", methods=["POST"])
 def api_ingest():
     from datetime import datetime, timezone

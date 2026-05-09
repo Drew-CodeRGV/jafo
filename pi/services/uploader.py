@@ -113,6 +113,59 @@ def upload_one(call) -> tuple[bool, str | dict]:
     }
 
 
+CELL_SYNC_INTERVAL_SEC = 300   # push cell_sites every 5 min — observations
+                                # update last_seen_at on each cellmon poll, so
+                                # 5-min cadence is fresh enough for the hub
+_last_cell_sync = [0.0]
+
+
+def push_cell_sites(conn) -> None:
+    """Snapshot the local cell_sites table and POST to the hub.
+
+    We push the full table every cycle (it's small — typically <200 rows
+    even after months of uptime) rather than tracking incremental sync
+    state. INSERT OR REPLACE on the hub handles dedup. Failures are
+    logged but never block the call-upload loop."""
+    try:
+        rows = conn.execute("""
+            SELECT site_key, rat, mcc, mnc, cell_id, pci, earfcn, band,
+                   operator, first_seen_at, last_seen_at, last_rsrp_dbm,
+                   obs_count, lat, lng, geo_source, asr_number, notes
+            FROM cell_sites
+        """).fetchall()
+    except Exception as e:
+        log.warning("cell_sites query failed: %s", e)
+        return
+    sites = [dict(r) for r in rows]
+    if not sites:
+        return
+    try:
+        r = requests.post(
+            f"{HUB_URL}/api/ingest/cell-sites",
+            headers={"Authorization": f"Bearer {NODE_TOKEN}",
+                     "Content-Type": "application/json"},
+            json={"sites": sites},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            info = r.json() if r.content else {}
+            log.info("CELL OK   pushed %d sites → hub upserted %d",
+                     len(sites), info.get("upserts", 0))
+        else:
+            log.warning("CELL FAIL HTTP %s: %s", r.status_code, r.text[:200])
+    except requests.exceptions.RequestException as e:
+        log.warning("CELL net error: %s", e)
+
+
+def maybe_sync_cells(conn) -> None:
+    """Call from the main loop. No-op unless CELL_SYNC_INTERVAL_SEC has
+    elapsed since the last successful (or attempted) sync."""
+    now = time.time()
+    if now - _last_cell_sync[0] >= CELL_SYNC_INTERVAL_SEC:
+        push_cell_sites(conn)
+        _last_cell_sync[0] = now
+
+
 def main() -> None:
     if not NODE_TOKEN:
         log.error("JAFO_NODE_TOKEN not set; aborting")
@@ -125,6 +178,10 @@ def main() -> None:
     conn = db_connect()
 
     while True:
+        # Cell sync runs first so it doesn't get starved when there's a
+        # large call backlog burning through.
+        maybe_sync_cells(conn)
+
         try:
             calls = get_pending(conn, BATCH_SIZE)
         except Exception as e:

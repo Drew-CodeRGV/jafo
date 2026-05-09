@@ -309,6 +309,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "asr_number" not in cs_cols:
         conn.execute("ALTER TABLE cell_sites ADD COLUMN asr_number TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cellsites_asr ON cell_sites(asr_number)")
+    # node_id is for the hub side, where multiple edge nodes contribute
+    # observations. Edge-side stays NULL — there's only ever one node per
+    # local DB. Multi-tenant UNIQUE refactor (node_id, site_key) is a v2
+    # task; for now hub upserts by site_key only.
+    if "node_id" not in cs_cols:
+        conn.execute("ALTER TABLE cell_sites ADD COLUMN node_id INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cellsites_node ON cell_sites(node_id)")
 
 
 def db_connect() -> sqlite3.Connection:
