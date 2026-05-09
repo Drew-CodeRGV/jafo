@@ -500,13 +500,13 @@ async function initMap() {
   mapState.map.setZoom(mapState.map.getZoom() + 2);
   mapState.map.setMaxBounds(L.latLngBounds(cfg.bounds[0], cfg.bounds[1]).pad(0.5));
 
-  // CartoDB Dark Matter — free, no API key, attribution required. The
-  // pure-OSM tiles are too bright/yellow against jafo's high-contrast
-  // aircraft and call markers (especially commercial-yellow planes that
-  // blended into yellow road outlines on the standard OSM theme).
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  // Standard OSM tiles — we recolor them to a slate-blue dark mode via
+  // a CSS filter on .leaflet-tile-pane (see style.css). Doing it via
+  // filter instead of switching providers gives precise control over
+  // brightness/saturation/hue so we land exactly on slate-blue rather
+  // than a stock dark theme.
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
   }).addTo(mapState.map);
 
@@ -711,13 +711,13 @@ function _aircraftSvg(kind, trackDeg, emergency) {
   const SCALE = ICON / NATIVE;
   const cx = ICON / 2;
   const rot = (trackDeg != null && Number.isFinite(trackDeg)) ? trackDeg : 0;
-  // Soft white radial halo behind the icon — pops the silhouette out of
-  // the dark map tiles without putting a hard ring around the marker.
+  // Soft dark radial backplate — separates the icon from the slate-blue
+  // map tiles without putting a hard ring around the marker.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${ICON}" viewBox="0 0 ${ICON} ${ICON}">
     <defs>
       <radialGradient id="ac-bg-${kind}" cx="50%" cy="50%" r="55%">
-        <stop offset="0%"   stop-color="rgba(255,255,255,0.20)"/>
-        <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+        <stop offset="0%"   stop-color="rgba(0,0,0,0.55)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
       </radialGradient>
     </defs>
     <circle cx="${cx}" cy="${cx}" r="${cx-1}" fill="url(#ac-bg-${kind})"/>

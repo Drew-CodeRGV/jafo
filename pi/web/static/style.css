@@ -630,6 +630,17 @@ body {
   width: 100%;
   height: 100%;
 }
+/* Slate-blue dark mode for the OSM tile layer.
+     invert(1)        flips the cream/white OSM background to dark
+     hue-rotate(190°) shifts the inverted hues toward slate-blue
+     brightness(0.95) trims the brightest highlights so colors don't blow out
+     saturate(0.55)   desaturates so the map reads as a backdrop, not a
+                      competing-color foreground vs the aircraft icons
+   Aircraft / call markers / airports are rendered as separate Leaflet
+   panes/layers and are not affected by this filter — only the tile pane. */
+.map-pane .map-2d .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(190deg) brightness(0.95) saturate(0.55);
+}
 /* Draggable column splitter between the 2D street map and the 3D
    air-traffic view. Width-based resize is persisted to localStorage. */
 .map-splitter {
