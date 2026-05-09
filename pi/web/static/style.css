@@ -217,6 +217,145 @@ body {
   padding: 4px;
 }
 
+/* ---- Leaflet aircraft overlay (replaces the old MapLibre 3D pane) ---- */
+.ac-leaflet {
+  background: transparent !important;
+  border: 0 !important;
+  filter:
+    drop-shadow(0 0 1px rgba(0,0,0,0.95))
+    drop-shadow(0 0 3px rgba(255,255,255,0.85))
+    drop-shadow(0 0 7px rgba(255,200,80,0.55));
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ac-leaflet svg { display: block; }
+.ac-leaflet.ac-emergency {
+  animation: ac-emerg-pulse 0.9s ease-in-out infinite;
+}
+@keyframes ac-emerg-pulse {
+  0%, 100% { filter:
+    drop-shadow(0 0 2px rgba(255,255,255,1))
+    drop-shadow(0 0 8px rgba(255,80,80,0.95))
+    drop-shadow(0 0 16px rgba(255,40,40,0.7)); }
+  50%      { filter:
+    drop-shadow(0 0 4px rgba(255,255,255,1))
+    drop-shadow(0 0 14px rgba(255,40,40,1))
+    drop-shadow(0 0 24px rgba(255,40,40,0.85)); }
+}
+
+/* Aircraft popup card (Leaflet popup body) */
+.leaflet-popup .ac-pop {
+  font: 11px/1.35 ui-monospace, "SF Mono", Menlo, monospace;
+  min-width: 200px;
+}
+.leaflet-popup .ac-pop-head {
+  display: flex; justify-content: space-between; gap: 6px;
+  border-bottom: 1px solid #cfd9e1;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+.leaflet-popup .ac-pop-time {
+  font-size: 10px; color: #6c7a86;
+}
+.leaflet-popup .ac-pop-row {
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.leaflet-popup .ac-pop-key { color: #6c7a86; }
+.leaflet-popup .ac-pop-event {
+  margin-top: 4px; padding: 2px 6px; border-radius: 3px;
+  text-align: center; font-weight: 700; font-size: 10px;
+}
+.leaflet-popup .ac-pop-event.dep { background: #1f5b2e; color: #d6ffd6; }
+.leaflet-popup .ac-pop-event.arr { background: #5a3a17; color: #ffd6b0; }
+.leaflet-popup .ac-pop-logo-wrap {
+  background: #ffffff;
+  margin: 4px 0;
+  padding: 4px;
+  border-radius: 3px;
+  text-align: center;
+}
+.leaflet-popup .ac-pop-logo { max-height: 28px; max-width: 100%; }
+.leaflet-popup .ac-pop-summary {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #cfd9e1;
+  color: #344;
+}
+.leaflet-popup .ac-pop-link {
+  display: inline-block; margin-top: 4px;
+  font-size: 10px; color: #1c6dd0; text-decoration: none;
+}
+
+/* Recent-call ring overlay (Leaflet circleMarker; CSS just controls
+   the kind-specific pulse, the colors come from JS). */
+.recent-call-marker.kind-fire path { animation: rc-pulse-fire 2.6s ease-in-out infinite; }
+.recent-call-marker.kind-law  path { animation: rc-pulse-law  2.6s ease-in-out infinite; }
+.recent-call-marker.kind-ems  path { animation: rc-pulse-ems  2.6s ease-in-out infinite; }
+@keyframes rc-pulse-fire {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(239,72,72,0.4)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(239,72,72,0.95)); }
+}
+@keyframes rc-pulse-law {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(58,141,240,0.4)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(58,141,240,0.95)); }
+}
+@keyframes rc-pulse-ems {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(76,192,107,0.4)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(76,192,107,0.95)); }
+}
+
+/* "Open in timeline" highlight in the timeline list */
+.call.flash {
+  background: rgba(255, 232, 122, 0.18);
+  box-shadow: inset 3px 0 0 #ffe87a;
+  transition: background 1.6s ease, box-shadow 1.6s ease;
+}
+
+/* Air-traffic status block (bottom-left Leaflet control) */
+.ac-status-wrap {
+  background: rgba(10, 18, 24, 0.85);
+  color: #d6e0e8;
+  padding: 4px 9px;
+  border-radius: 5px;
+  font: 600 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.04em;
+  display: flex; align-items: center; gap: 6px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+}
+.ac-status-label { color: #7aa6c7; font-weight: 500; }
+.ac-status-count { color: #ffe87a; }
+.ac-status-wrap .ac-source {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.06em;
+}
+.ac-status-wrap .ac-source.local { color: #4cc06b; box-shadow: 0 0 6px rgba(76,192,107,0.5); }
+.ac-status-wrap .ac-source.cloud { color: #b0b0b0; }
+
+/* Airport reference markers (yellow triangle on a dark plate) */
+.airport-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.85));
+}
+.airport-marker svg { display: block; }
+.airport-marker .airport-label {
+  font: 600 9px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: #ffe87a;
+  background: rgba(0, 18, 30, 0.85);
+  border: 1px solid rgba(255, 232, 122, 0.5);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .clear-btn {
   width: 100%;
   background: transparent;
@@ -245,21 +384,20 @@ body {
   overflow: hidden;
 }
 
-/* Map sits at the top of the timeline pane, split into two columns:
-   75% Leaflet 2D street map on the left, 25% MapLibre 3D satellite
-   view on the right (with live air traffic). Capped at 38vh. */
+/* Map at the top of the timeline pane — single full-width Leaflet
+   street map. Aircraft, airports, recent calls, and the heatmap all
+   render as overlay layers on this one map. Capped at 38vh. */
 .map-pane {
   flex: 0 0 auto;
   height: 38vh;
   max-height: 38vh;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
-  display: flex;
-  flex-direction: row;
+  position: relative;
   overflow: hidden;
 }
 .map-pane .map-2d {
-  flex: 0 0 70%;
+  width: 100%;
   height: 100%;
 }
 /* Draggable column splitter between the 2D street map and the 3D

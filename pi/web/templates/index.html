@@ -9,8 +9,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <link rel="stylesheet" href="{{ static_v('style.css') }}">
 <link rel="icon" href="/static/logo.png" type="image/png">
 </head>
@@ -95,20 +93,8 @@
 </aside>
 
 <main class="timeline">
-  <div class="map-pane" aria-label="Live map of recent calls">
-    <div id="map" class="map-2d" aria-label="2D street map of recent calls"></div>
-    <div id="map-splitter" class="map-splitter" role="separator"
-         aria-label="Drag to resize map / air traffic columns"
-         aria-orientation="vertical" tabindex="0"></div>
-    <div id="map-3d" class="map-3d" aria-label="3D satellite view with live air traffic">
-      <div class="map-3d-overlay">
-        <div class="map-3d-title">Air Traffic <span id="aircraft-count">—</span> <span id="aircraft-source" class="ac-source" title="Data source">…</span></div>
-        <div class="map-3d-legend">
-          <span><i class="leg-call"></i>call</span>
-          <span><i class="leg-ac"></i>aircraft</span>
-        </div>
-      </div>
-    </div>
+  <div class="map-pane" aria-label="Live map of recent calls + air traffic">
+    <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
   </div>
   <section id="stories-strip" class="stories-strip" aria-label="Top stories">
     <div class="stories-header">

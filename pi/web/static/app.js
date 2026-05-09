@@ -374,16 +374,19 @@ const mapState = {
   heatLayer: null,
   heatVisible: localStorage.getItem("jafo.heatVisible") !== "0", // default ON
   heatTimer: null,
-};
-
-// ---- 3D map (MapLibre, satellite + air traffic) ----
-const map3dState = {
-  map: null,            // maplibre Map instance
-  callMarkers: new Map(),       // call.id → marker (recent-calls overlay)
-  aircraftMarkers: new Map(),   // icao24 → marker
-  airportMarkers: new Map(),    // ICAO → marker (persistent)
-  pollTimer: null,
-  callsTimer: null,
+  // Air-traffic + recent-calls overlay layers — all on the single Leaflet
+  // map now (the MapLibre 3D pane was removed). Markers indexed for cheap
+  // in-place updates between polls.
+  aircraftLayer: null,           // L.layerGroup of aircraft markers
+  aircraftMarkers: new Map(),    // icao24 → L.marker
+  trailLayer:    null,           // L.layerGroup of trail polylines
+  trailLines:    new Map(),      // icao24 → L.polyline
+  airportLayer:  null,           // L.layerGroup of airport markers (persistent)
+  airportMarkers: new Map(),     // ICAO → L.marker
+  recentCallsLayer:   null,      // L.layerGroup of recent-call ring markers
+  recentCallsMarkers: new Map(), // call.id → L.marker
+  acPollTimer:    null,
+  callsPollTimer: null,
 };
 
 // Hardcoded so airports render the moment the 3D map is ready, before any
@@ -477,193 +480,61 @@ async function initMap() {
   }).addTo(mapState.map);
 
   addHeatToggleControl();
-
-  // Right-pane 3D satellite view with live air traffic
-  init3DMap(cfg);
+  initAirTrafficLayers();
 }
 
-// ---- 3D satellite + air-traffic pane (right column) ----
-function init3DMap(cfg) {
-  const el = document.getElementById("map-3d");
-  if (!el || typeof maplibregl === "undefined") return;
-  // Mobile / tablet: skip the 3D pane entirely — CSS hides it, we also skip
-  // init so we don't load MapLibre tiles or poll /api/aircraft on cell data.
-  // pointer:coarse covers phones + tablets + touch laptops in all orientations;
-  // the width fallback catches old browsers without the pointer media query.
-  const isTouchDevice =
-    window.matchMedia("(pointer: coarse)").matches ||
-    window.matchMedia("(max-width: 760px)").matches;
-  if (isTouchDevice) return;
+// ---- Air traffic + recent calls — overlaid on the main 2D Leaflet map ----
+//
+// The 3D MapLibre pane was removed (it was CPU-heavy, broken on touch, and
+// less impactful than just showing aircraft on the bigger street map).
+// We render aircraft as kind-colored arrow icons rotated by track angle,
+// per-aircraft trail polylines, airport reference markers, and a
+// recent-calls ring overlay — all as Leaflet layer groups so the user
+// can toggle each independently if we add controls later.
+function initAirTrafficLayers() {
+  if (!mapState.map) return;
+  mapState.airportLayer      = L.layerGroup().addTo(mapState.map);
+  mapState.trailLayer        = L.layerGroup().addTo(mapState.map);
+  mapState.recentCallsLayer  = L.layerGroup().addTo(mapState.map);
+  mapState.aircraftLayer     = L.layerGroup().addTo(mapState.map);  // last so it's on top
+  // Seed RGV airports — they don't move, so just place once.
+  for (const ap of RGV_AIRPORTS_JS) {
+    const m = L.marker([ap.lat, ap.lon], {
+      icon: L.divIcon({
+        html: `<div class="airport-marker">${_airportSvg()}<div class="airport-label">${ap.icao}</div></div>`,
+        className: "", iconSize: [28, 32], iconAnchor: [14, 28],
+      }),
+      keyboard: false,
+    });
+    m.bindTooltip(ap.name);
+    m.addTo(mapState.airportLayer);
+    mapState.airportMarkers.set(ap.icao, m);
+  }
+  addAirTrafficStatusControl();
+  refreshAircraft();
+  refreshRecentCalls();
+  mapState.acPollTimer    = setInterval(refreshAircraft,    20_000);
+  mapState.callsPollTimer = setInterval(refreshRecentCalls, 30_000);
+}
 
-  const center = cfg.center || [26.2, -98.0];
-  // MapLibre uses [lng, lat]; our cfg.center is [lat, lng] (Leaflet convention).
-  const lngLat = [center[1], center[0]];
-
-  map3dState.map = new maplibregl.Map({
-    container: "map-3d",
-    style: {
-      version: 8,
-      sources: {
-        // ESRI World Imagery — free, no API key, satellite+aerial composite
-        sat: {
-          type: "raster",
-          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-          tileSize: 256,
-          attribution: "Imagery © Esri, Maxar, Earthstar Geographics, USDA FSA, USGS, AeroGRID, IGN, and the GIS User Community",
-        },
-      },
-      layers: [{ id: "sat", type: "raster", source: "sat" }],
+// Small status block in the bottom-left of the map: aircraft count + the
+// LOCAL/CLOUD source indicator. Replaces the old #map-3d-overlay header.
+function addAirTrafficStatusControl() {
+  if (!mapState.map) return;
+  const Ctl = L.Control.extend({
+    options: { position: "bottomleft" },
+    onAdd: () => {
+      const div = L.DomUtil.create("div", "ac-status-wrap");
+      div.innerHTML = `<span class="ac-status-label">Air Traffic</span>
+                       <span id="aircraft-count" class="ac-status-count">—</span>
+                       <span id="aircraft-source" class="ac-source" title="Data source">…</span>`;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
     },
-    center: lngLat,
-    zoom: 8.9,
-    pitch: 84,        // looking across — ground at bottom, horizon ~35% up
-    bearing: -8,
-    maxPitch: 85,     // hard MapLibre cap is 85° (any higher = under-the-ground)
-    interactive: true,
-    attributionControl: false,
   });
-  map3dState.map.addControl(
-    new maplibregl.AttributionControl({ compact: true }), "bottom-right"
-  );
-
-  map3dState.map.on("load", () => {
-    // Sky / atmosphere layer — at pitch 78° we see well past the horizon, so
-    // the empty area above must read as sky, not as the page background.
-    try {
-      map3dState.map.addLayer({
-        id: "sky",
-        type: "sky",
-        paint: {
-          "sky-type": "atmosphere",
-          "sky-atmosphere-color": "#08111a",
-          "sky-atmosphere-halo-color": "#0fb5b0",
-          "sky-atmosphere-sun": [0.0, 92.0],
-          "sky-atmosphere-sun-intensity": 5,
-        },
-      });
-    } catch (_) { /* older MapLibre — degrade silently */ }
-
-    // Trail rendering — semi-transparent so the satellite imagery still
-    // reads through the line. Two stacked layers: a soft cyan halo for
-    // glow, and a thin gradient-faded core that brightens toward "now".
-    map3dState.map.addSource("trails", {
-      type: "geojson",
-      lineMetrics: true,           // enables along-line gradient on the core
-      data: { type: "FeatureCollection", features: [] },
-    });
-
-    map3dState.map.addLayer({
-      id: "trail-halo",
-      type: "line",
-      source: "trails",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": "#00ffe7",
-        "line-width": [
-          "interpolate", ["linear"], ["zoom"],
-          5, 4,
-          12, 8,
-          16, 14,
-        ],
-        "line-blur": 5,
-        "line-opacity": 0.22,        // semi-transparent halo
-      },
-    });
-    map3dState.map.addLayer({
-      id: "trail-lines",
-      type: "line",
-      source: "trails",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": ["get", "color"],
-        "line-width": [
-          "interpolate", ["linear"], ["zoom"],
-          5, 1.5,
-          12, 2.5,
-          16, 4.5,
-        ],
-        // Fade older portions; "now" end is brightest but still translucent.
-        "line-gradient": [
-          "interpolate", ["linear"], ["line-progress"],
-          0,    "rgba(255,255,255,0.04)",
-          0.45, "rgba(255,255,255,0.22)",
-          0.85, "rgba(255,255,255,0.50)",
-          1,    "rgba(255,255,255,0.72)",
-        ],
-        "line-opacity": 0.85,
-      },
-    });
-
-    // Departure / arrival event lines — a direct solid line anchored at the
-    // airport and tracking the aircraft each refresh. Stacked halo + core
-    // so the line punches through the imagery clearly (DEP green, ARR amber).
-    map3dState.map.addSource("ac-events", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
-    });
-    map3dState.map.addLayer({
-      id: "ac-event-halo",
-      type: "line",
-      source: "ac-events",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": ["get", "color"],
-        "line-width": [
-          "interpolate", ["linear"], ["zoom"],
-          5,  6,
-          12, 10,
-          16, 18,
-        ],
-        "line-blur": 4,
-        "line-opacity": 0.45,
-      },
-    });
-    map3dState.map.addLayer({
-      id: "ac-event-lines",
-      type: "line",
-      source: "ac-events",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": ["get", "color"],
-        "line-width": [
-          "interpolate", ["linear"], ["zoom"],
-          5,  2,
-          12, 3.5,
-          16, 6,
-        ],
-        "line-opacity": 0.95,
-      },
-    });
-
-    // Seed airports immediately so the field references are visible before
-    // any /api/aircraft response (and remain visible if that endpoint fails).
-    _renderAirports(RGV_AIRPORTS_JS);
-
-    refreshAircraft();      // first pull
-    map3dState.pollTimer = setInterval(refreshAircraft, 20_000);  // matches server cache TTL
-
-    // Recent-calls overlay: persistent markers for every call in the last
-    // 15 minutes, so a helicopter response on the 3D pane lines up
-    // visually with the dispatch traffic that called it in.
-    refreshCalls3d();
-    map3dState.callsTimer = setInterval(refreshCalls3d, 30_000);
-
-    // Re-orient icons whenever the map moves/rotates/zooms so the nose
-    // always points along the actual direction of motion on screen.
-    let rotRaf = 0;
-    const scheduleRot = () => {
-      if (rotRaf) return;
-      rotRaf = requestAnimationFrame(() => {
-        rotRaf = 0;
-        _updateAircraftRotations();
-      });
-    };
-    map3dState.map.on("move", scheduleRot);
-    map3dState.map.on("rotate", scheduleRot);
-    map3dState.map.on("pitch", scheduleRot);
-    map3dState.map.on("zoom", scheduleRot);
-  });
+  new Ctl().addTo(mapState.map);
 }
+
 
 function _altColor(ft) {
   if (ft > 30000) return "#ec4848";
@@ -689,15 +560,6 @@ function _kindColor(kind, emergency) {
     case "light":
     default:           return "#5fb7e8";
   }
-}
-
-// Pixels of vertical screen offset per foot of altitude. Tuned so a typical
-// commercial cruise (~35k ft) sits visibly above its ground shadow at our
-// default zoom 8.6 / pitch 78 without floating off the top of the pane.
-function _altPx(ft) {
-  const f = ft || 0;
-  if (f <= 0) return 0;
-  return Math.min(220, f * 0.0055);
 }
 
 // Aircraft icon SVG. All shapes are authored in a 28×28 grid pointing straight
@@ -803,84 +665,22 @@ function _aircraftIconShape(kind, fill, stroke) {
 // the bottom of this SVG lines up with the aircraft's actual lat/lon and
 // the icon floats `altPx` pixels above it. Only the icon glyph rotates
 // to flight track — the connector and shadow stay vertical/horizontal.
-function _aircraftSvg(altitudeFt, kind, trackDeg, emergency) {
+// 2D Leaflet aircraft icon — kind-colored shape rotated by compass track.
+// Leaflet doesn't rotate the map, so the SVG-rotate angle equals the
+// flight track directly (no projection math like the old MapLibre path).
+function _aircraftSvg(kind, trackDeg, emergency) {
   const fill = _kindColor(kind, emergency);
   const stroke = "rgba(0,0,0,0.95)";
-  // ICON was 28 — bumped to 38 for stronger visual emphasis on the lighter
-  // map. The icon shapes are still drawn in their native 28-coord space and
-  // scaled up by ICON/28 in the wrapping <g>, so we don't have to re-author.
-  const ICON = 38;
+  const ICON = 30;
   const NATIVE = 28;
   const SCALE = ICON / NATIVE;
-  const altPx = Math.round(_altPx(altitudeFt));
-  const totalH = ICON + altPx + 6;
   const cx = ICON / 2;
-  const iconBottomY = ICON;
-  const groundY = totalH - 4;
-
-  const connector = altPx > 4
-    ? `<line x1="${cx}" y1="${iconBottomY}" x2="${cx}" y2="${groundY}"
-            stroke="rgba(0,255,231,0.55)" stroke-width="1"
-            stroke-dasharray="2,3"/>`
-    : "";
-  const shadow = altPx > 4
-    ? `<ellipse cx="${cx}" cy="${groundY + 1}" rx="3.6" ry="1.3"
-            fill="rgba(0,0,0,0.55)" stroke="rgba(0,255,231,0.65)" stroke-width="0.6"/>`
-    : "";
-
-  // trackDeg here is the screen-space angle (clockwise from screen-up) the
-  // caller has already computed via _screenTrackAngle. SVG rotate uses the
-  // same convention, so it slots in directly.
-  const rot = trackDeg ? trackDeg : 0;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${totalH}"
-              viewBox="0 0 ${ICON} ${totalH}">
-    <rect width="100%" height="100%" fill="transparent"/>
-    <g class="ac-icon-grp" transform="rotate(${rot.toFixed(1)} ${cx} ${ICON/2}) scale(${SCALE})">
+  const rot = (trackDeg != null && Number.isFinite(trackDeg)) ? trackDeg : 0;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${ICON}" viewBox="0 0 ${ICON} ${ICON}">
+    <g transform="rotate(${rot.toFixed(1)} ${cx} ${cx}) scale(${SCALE})">
       ${_aircraftIconShape(kind, fill, stroke)}
     </g>
-    ${connector}
-    ${shadow}
   </svg>`;
-}
-
-// Compute the icon-rotation angle in screen-pixel space. Pure track_deg
-// (compass clockwise from true north) is a map-frame angle; at high pitch
-// or non-zero bearing it doesn't visually match the direction the plane is
-// moving on screen. Project the position + a small step along the track
-// and take the screen-pixel angle from one to the other — that's the angle
-// the icon should rotate to on screen, regardless of map pitch/bearing.
-function _screenTrackAngle(map, lat, lon, trackDeg) {
-  if (!map || trackDeg == null || !Number.isFinite(trackDeg)) return 0;
-  try {
-    const here = map.project([lon, lat]);
-    const rad = trackDeg * Math.PI / 180;
-    const stepLat = lat + 0.005 * Math.cos(rad);
-    const stepLon = lon + 0.005 * Math.sin(rad) /
-                          Math.max(0.05, Math.cos(lat * Math.PI / 180));
-    const ahead = map.project([stepLon, stepLat]);
-    const dx = ahead.x - here.x;
-    const dy = ahead.y - here.y;
-    if (dx === 0 && dy === 0) return 0;
-    // SVG rotate(0) points up; screen "up" is -y. Clockwise positive.
-    return Math.atan2(dx, -dy) * 180 / Math.PI;
-  } catch (_) {
-    return 0;
-  }
-}
-
-// Re-rotate every aircraft icon based on the current map view. Cheap —
-// just sets one transform attribute per marker; no SVG rebuild.
-function _updateAircraftRotations() {
-  if (!map3dState.map) return;
-  const SCALE = 38 / 28;
-  for (const m of map3dState.aircraftMarkers.values()) {
-    const d = m._jafoData;
-    if (!d) continue;
-    const ang = _screenTrackAngle(map3dState.map, d.lat, d.lon, d.track);
-    const grp = m.getElement().querySelector(".ac-icon-grp");
-    if (grp) grp.setAttribute("transform",
-      `rotate(${ang.toFixed(1)} 19 19) scale(${SCALE})`);
-  }
 }
 
 function _airportSvg() {
@@ -891,46 +691,170 @@ function _airportSvg() {
   </svg>`;
 }
 
-function _renderAirports(airports) {
-  // Add any airport we haven't already placed. We never remove them — once
-  // an airport is on the map it stays there, so a transient adsb.lol failure
-  // (which would return zero airports) doesn't blank the field references.
-  for (const ap of (airports || [])) {
-    if (map3dState.airportMarkers.has(ap.icao)) continue;
-    const el = document.createElement("div");
-    el.className = "airport-marker";
-    el.innerHTML = `${_airportSvg()}<div class="airport-label">${ap.icao}</div>`;
-    const m = new maplibregl.Marker({
-      element: el, anchor: "bottom", pitchAlignment: "viewport",
-    })
-      .setLngLat([ap.lon, ap.lat])
-      .addTo(map3dState.map);
-    map3dState.airportMarkers.set(ap.icao, m);
-  }
+// Recent-call popup HTML — used by the Leaflet ring markers.
+function _recentCallPopupHtml(c) {
+  const sumTxt  = c.incident_summary ? `<div class="ac-pop-summary">${escapeHtml(c.incident_summary)}</div>` : "";
+  const typeTxt = c.incident_type && c.incident_type !== "radio_chatter"
+    ? `<div class="ac-pop-row"><span class="ac-pop-key">Type</span><span>${escapeHtml(c.incident_type)}</span></div>` : "";
+  const sevTxt  = c.incident_severity && c.incident_severity !== "unknown"
+    ? `<div class="ac-pop-row"><span class="ac-pop-key">Severity</span><span class="sev sev-${c.incident_severity}">${c.incident_severity}</span></div>` : "";
+  const locTxt  = c.incident_location
+    ? `<div class="ac-pop-row"><span class="ac-pop-key">Location</span><span>${escapeHtml(c.incident_location)}${c.precise ? "" : " <em>(approx.)</em>"}</span></div>` : "";
+  return `<div class="ac-pop">
+    <div class="ac-pop-head">
+      <strong>${escapeHtml(c.talkgroup_tag || ("tg-" + c.talkgroup))}</strong>
+      <span class="ac-pop-time">${fmtTime(c.start_time)}</span>
+    </div>
+    ${typeTxt}${sevTxt}${locTxt}${sumTxt}
+    <div class="ac-pop-actions">
+      <a href="#" data-call-id="${c.id}" class="ac-pop-link">Open in timeline ↓</a>
+    </div>
+  </div>`;
 }
 
 // SVG for a recent-call ring marker. Color = service kind (fire/law/ems).
-// Outer ring at higher opacity acts as a halo so the dot reads on imagery.
-function _callMarkerSvg(kind) {
-  const colors = {
-    fire:  "#ef4848",  // red — fire dispatch
-    law:   "#3a8df0",  // blue — police / sheriff / DPS
-    ems:   "#4cc06b",  // green — EMS / hospital
-    other: "#cccccc",  // gray — utility / other
-  };
-  const c = colors[kind] || colors.other;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
-    <circle cx="11" cy="11" r="9.5" fill="none" stroke="${c}" stroke-width="1.2" opacity="0.55"/>
-    <circle cx="11" cy="11" r="6"   fill="${c}" stroke="#ffffff" stroke-width="1.6"/>
-  </svg>`;
+function _callKindColor(kind) {
+  return ({ fire: "#ef4848", law: "#3a8df0", ems: "#4cc06b" })[kind] || "#cccccc";
 }
 
-async function refreshCalls3d() {
-  if (!map3dState.map) return;
+// ----------------------------------------------------------------------
+// Aircraft — pulled every 20s from /api/aircraft. Each plane gets a
+// kind-colored arrow rotated by track + a faint trail polyline behind it.
+// Updates the LOCAL/CLOUD source indicator + visible-count stat.
+// ----------------------------------------------------------------------
+async function refreshAircraft() {
+  if (!mapState.map || !mapState.aircraftLayer) return;
   let payload;
   try {
-    const r = await fetch("/api/recent-calls-geo?minutes=15");
-    payload = await r.json();
+    const url = "/api/aircraft" + (window.JAFO_REGION_SLUG
+      ? "?region=" + encodeURIComponent(window.JAFO_REGION_SLUG)
+      : "?region=rgv");
+    payload = await fetch(url).then((r) => r.json());
+  } catch (e) {
+    console.warn("aircraft fetch failed", e);
+    return;
+  }
+  const list = payload.aircraft || [];
+  const seen = new Set();
+
+  for (const a of list) {
+    if (a.lat == null || a.lon == null) continue;
+    seen.add(a.icao24);
+
+    // Trail (semi-transparent kind-colored polyline)
+    const trail = (a.trail || []).map(([lon, lat]) => [lat, lon]);
+    let line = mapState.trailLines.get(a.icao24);
+    if (trail.length >= 2) {
+      const color = _kindColor(a.kind, a.emergency);
+      if (!line) {
+        line = L.polyline(trail, { color, weight: 1.8, opacity: 0.55 })
+          .addTo(mapState.trailLayer);
+        mapState.trailLines.set(a.icao24, line);
+      } else {
+        line.setLatLngs(trail);
+        line.setStyle({ color });
+      }
+    } else if (line) {
+      line.remove();
+      mapState.trailLines.delete(a.icao24);
+    }
+
+    // Aircraft marker
+    const html = _aircraftSvg(a.kind, a.track_deg, a.emergency);
+    const icon = L.divIcon({
+      html, className: "ac-leaflet" + (a.emergency ? " ac-emergency" : ""),
+      iconSize: [30, 30], iconAnchor: [15, 15],
+    });
+    let m = mapState.aircraftMarkers.get(a.icao24);
+    if (!m) {
+      m = L.marker([a.lat, a.lon], { icon, keyboard: false });
+      m.bindPopup(_aircraftPopupHtml(a), { offset: [0, -10], maxWidth: 280 });
+      m.addTo(mapState.aircraftLayer);
+      mapState.aircraftMarkers.set(a.icao24, m);
+    } else {
+      m.setLatLng([a.lat, a.lon]);
+      m.setIcon(icon);
+      m.setPopupContent(_aircraftPopupHtml(a));
+    }
+  }
+
+  // Drop aircraft + trails not in this payload
+  for (const [icao, m] of mapState.aircraftMarkers) {
+    if (!seen.has(icao)) { m.remove(); mapState.aircraftMarkers.delete(icao); }
+  }
+  for (const [icao, line] of mapState.trailLines) {
+    if (!seen.has(icao)) { line.remove(); mapState.trailLines.delete(icao); }
+  }
+
+  // Status block in the bottom-left corner
+  const counter = document.getElementById("aircraft-count");
+  if (counter) counter.textContent = list.length;
+  const badge = document.getElementById("aircraft-source");
+  if (badge) {
+    const local = payload.data_source === "readsb-local";
+    badge.textContent = local ? "LOCAL" : "CLOUD";
+    badge.classList.toggle("local", local);
+    badge.classList.toggle("cloud", !local);
+    badge.title = local
+      ? "Live ADS-B feed from local readsb (~1s updates)"
+      : "Falling back to adsb.lol cloud API (~20s updates)";
+  }
+}
+
+// Aircraft popup card — same fields as before, just rendered inside
+// Leaflet's L.popup instead of a MapLibre popup.
+function _aircraftPopupHtml(a) {
+  const cs    = (a.callsign || a.icao24 || "").trim();
+  const reg   = a.registration ? ` · ${escapeHtml(a.registration)}` : "";
+  const tcode = a.type_code ? ` ${escapeHtml(a.type_code)}` : "";
+  const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "ground";
+  const ktTxt  = a.velocity_kt ? `${a.velocity_kt} kt` : "—";
+  const trkTxt = a.track_deg != null ? `${Math.round(a.track_deg)}°` : "—";
+  const vrTxt  = a.vertical_rate_fpm
+    ? `${a.vertical_rate_fpm > 0 ? "↑" : "↓"} ${Math.abs(a.vertical_rate_fpm).toLocaleString()} fpm`
+    : "level";
+  const kindLbl = ({
+    light: "Light/GA", commercial: "Commercial", heavy: "Heavy", jet: "Jet",
+    military: "MILITARY", helicopter: "Helicopter", uav: "UAV",
+    glider: "Glider", balloon: "Balloon",
+  })[a.kind] || "Aircraft";
+  const evTxt = a.airport_event
+    ? `<div class="ac-pop-event ${a.airport_event.type.toLowerCase()}">
+         <strong>${a.airport_event.type}</strong> ${a.airport_event.icao} · ${a.airport_event.distance_nm} nm
+       </div>` : "";
+  const emergTxt = a.emergency
+    ? `<div class="ac-pop-event arr" style="background:#ff2a2a;color:#fff">⚠ EMERGENCY · squawk ${a.squawk}</div>` : "";
+  const isAirlineKind = ["commercial", "heavy", "jet"].includes(a.kind);
+  const logoHtml = (isAirlineKind && a.airline_iata)
+    ? `<div class="ac-pop-logo-wrap">
+         <img class="ac-pop-logo"
+              src="https://images.kiwi.com/airlines/128/${a.airline_iata}.png"
+              alt="${escapeHtml(a.airline_icao || a.airline_iata)}" loading="lazy"
+              onerror="this.parentElement.style.display='none'"/>
+       </div>` : "";
+  return `<div class="ac-pop">
+    <div class="ac-pop-head">
+      <strong>${escapeHtml(cs || "—")}</strong>
+      <span class="ac-pop-time">${escapeHtml(kindLbl)}</span>
+    </div>
+    ${logoHtml}
+    <div class="ac-pop-row"><span class="ac-pop-key">Type</span><span>${escapeHtml(a.description || "")}${tcode}${reg}</span></div>
+    <div class="ac-pop-row"><span class="ac-pop-key">Altitude</span><span>${altTxt}</span></div>
+    <div class="ac-pop-row"><span class="ac-pop-key">Speed/Track</span><span>${ktTxt} · ${trkTxt}</span></div>
+    <div class="ac-pop-row"><span class="ac-pop-key">VR</span><span>${vrTxt}</span></div>
+    ${evTxt}${emergTxt}
+  </div>`;
+}
+
+// ----------------------------------------------------------------------
+// Recent-calls overlay — every call from the last 15 min as a kind-colored
+// ring on the map. Refreshed every 30s; older calls fade out.
+// ----------------------------------------------------------------------
+async function refreshRecentCalls() {
+  if (!mapState.map || !mapState.recentCallsLayer) return;
+  let payload;
+  try {
+    payload = await fetch("/api/recent-calls-geo?minutes=15").then((r) => r.json());
   } catch (e) {
     console.warn("recent-calls fetch failed", e);
     return;
@@ -943,54 +867,22 @@ async function refreshCalls3d() {
     if (c.lat == null || c.lng == null) continue;
     seen.add(c.id);
 
-    // Deterministic per-id jitter so multiple calls at the same talkgroup-
-    // city centroid don't perfectly stack. ~13 m at 26°N — enough to fan out
-    // a busy dispatch without misrepresenting the location materially.
+    const ageMin  = Math.max(0, (now - c.start_time) / 60);
+    const opacity = Math.max(0.25, 1 - ageMin / 16);
+    const color   = _callKindColor(c.kind);
+
+    // Per-id jitter so stacked-at-centroid calls fan out a little (~13m at 26°N)
     const jLat = (((c.id * 97) % 100) - 50) * 0.00012;
     const jLng = (((c.id * 31) % 100) - 50) * 0.00012;
-    const lng = c.lng + jLng;
-    const lat = c.lat + jLat;
 
-    // Fade older calls across the 15-minute window so the freshest ones pop.
-    const ageMin = Math.max(0, (now - c.start_time) / 60);
-    const opacity = Math.max(0.25, 1 - ageMin / 16).toFixed(2);
-
-    let m = map3dState.callMarkers.get(c.id);
+    let m = mapState.recentCallsMarkers.get(c.id);
     if (!m) {
-      const el = document.createElement("div");
-      el.className = `call-marker-3d kind-${c.kind || "other"}` +
-                     (c.precise ? "" : " imprecise");
-      el.innerHTML = _callMarkerSvg(c.kind);
-      const sumTxt = c.incident_summary
-        ? `<div class="ac-pop-summary">${escapeHtml(c.incident_summary)}</div>` : "";
-      const typeTxt = c.incident_type && c.incident_type !== "radio_chatter"
-        ? `<div class="ac-pop-row"><span class="ac-pop-key">Type</span><span>${escapeHtml(c.incident_type)}</span></div>` : "";
-      const sevTxt = c.incident_severity && c.incident_severity !== "unknown"
-        ? `<div class="ac-pop-row"><span class="ac-pop-key">Severity</span><span class="sev sev-${c.incident_severity}">${c.incident_severity}</span></div>` : "";
-      const locTxt = c.incident_location
-        ? `<div class="ac-pop-row"><span class="ac-pop-key">Location</span><span>${escapeHtml(c.incident_location)}${c.precise ? "" : " <em>(approx.)</em>"}</span></div>` : "";
-      const popupHtml = `
-        <div class="ac-pop">
-          <div class="ac-pop-head">
-            <strong>${escapeHtml(c.talkgroup_tag || ("tg-" + c.talkgroup))}</strong>
-            <span class="ac-pop-time">${fmtTime(c.start_time)}</span>
-          </div>
-          ${typeTxt}${sevTxt}${locTxt}${sumTxt}
-          <div class="ac-pop-actions">
-            <a href="#" data-call-id="${c.id}" class="ac-pop-link">Open in timeline ↓</a>
-          </div>
-        </div>`;
-      m = new maplibregl.Marker({
-        element: el,
-        anchor: "center",
-        pitchAlignment: "viewport",
-        rotationAlignment: "viewport",
-      })
-        .setLngLat([lng, lat])
-        .setPopup(new maplibregl.Popup({ offset: 14, maxWidth: "300px" }).setHTML(popupHtml))
-        .addTo(map3dState.map);
-      // Click on "Open in timeline" inside popup → scroll the call into view.
-      m.getPopup().on("open", () => {
+      m = L.circleMarker([c.lat + jLat, c.lng + jLng], {
+        radius: 6, color, fillColor: color, fillOpacity: 0.7 * opacity,
+        weight: 2, opacity, className: `recent-call-marker kind-${c.kind || "other"}`,
+      });
+      m.bindPopup(_recentCallPopupHtml(c), { offset: [0, -6] });
+      m.on("popupopen", () => {
         const a = m.getPopup().getElement().querySelector(".ac-pop-link");
         if (a) a.addEventListener("click", (ev) => {
           ev.preventDefault();
@@ -1002,209 +894,16 @@ async function refreshCalls3d() {
           }
         });
       });
-      map3dState.callMarkers.set(c.id, m);
+      m.addTo(mapState.recentCallsLayer);
+      mapState.recentCallsMarkers.set(c.id, m);
     } else {
-      m.setLngLat([lng, lat]);
+      m.setStyle({ opacity, fillOpacity: 0.7 * opacity });
     }
-    m.getElement().style.opacity = opacity;
-  }
-  // Drop calls that have aged past the 15-min window
-  for (const [id, m] of map3dState.callMarkers) {
-    if (!seen.has(id)) {
-      m.remove();
-      map3dState.callMarkers.delete(id);
-    }
-  }
-}
-
-async function refreshAircraft() {
-  if (!map3dState.map) return;
-  let payload;
-  try {
-    const url = "/api/aircraft" + (window.JAFO_REGION_SLUG ? "?region=" + encodeURIComponent(window.JAFO_REGION_SLUG) : "?region=rgv");
-    const r = await fetch(url);
-    payload = await r.json();
-  } catch (e) {
-    console.warn("aircraft fetch failed", e);
-    return;
-  }
-  _renderAirports(payload.airports || []);
-  const airportByIcao = Object.fromEntries(
-    (payload.airports || []).map((a) => [a.icao, a])
-  );
-  const list = payload.aircraft || [];
-  const seen = new Set();
-  for (const a of list) {
-    seen.add(a.icao24);
-    const altPx = Math.round(_altPx(a.altitude_ft || 0));
-    const totalH = 38 + altPx + 6;     // matches _aircraftSvg geometry
-    // Screen-space rotation, computed against the live map view. We pass
-    // this into _aircraftSvg as the SVG-rotate angle, then keep it in sync
-    // on map move via _updateAircraftRotations.
-    const screenAng = _screenTrackAngle(map3dState.map, a.lat, a.lon, a.track_deg);
-    let m = map3dState.aircraftMarkers.get(a.icao24);
-    if (!m) {
-      const wrap = document.createElement("div");
-      wrap.className = "ac-marker";
-      wrap.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, screenAng, a.emergency);
-      wrap.dataset.kind = a.kind || "light";
-      if (a.emergency) wrap.classList.add("ac-emergency");
-      // rotationAlignment: "viewport" so MapLibre doesn't add map-bearing
-      // to our marker — we already encode track in screen space inside
-      // the SVG. pitchAlignment: "viewport" keeps it upright at any pitch.
-      m = new maplibregl.Marker({
-        element: wrap,
-        anchor: "bottom",
-        rotationAlignment: "viewport",
-        pitchAlignment: "viewport",
-      })
-        .setLngLat([a.lon, a.lat])
-        .setPopup(new maplibregl.Popup({
-          offset: [0, -(totalH + 8)],
-          closeButton: true,
-          maxWidth: "280px",
-        }))
-        .addTo(map3dState.map);
-      map3dState.aircraftMarkers.set(a.icao24, m);
-    }
-    m.setLngLat([a.lon, a.lat]);
-    m.setRotation(0);
-    // Stash position + track for cheap re-rotation on map move.
-    m._jafoData = { lat: a.lat, lon: a.lon, track: a.track_deg };
-    const el = m.getElement();
-    el.dataset.kind = a.kind || "light";
-    el.classList.toggle("ac-emergency", !!a.emergency);
-    el.innerHTML = _aircraftSvg(a.altitude_ft || 0, a.kind, screenAng, a.emergency);
-    // Re-anchor popup to the (possibly new) altitude offset. setOffset
-    // accepts a [x, y] tuple — negative y = above the marker anchor.
-    if (m.getPopup() && m.getPopup().setOffset) {
-      m.getPopup().setOffset([0, -(totalH + 8)]);
-    }
-    const cs = a.callsign || a.icao24;
-    const altTxt = a.altitude_ft ? `${a.altitude_ft.toLocaleString()} ft` : "ground";
-    const ktTxt = a.velocity_kt ? `${a.velocity_kt} kt` : "—";
-    const trkTxt = a.track_deg != null ? `${Math.round(a.track_deg)}°` : "—";
-    const vrTxt = a.vertical_rate_fpm
-      ? `${a.vertical_rate_fpm > 0 ? "↑" : "↓"} ${Math.abs(a.vertical_rate_fpm).toLocaleString()} fpm`
-      : "level";
-    const kindLabel = {
-      light:"Light/GA", commercial:"Commercial", heavy:"Heavy", jet:"Jet",
-      military:"MILITARY", helicopter:"Helicopter", uav:"UAV", glider:"Glider", balloon:"Balloon",
-    }[a.kind] || "Aircraft";
-    const evTxt = a.airport_event
-      ? `<div class="ac-pop-event ${a.airport_event.type.toLowerCase()}">
-           <strong>${a.airport_event.type}</strong> ${a.airport_event.icao} · ${a.airport_event.distance_nm} nm
-         </div>`
-      : "";
-    const emergTxt = a.emergency
-      ? `<div class="ac-pop-event arr" style="background:#ff2a2a;color:#fff">⚠ EMERGENCY · squawk ${a.squawk}</div>`
-      : "";
-    const reg = a.registration ? `· ${a.registration}` : "";
-    const tcode = a.type_code ? ` ${a.type_code}` : "";
-    // Airline logo banner: only for commercial-class aircraft with a known
-    // ICAO→IATA mapping. Image is hotlinked from images.kiwi.com (free,
-    // public, follows 303 redirects in the browser). On failure we hide the
-    // <img> and the ICAO chip already in the head row stays as-is.
-    const isAirlineKind = ["commercial", "heavy", "jet"].includes(a.kind);
-    const logoHtml = (isAirlineKind && a.airline_iata)
-      ? `<div class="ac-pop-logo-wrap">
-           <img class="ac-pop-logo"
-                src="https://images.kiwi.com/airlines/128/${a.airline_iata}.png"
-                alt="${escapeHtml(a.airline_icao || a.airline_iata)}"
-                loading="lazy"
-                onerror="this.parentElement.style.display='none'"/>
-         </div>`
-      : "";
-    m.getPopup().setHTML(
-      `<div class="ac-pop">
-        ${logoHtml}
-        <div class="ac-pop-head">
-          <strong>${cs}</strong>
-          <span class="ac-pop-kind ac-kind-${a.kind || "light"}">${kindLabel}</span>
-        </div>
-        ${emergTxt}${evTxt}
-        <table class="ac-pop-tbl">
-          <tr><td>alt</td><td>${altTxt}</td></tr>
-          <tr><td>spd</td><td>${ktTxt}</td></tr>
-          <tr><td>hdg</td><td>${trkTxt}</td></tr>
-          <tr><td>v/s</td><td>${vrTxt}</td></tr>
-        </table>
-        <div class="ac-pop-foot">${a.icao24}${tcode} ${reg}</div>
-      </div>`
-    );
-  }
-  // Drop stale markers (planes that left the bbox)
-  for (const [icao, m] of map3dState.aircraftMarkers) {
-    if (!seen.has(icao)) {
-      m.remove();
-      map3dState.aircraftMarkers.delete(icao);
-    }
-  }
-  // Update trail lines — one LineString per aircraft with at least 2 points.
-  // The line-gradient (configured at layer creation) fades older segments.
-  const features = [];
-  for (const a of list) {
-    if (a.trail && a.trail.length >= 2) {
-      features.push({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: a.trail },
-        properties: {
-          icao24: a.icao24,
-          color:  _kindColor(a.kind, a.emergency),
-        },
-      });
-    }
-  }
-  const trailSrc = map3dState.map.getSource("trails");
-  if (trailSrc) {
-    trailSrc.setData({ type: "FeatureCollection", features });
   }
 
-  // DEP / ARR connector lines — one segment from aircraft → airport for
-  // each plane the server tagged as climbing-out / inbound to a visible field.
-  const eventFeatures = [];
-  for (const a of list) {
-    if (!a.airport_event) continue;
-    const ap = airportByIcao[a.airport_event.icao];
-    if (!ap) continue;
-    eventFeatures.push({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: [[a.lon, a.lat], [ap.lon, ap.lat]] },
-      properties: {
-        kind: a.airport_event.type,
-        color: a.airport_event.type === "DEP" ? "#7af07a" : "#ffb35a",
-      },
-    });
+  for (const [id, m] of mapState.recentCallsMarkers) {
+    if (!seen.has(id)) { m.remove(); mapState.recentCallsMarkers.delete(id); }
   }
-  const eventSrc = map3dState.map.getSource("ac-events");
-  if (eventSrc) {
-    eventSrc.setData({ type: "FeatureCollection", features: eventFeatures });
-  }
-  const counter = document.getElementById("aircraft-count");
-  if (counter) counter.textContent = `· ${list.length}`;
-  // Data-source badge — green "LOCAL" when reading from a co-resident
-  // dump1090/readsb, gray "CLOUD" when proxying adsb.lol.
-  const badge = document.getElementById("aircraft-source");
-  if (badge) {
-    const src = payload.data_source || "";
-    const local = src === "readsb-local";
-    badge.textContent = local ? "LOCAL" : "CLOUD";
-    badge.classList.toggle("local", local);
-    badge.classList.toggle("cloud", !local);
-    badge.title = local
-      ? "Live ADS-B feed from local dump1090/readsb (~1s updates)"
-      : "Falling back to adsb.lol cloud API (~20s updates) — local decoder offline";
-  }
-}
-
-function popMapMarker3D(call) {
-  if (!map3dState.map || call.lat == null || call.lng == null) return;
-  const el = document.createElement("div");
-  el.style.cssText = "width:10px;height:10px;border-radius:50%;background:#ec4848;box-shadow:0 0 12px #ec4848,0 0 0 2px rgba(255,255,255,0.4);";
-  const m = new maplibregl.Marker({ element: el })
-    .setLngLat([call.lng, call.lat])
-    .addTo(map3dState.map);
-  setTimeout(() => m.remove(), 5000);
 }
 
 function popMapMarker(call) {
@@ -1265,7 +964,6 @@ function feedMapFromCalls(calls) {
   for (const c of fresh) {
     mapState.seenIds.add(c.id);
     popMapMarker(c);
-    popMapMarker3D(c);
   }
   // Keep set bounded
   if (mapState.seenIds.size > 2000) {
@@ -2108,76 +1806,6 @@ async function boot() {
   startPolling();
   startStoriesRotation();
   attachStoriesSwipe();
-  attachMapSplitter();
 }
 
-// Drag-resize between the 2D street map and the 3D air-traffic pane.
-// Persists as a 0–1 fraction (left-pane width / total) in localStorage.
-// Skipped on touch devices where the 3D pane is hidden.
-const MAP_SPLIT_KEY = "jafo.mapSplit";
-const MAP_SPLIT_MIN = 0.20;   // never let either pane go below 20%
-const MAP_SPLIT_MAX = 0.85;
-function attachMapSplitter() {
-  const splitter = document.getElementById("map-splitter");
-  const pane2d   = document.getElementById("map");
-  const pane3d   = document.getElementById("map-3d");
-  const wrap     = splitter && splitter.parentElement;
-  if (!splitter || !pane2d || !pane3d || !wrap) return;
-  if (window.matchMedia("(pointer: coarse)").matches) return;
-
-  const applyFraction = (f) => {
-    f = Math.max(MAP_SPLIT_MIN, Math.min(MAP_SPLIT_MAX, f));
-    pane2d.style.flex = `0 0 ${(f * 100).toFixed(2)}%`;
-    pane3d.style.flex = `0 0 calc(${((1 - f) * 100).toFixed(2)}% - 6px)`;
-    // Both libs need a kick to re-measure their canvases.
-    if (mapState.map && mapState.map.invalidateSize) mapState.map.invalidateSize();
-    if (map3dState.map && map3dState.map.resize)     map3dState.map.resize();
-    return f;
-  };
-
-  // Restore saved split, if any.
-  const saved = parseFloat(localStorage.getItem(MAP_SPLIT_KEY) || "");
-  if (!Number.isNaN(saved)) applyFraction(saved);
-
-  let dragging = false, raf = 0, lastF = 0;
-  const onMove = (clientX) => {
-    const r = wrap.getBoundingClientRect();
-    if (r.width <= 0) return;
-    lastF = (clientX - r.left) / r.width;
-    if (raf) return;
-    raf = requestAnimationFrame(() => { raf = 0; applyFraction(lastF); });
-  };
-
-  splitter.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    splitter.classList.add("dragging");
-    splitter.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  });
-  splitter.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    onMove(e.clientX);
-  });
-  const stop = (e) => {
-    if (!dragging) return;
-    dragging = false;
-    splitter.classList.remove("dragging");
-    if (e && e.pointerId !== undefined) {
-      try { splitter.releasePointerCapture(e.pointerId); } catch (_) {}
-    }
-    const f = applyFraction(lastF || saved || 0.7);
-    localStorage.setItem(MAP_SPLIT_KEY, f.toFixed(3));
-  };
-  splitter.addEventListener("pointerup", stop);
-  splitter.addEventListener("pointercancel", stop);
-
-  // Keyboard nudge for accessibility — left/right arrows shift 2% per keypress.
-  splitter.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    const cur = parseFloat(localStorage.getItem(MAP_SPLIT_KEY) || "0.7") || 0.7;
-    const f = applyFraction(cur + (e.key === "ArrowRight" ? 0.02 : -0.02));
-    localStorage.setItem(MAP_SPLIT_KEY, f.toFixed(3));
-    e.preventDefault();
-  });
-}
 boot();
