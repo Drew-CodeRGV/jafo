@@ -799,6 +799,148 @@ async function refreshAircraft() {
       ? "Live ADS-B feed from local readsb (~1s updates)"
       : "Falling back to adsb.lol cloud API (~20s updates)";
   }
+
+  renderAirStrip(list);
+  renderAircraftTypes(list);
+}
+
+// ----------------------------------------------------------------------
+// Air-strip: horizontal list of currently-visible aircraft (between the
+// map and the stories strip). Each card shows callsign / type / altitude
+// + an airline logo for commercial flights, click pans the map to the
+// aircraft and opens its popup.
+// ----------------------------------------------------------------------
+function renderAirStrip(list) {
+  const wrap  = document.getElementById("air-strip-cards");
+  const count = document.getElementById("air-strip-count");
+  const empty = document.querySelector(".air-strip-empty");
+  if (!wrap || !count) return;
+
+  // Sort: emergency first, then military, then helicopters/UAVs (interesting),
+  // then commercial/heavy/jet, then light/glider/balloon. Within each tier,
+  // by callsign alpha so the order is stable across polls.
+  const sortKey = (a) => {
+    if (a.emergency) return 0;
+    if (a.kind === "military")             return 1;
+    if (a.kind === "helicopter" || a.kind === "uav") return 2;
+    if (a.kind === "heavy" || a.kind === "commercial" || a.kind === "jet") return 3;
+    return 4;
+  };
+  const sorted = [...list].sort((a, b) => {
+    const k = sortKey(a) - sortKey(b);
+    if (k !== 0) return k;
+    return (a.callsign || a.icao24 || "").localeCompare(b.callsign || b.icao24 || "");
+  });
+
+  count.textContent = list.length ? `· ${list.length}` : "";
+  if (empty) empty.style.display = list.length ? "none" : "";
+
+  wrap.innerHTML = sorted.map((a) => {
+    const cs       = (a.callsign || a.icao24 || "—").trim();
+    const kindCls  = a.kind || "light";
+    const kindLbl  = ({
+      light: "Light/GA", commercial: "Comm", heavy: "Heavy", jet: "Jet",
+      military: "MIL", helicopter: "Heli", uav: "UAV",
+      glider: "Glider", balloon: "Balloon",
+    })[a.kind] || "Aircraft";
+    const altTxt   = a.altitude_ft != null
+      ? `${(a.altitude_ft >= 1000) ? (a.altitude_ft / 1000).toFixed(1) + "k" : a.altitude_ft} ft`
+      : "—";
+    const ktTxt    = a.velocity_kt != null ? `${a.velocity_kt} kt` : "";
+    const isAirline = ["commercial", "heavy", "jet"].includes(a.kind);
+    const logoHtml  = (isAirline && a.airline_iata)
+      ? `<img class="ac-card-logo"
+              src="https://images.kiwi.com/airlines/64/${a.airline_iata}.png"
+              alt="${escapeHtml(a.airline_icao || a.airline_iata)}"
+              loading="lazy" onerror="this.style.display='none'"/>`
+      : "";
+    const emergCls = a.emergency ? " ac-card-emerg" : "";
+    const evTxt = a.airport_event
+      ? `<span class="ac-card-event ${a.airport_event.type.toLowerCase()}">${a.airport_event.type} ${a.airport_event.icao}</span>`
+      : "";
+    return `<button class="ac-card kind-${kindCls}${emergCls}" data-icao="${a.icao24 || ""}"
+                    data-lat="${a.lat ?? ""}" data-lon="${a.lon ?? ""}"
+                    title="Click to focus on map">
+      ${logoHtml}
+      <div class="ac-card-body">
+        <div class="ac-card-head">
+          <span class="ac-card-cs">${escapeHtml(cs)}</span>
+          <span class="ac-card-kind">${kindLbl}</span>
+        </div>
+        <div class="ac-card-meta">
+          <span class="ac-card-alt">${altTxt}</span>
+          ${ktTxt ? `<span class="ac-card-kt">${ktTxt}</span>` : ""}
+          ${evTxt}
+        </div>
+      </div>
+    </button>`;
+  }).join("");
+
+  // Click → focus aircraft on map
+  for (const btn of wrap.querySelectorAll(".ac-card")) {
+    btn.addEventListener("click", () => {
+      const icao = btn.dataset.icao;
+      const lat  = parseFloat(btn.dataset.lat);
+      const lon  = parseFloat(btn.dataset.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lon) && mapState.map) {
+        mapState.map.setView([lat, lon], 11, { animate: true });
+        const m = mapState.aircraftMarkers.get(icao);
+        if (m && m.openPopup) m.openPopup();
+      }
+    });
+  }
+}
+
+// ----------------------------------------------------------------------
+// Sidebar "Aircraft seen" panel — a compact rollup by kind with the
+// most-interesting tier (emergency / military) at the top, color-coded.
+// ----------------------------------------------------------------------
+function renderAircraftTypes(list) {
+  const ul     = document.getElementById("ac-types-list");
+  const total  = document.getElementById("ac-types-count");
+  if (!ul || !total) return;
+
+  total.textContent = list.length;
+  if (!list.length) {
+    ul.innerHTML = '<li class="ac-types-empty">no aircraft</li>';
+    return;
+  }
+
+  // Bucket: emergency stays its own bucket, then per-kind counts.
+  const bucket = new Map();
+  let emerg = 0;
+  for (const a of list) {
+    if (a.emergency) { emerg++; continue; }
+    const k = a.kind || "light";
+    bucket.set(k, (bucket.get(k) || 0) + 1);
+  }
+
+  const KIND_ORDER = [
+    ["military",  "Military",   true],
+    ["helicopter","Helicopter", true],
+    ["uav",       "UAV/Drone",  true],
+    ["heavy",     "Heavy",      false],
+    ["commercial","Commercial", false],
+    ["jet",       "Jet",        false],
+    ["light",     "Light/GA",   false],
+    ["glider",    "Glider",     false],
+    ["balloon",   "Balloon",    false],
+  ];
+  const rows = [];
+  if (emerg > 0) {
+    rows.push({ key: "emergency", label: "EMERGENCY", n: emerg, anomaly: true });
+  }
+  for (const [k, lbl, anomaly] of KIND_ORDER) {
+    const n = bucket.get(k) || 0;
+    if (n > 0) rows.push({ key: k, label: lbl, n, anomaly });
+  }
+
+  ul.innerHTML = rows.map((r) => `
+    <li class="ac-type-row${r.anomaly ? " anomaly" : ""} kind-${r.key}">
+      <span class="ac-type-dot" aria-hidden="true"></span>
+      <span class="ac-type-label">${escapeHtml(r.label)}</span>
+      <span class="ac-type-count">${r.n}</span>
+    </li>`).join("");
 }
 
 // Aircraft popup card — same fields as before, just rendered inside

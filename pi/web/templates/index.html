@@ -88,6 +88,16 @@
   </div>
 
   <div class="filter-block">
+    <div class="filter-header">
+      <h3>Aircraft seen</h3>
+      <span class="ac-types-now" id="ac-types-count">—</span>
+    </div>
+    <ul id="ac-types-list" class="ac-types-list">
+      <li class="ac-types-empty">no aircraft</li>
+    </ul>
+  </div>
+
+  <div class="filter-block">
     <button id="clear-filters" class="clear-btn">Clear filters</button>
   </div>
 </aside>
@@ -96,6 +106,13 @@
   <div class="map-pane" aria-label="Live map of recent calls + air traffic">
     <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
   </div>
+  <section id="air-strip" class="air-strip" aria-label="Aircraft visible right now">
+    <div class="air-strip-header">
+      <h3 class="air-strip-title">Air traffic <span id="air-strip-count">—</span></h3>
+      <span class="air-strip-empty">Awaiting first ADS-B fix…</span>
+    </div>
+    <div id="air-strip-cards" class="air-strip-cards"></div>
+  </section>
   <section id="stories-strip" class="stories-strip" aria-label="Top stories">
     <div class="stories-header">
       <h3 class="stories-title">Top stories</h3>

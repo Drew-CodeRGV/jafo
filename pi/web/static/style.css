@@ -311,6 +311,200 @@ body {
   transition: background 1.6s ease, box-shadow 1.6s ease;
 }
 
+/* ---- Air-traffic strip (between map and stories) ---- */
+.air-strip {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  overflow: hidden;
+}
+.air-strip-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.air-strip-title {
+  margin: 0;
+  font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7aa6c7;
+}
+#air-strip-count { color: #ffe87a; }
+.air-strip-empty {
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+  font-style: italic;
+}
+.air-strip-cards {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 1px 6px 1px;
+  scrollbar-width: thin;
+}
+.air-strip-cards::-webkit-scrollbar { height: 6px; }
+.air-strip-cards::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.ac-card {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font: 11px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  text-align: left;
+  min-width: 130px;
+  max-width: 220px;
+  transition: background 0.1s ease, transform 0.1s ease;
+}
+.ac-card:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+.ac-card-logo {
+  height: 22px;
+  width: auto;
+  background: #fff;
+  padding: 1px 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.ac-card-body { flex: 1 1 auto; min-width: 0; }
+.ac-card-head {
+  display: flex; align-items: baseline; gap: 6px;
+  white-space: nowrap;
+}
+.ac-card-cs {
+  font-weight: 700;
+  color: #ffe87a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-card-kind {
+  font-size: 9px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ac-card-meta {
+  display: flex; gap: 8px;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.ac-card-alt { color: #88c060; }
+.ac-card-kt  { color: #7aa6c7; }
+.ac-card-event {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+.ac-card-event.dep { background: #1f5b2e; color: #d6ffd6; }
+.ac-card-event.arr { background: #5a3a17; color: #ffd6b0; }
+
+/* Kind tinting on the left border */
+.ac-card.kind-military    { border-left-color: #ec4848; }
+.ac-card.kind-helicopter  { border-left-color: #4cc06b; }
+.ac-card.kind-uav         { border-left-color: #ff8a4c; }
+.ac-card.kind-heavy,
+.ac-card.kind-commercial,
+.ac-card.kind-jet         { border-left-color: #e8d23c; }
+.ac-card.kind-light,
+.ac-card.kind-glider,
+.ac-card.kind-balloon     { border-left-color: #5fb7e8; }
+
+/* Emergency: pulse + red border */
+.ac-card.ac-card-emerg {
+  border-left-color: #ff2a2a !important;
+  box-shadow: 0 0 0 1px #ff2a2a, 0 0 8px rgba(255, 42, 42, 0.7);
+  animation: ac-card-pulse 0.9s ease-in-out infinite;
+}
+@keyframes ac-card-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #ff2a2a, 0 0 6px rgba(255, 42, 42, 0.5); }
+  50%      { box-shadow: 0 0 0 1px #ff5050, 0 0 14px rgba(255, 80, 80, 1); }
+}
+
+/* ---- Sidebar: Aircraft seen rollup ---- */
+.ac-types-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ac-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+.ac-type-row + .ac-type-row { margin-top: 1px; }
+.ac-type-row:hover { background: var(--bg-hover); }
+.ac-type-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.ac-type-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-type-count {
+  flex: 0 0 auto;
+  color: #ffe87a;
+  font-weight: 700;
+}
+.ac-type-row.anomaly { background: rgba(255, 232, 122, 0.05); }
+.ac-type-row.anomaly .ac-type-label {
+  color: #fff5b6;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Per-kind dot colors — match the map icons + air-strip border tints */
+.ac-type-row.kind-emergency { background: rgba(255, 42, 42, 0.18); }
+.ac-type-row.kind-emergency .ac-type-dot {
+  background: #ff2a2a;
+  box-shadow: 0 0 6px rgba(255, 42, 42, 0.9);
+  animation: ac-card-pulse 0.9s ease-in-out infinite;
+}
+.ac-type-row.kind-emergency .ac-type-label { color: #ffb0b0; }
+.ac-type-row.kind-military    .ac-type-dot { background: #ec4848; }
+.ac-type-row.kind-helicopter  .ac-type-dot { background: #4cc06b; }
+.ac-type-row.kind-uav         .ac-type-dot { background: #ff8a4c; }
+.ac-type-row.kind-heavy       .ac-type-dot,
+.ac-type-row.kind-commercial  .ac-type-dot,
+.ac-type-row.kind-jet         .ac-type-dot { background: #e8d23c; }
+.ac-type-row.kind-light       .ac-type-dot,
+.ac-type-row.kind-glider      .ac-type-dot,
+.ac-type-row.kind-balloon     .ac-type-dot { background: #5fb7e8; }
+
+.ac-types-now {
+  font: 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+}
+.ac-types-empty {
+  color: var(--text-faint);
+  font-style: italic;
+  font-size: 10px;
+  padding: 4px 6px;
+}
+
 /* Air-traffic status block (bottom-left Leaflet control) */
 .ac-status-wrap {
   background: rgba(10, 18, 24, 0.85);
