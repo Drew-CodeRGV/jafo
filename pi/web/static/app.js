@@ -783,10 +783,15 @@ async function refreshAircraft() {
       mapState.trailLines.delete(a.icao24);
     }
 
-    // Aircraft marker
+    // Aircraft marker. The "source" tag (verified | local | cloud) is
+    // expressed as an extra class on the marker — verified planes render
+    // at full strength, cloud-only planes are dimmed so you can see at a
+    // glance which traffic the local antenna has actually confirmed.
     const html = _aircraftSvg(a.kind, a.track_deg, a.emergency);
+    const srcCls = `ac-src-${a.source || "cloud"}`;
     const icon = L.divIcon({
-      html, className: "ac-leaflet" + (a.emergency ? " ac-emergency" : ""),
+      html,
+      className: `ac-leaflet ${srcCls}` + (a.emergency ? " ac-emergency" : ""),
       iconSize: [30, 30], iconAnchor: [15, 15],
     });
     let m = mapState.aircraftMarkers.get(a.icao24);
@@ -813,15 +818,30 @@ async function refreshAircraft() {
   // Status block in the bottom-left corner
   const counter = document.getElementById("aircraft-count");
   if (counter) counter.textContent = list.length;
+  // Three-state source indicator: BOTH (merged), LOCAL only, CLOUD only.
   const badge = document.getElementById("aircraft-source");
   if (badge) {
-    const local = payload.data_source === "readsb-local";
-    badge.textContent = local ? "LOCAL" : "CLOUD";
-    badge.classList.toggle("local", local);
-    badge.classList.toggle("cloud", !local);
-    badge.title = local
-      ? "Live ADS-B feed from local readsb (~1s updates)"
-      : "Falling back to adsb.lol cloud API (~20s updates)";
+    const src = payload.data_source || "";
+    let label, cls, title;
+    if (src === "merged") {
+      const v = list.filter((a) => a.source === "verified").length;
+      const c = list.filter((a) => a.source === "cloud").length;
+      label = "BOTH";
+      cls = "merged";
+      title = `Merged feed: ${v} verified by local antenna, ${c} cloud-only (still shown for full coverage)`;
+    } else if (src === "readsb-local") {
+      label = "LOCAL";
+      cls = "local";
+      title = "Local readsb only — adsb.lol cloud unreachable this poll";
+    } else {
+      label = "CLOUD";
+      cls = "cloud";
+      title = "Cloud (adsb.lol) only — local readsb offline or no fix yet";
+    }
+    badge.textContent = label;
+    badge.classList.remove("local", "cloud", "merged");
+    badge.classList.add(cls);
+    badge.title = title;
   }
 
   renderAirStrip(list);
@@ -998,6 +1018,13 @@ function _aircraftPopupHtml(a) {
               alt="${escapeHtml(a.airline_icao || a.airline_iata)}" loading="lazy"
               onerror="this.parentElement.style.display='none'"/>
        </div>` : "";
+  const srcLabel = ({
+    verified: "✓ Local + Cloud",
+    local:    "📡 Local only",
+    cloud:    "☁ Cloud only",
+  })[a.source || "cloud"] || "—";
+  const srcCls = `ac-src-${a.source || "cloud"}`;
+
   return `<div class="ac-pop">
     <div class="ac-pop-head">
       <strong>${escapeHtml(cs || "—")}</strong>
@@ -1008,6 +1035,7 @@ function _aircraftPopupHtml(a) {
     <div class="ac-pop-row"><span class="ac-pop-key">Altitude</span><span>${altTxt}</span></div>
     <div class="ac-pop-row"><span class="ac-pop-key">Speed/Track</span><span>${ktTxt} · ${trkTxt}</span></div>
     <div class="ac-pop-row"><span class="ac-pop-key">VR</span><span>${vrTxt}</span></div>
+    <div class="ac-pop-row"><span class="ac-pop-key">Source</span><span class="${srcCls}">${srcLabel}</span></div>
     ${evTxt}${emergTxt}
   </div>`;
 }

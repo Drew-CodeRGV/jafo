@@ -2945,18 +2945,20 @@ def api_aircraft():
             return jsonify(cached["payload"])
 
         try:
-            # Prefer local readsb — faster, lower-altitude coverage, no rate
-            # limit. Fall back to adsb.lol's cloud feed only when readsb is
-            # absent or stale.
-            data = _load_local_readsb()
-            data_source = "readsb-local"
-            if data is None:
+            # Hybrid feed: pull both local readsb and adsb.lol, then merge by
+            # ICAO hex. Aircraft seen by both are "verified"; aircraft seen
+            # only by the cloud are still shown (loaded into the map at
+            # reduced confidence) so we get a complete picture of the
+            # airspace, not just what our antenna can hear. Aircraft seen
+            # only by us locally is rare but possible (our antenna closer
+            # than the nearest crowd-sourced receiver).
+            local_data = _load_local_readsb()
+
+            cloud_data = None
+            try:
                 import requests as _r
-                # adsb.lol query is point + radius (nm). Compute a radius
-                # that covers the bbox: half the diagonal in nm.
                 lat_c = (north + south) / 2.0
                 lon_c = (east + west) / 2.0
-                # 1° latitude ≈ 60 nm; 1° lon at lat ≈ 60·cos(lat)
                 import math
                 dlat_nm = (north - south) / 2.0 * 60.0
                 dlon_nm = (east - west) / 2.0 * 60.0 * math.cos(math.radians(lat_c))
@@ -2965,8 +2967,50 @@ def api_aircraft():
                 resp = _r.get(url, timeout=10,
                               headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
                 resp.raise_for_status()
-                data = resp.json() or {}
+                cloud_data = resp.json() or {}
+            except Exception as e:
+                # Cloud miss isn't fatal — we'll fall through to local-only.
+                cloud_data = None
+
+            # Merge by hex. Local fields win when both have a value (lower
+            # latency, fewer hops). For metadata that's typically richer on
+            # the cloud side (dbFlags / desc / r / t / category), we keep
+            # whatever's non-empty — usually cloud's value when local lacks.
+            local_acs = (local_data or {}).get("ac") or []
+            cloud_acs = (cloud_data or {}).get("ac") or []
+            merged: dict[str, dict] = {}
+            for src_name, src_list in (("local", local_acs), ("cloud", cloud_acs)):
+                for a in src_list:
+                    hex_id = (a.get("hex") or "").lower()
+                    if not hex_id:
+                        continue
+                    if hex_id not in merged:
+                        merged[hex_id] = {**a, "_seen": {src_name}}
+                    else:
+                        merged[hex_id]["_seen"].add(src_name)
+                        # Fill in any field that's missing on the existing
+                        # record. Local came first, so cloud's keys only
+                        # land if local didn't have them.
+                        for k, v in a.items():
+                            if v not in (None, "", [], {}) and merged[hex_id].get(k) in (None, "", [], {}):
+                                merged[hex_id][k] = v
+
+            data = {
+                "ac":  list(merged.values()),
+                "now": (local_data or cloud_data or {}).get("now"),
+            }
+
+            # Build a human label for the data source: which feeds did we
+            # successfully pull from this poll?
+            if local_data and cloud_data:
+                data_source = "merged"
+            elif local_data:
+                data_source = "readsb-local"
+            elif cloud_data:
                 data_source = "adsb.lol"
+            else:
+                data_source = "none"
+
             ac_list = data.get("ac") or []
             aircraft = []
             for a in ac_list:
@@ -3047,6 +3091,15 @@ def api_aircraft():
                     airline_icao = csign[:3]
                     airline_iata = _AIRLINE_ICAO_TO_IATA.get(airline_icao)
 
+                # Source of this record: which feed(s) contributed it. Used
+                # by the frontend to tint cloud-only aircraft so the user
+                # can tell what's been verified by the local antenna vs
+                # what we're trusting the crowd-sourced cloud feed for.
+                seen = a.get("_seen") or set()
+                if   "local" in seen and "cloud" in seen: source = "verified"
+                elif "local" in seen:                     source = "local"
+                else:                                     source = "cloud"
+
                 aircraft.append({
                     "icao24":      a.get("hex"),
                     "callsign":    csign,
@@ -3059,6 +3112,7 @@ def api_aircraft():
                     "emergency":   emergency,
                     "airline_icao": airline_icao,
                     "airline_iata": airline_iata,
+                    "source":      source,
                     "lat":         lat,
                     "lon":         lon,
                     "altitude_ft": int(alt) if isinstance(alt, (int, float)) else None,

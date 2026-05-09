@@ -229,6 +229,35 @@ body {
   cursor: pointer;
 }
 .ac-leaflet svg { display: block; }
+
+/* Source tinting:
+     verified  = seen by local AND cloud — full strength, slight cyan halo
+     local     = seen by local only      — full strength, white halo (rare)
+     cloud     = cloud-only / unverified  — dimmed so verified planes pop  */
+.ac-leaflet.ac-src-verified {
+  filter:
+    drop-shadow(0 0 1px rgba(0,0,0,0.95))
+    drop-shadow(0 0 3px rgba(255,255,255,0.95))
+    drop-shadow(0 0 9px rgba(76,231,255,0.85));
+}
+.ac-leaflet.ac-src-local {
+  filter:
+    drop-shadow(0 0 1px rgba(0,0,0,0.95))
+    drop-shadow(0 0 4px rgba(255,255,255,1))
+    drop-shadow(0 0 10px rgba(76,255,140,0.9));
+}
+.ac-leaflet.ac-src-cloud {
+  opacity: 0.55;
+  filter:
+    drop-shadow(0 0 1px rgba(0,0,0,0.85))
+    drop-shadow(0 0 3px rgba(255,255,255,0.5));
+}
+
+/* Source labels inside the popup */
+.leaflet-popup .ac-src-verified { color: #4ce7ff; font-weight: 700; }
+.leaflet-popup .ac-src-local    { color: #4cff8c; font-weight: 700; }
+.leaflet-popup .ac-src-cloud    { color: #b0b0b0; }
+
 .ac-leaflet.ac-emergency {
   animation: ac-emerg-pulse 0.9s ease-in-out infinite;
 }
@@ -526,8 +555,9 @@ body {
   border: 1px solid currentColor;
   letter-spacing: 0.06em;
 }
-.ac-status-wrap .ac-source.local { color: #4cc06b; box-shadow: 0 0 6px rgba(76,192,107,0.5); }
-.ac-status-wrap .ac-source.cloud { color: #b0b0b0; }
+.ac-status-wrap .ac-source.local  { color: #4cc06b; box-shadow: 0 0 6px rgba(76,192,107,0.5); }
+.ac-status-wrap .ac-source.cloud  { color: #b0b0b0; }
+.ac-status-wrap .ac-source.merged { color: #4ce7ff; box-shadow: 0 0 6px rgba(76,231,255,0.55); }
 
 /* Airport reference markers (yellow triangle on a dark plate) */
 .airport-marker {
