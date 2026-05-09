@@ -500,8 +500,13 @@ async function initMap() {
   mapState.map.setZoom(mapState.map.getZoom() + 2);
   mapState.map.setMaxBounds(L.latLngBounds(cfg.bounds[0], cfg.bounds[1]).pad(0.5));
 
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  // CartoDB Dark Matter — free, no API key, attribution required. The
+  // pure-OSM tiles are too bright/yellow against jafo's high-contrast
+  // aircraft and call markers (especially commercial-yellow planes that
+  // blended into yellow road outlines on the standard OSM theme).
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     maxZoom: 19,
   }).addTo(mapState.map);
 
@@ -697,19 +702,22 @@ function _aircraftIconShape(kind, fill, stroke) {
 // shape gives high contrast against any tile color.
 function _aircraftSvg(kind, trackDeg, emergency) {
   const fill = _kindColor(kind, emergency);
+  // Dark stroke around the colored fill still works on the dark theme —
+  // it's the inner outline of the silhouette and the colored fill is
+  // bright enough to read against a near-black tile background.
   const stroke = "rgba(0,0,0,0.95)";
   const ICON = 38;
   const NATIVE = 28;
   const SCALE = ICON / NATIVE;
   const cx = ICON / 2;
   const rot = (trackDeg != null && Number.isFinite(trackDeg)) ? trackDeg : 0;
-  // Disc backplate punches through busy map tiles. Disc fades out at the
-  // edges so the icon doesn't look like it has a hard ring around it.
+  // Soft white radial halo behind the icon — pops the silhouette out of
+  // the dark map tiles without putting a hard ring around the marker.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${ICON}" viewBox="0 0 ${ICON} ${ICON}">
     <defs>
       <radialGradient id="ac-bg-${kind}" cx="50%" cy="50%" r="55%">
-        <stop offset="0%"   stop-color="rgba(0,0,0,0.55)"/>
-        <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="0%"   stop-color="rgba(255,255,255,0.20)"/>
+        <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
       </radialGradient>
     </defs>
     <circle cx="${cx}" cy="${cx}" r="${cx-1}" fill="url(#ac-bg-${kind})"/>
@@ -800,11 +808,11 @@ async function refreshAircraft() {
     // dimmed for cloud-only aircraft so verified trails dominate.
     const trail = (a.trail || []).map(([lon, lat]) => [lat, lon]);
     let line = mapState.trailLines.get(a.icao24);
-    const trailOpacity = (a.source === "cloud") ? 0.45 : 0.85;
+    const trailOpacity = (a.source === "cloud") ? 0.55 : 0.95;
     if (trail.length >= 2) {
       if (!line) {
         line = L.polyline(trail, {
-          color, weight: 3, opacity: trailOpacity, lineCap: "round", lineJoin: "round",
+          color, weight: 3.2, opacity: trailOpacity, lineCap: "round", lineJoin: "round",
         }).addTo(mapState.trailLayer);
         mapState.trailLines.set(a.icao24, line);
       } else {
