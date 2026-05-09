@@ -217,40 +217,46 @@ body {
   padding: 4px;
 }
 
-/* ---- Leaflet aircraft overlay (replaces the old MapLibre 3D pane) ---- */
+/* ---- Leaflet aircraft overlay ---- */
 .ac-leaflet {
   background: transparent !important;
   border: 0 !important;
-  filter:
-    drop-shadow(0 0 1px rgba(0,0,0,0.95))
-    drop-shadow(0 0 3px rgba(255,255,255,0.85))
-    drop-shadow(0 0 7px rgba(255,200,80,0.55));
   pointer-events: auto;
   cursor: pointer;
+  /* Common shadow stack — gives the icon edge contrast against any
+     OSM tile color. Source-specific filters extend this below. */
+  filter:
+    drop-shadow(0 0 1px rgba(0,0,0,1))
+    drop-shadow(0 0 4px rgba(0,0,0,0.85))
+    drop-shadow(0 0 10px rgba(255,255,255,0.6));
+  z-index: 600 !important;
 }
 .ac-leaflet svg { display: block; }
 
 /* Source tinting:
-     verified  = seen by local AND cloud — full strength, slight cyan halo
-     local     = seen by local only      — full strength, white halo (rare)
-     cloud     = cloud-only / unverified  — dimmed so verified planes pop  */
+     verified — seen by local AND cloud:  bright cyan halo (priority)
+     local    — seen only by local:        green halo (rare)
+     cloud    — adsb.lol-only/unverified:  dimmed so verified planes pop  */
 .ac-leaflet.ac-src-verified {
   filter:
-    drop-shadow(0 0 1px rgba(0,0,0,0.95))
-    drop-shadow(0 0 3px rgba(255,255,255,0.95))
-    drop-shadow(0 0 9px rgba(76,231,255,0.85));
+    drop-shadow(0 0 2px rgba(0,0,0,1))
+    drop-shadow(0 0 5px rgba(255,255,255,1))
+    drop-shadow(0 0 12px rgba(76,231,255,0.95))
+    drop-shadow(0 0 22px rgba(76,231,255,0.55));
 }
 .ac-leaflet.ac-src-local {
   filter:
-    drop-shadow(0 0 1px rgba(0,0,0,0.95))
-    drop-shadow(0 0 4px rgba(255,255,255,1))
-    drop-shadow(0 0 10px rgba(76,255,140,0.9));
+    drop-shadow(0 0 2px rgba(0,0,0,1))
+    drop-shadow(0 0 5px rgba(255,255,255,1))
+    drop-shadow(0 0 12px rgba(76,255,140,0.95))
+    drop-shadow(0 0 22px rgba(76,255,140,0.55));
 }
 .ac-leaflet.ac-src-cloud {
-  opacity: 0.55;
+  opacity: 0.78;
   filter:
-    drop-shadow(0 0 1px rgba(0,0,0,0.85))
-    drop-shadow(0 0 3px rgba(255,255,255,0.5));
+    drop-shadow(0 0 2px rgba(0,0,0,1))
+    drop-shadow(0 0 4px rgba(255,255,255,0.85))
+    drop-shadow(0 0 9px rgba(255,255,255,0.45));
 }
 
 /* Source labels inside the popup */

@@ -403,8 +403,10 @@ const mapState = {
   // in-place updates between polls.
   aircraftLayer: null,           // L.layerGroup of aircraft markers
   aircraftMarkers: new Map(),    // icao24 → L.marker
-  trailLayer:    null,           // L.layerGroup of trail polylines
+  trailLayer:    null,           // L.layerGroup of trail polylines (where they came from)
   trailLines:    new Map(),      // icao24 → L.polyline
+  forwardLayer:  null,           // L.layerGroup of projection lines (where they're headed)
+  forwardLines:  new Map(),      // icao24 → L.polyline
   airportLayer:  null,           // L.layerGroup of airport markers (persistent)
   airportMarkers: new Map(),     // ICAO → L.marker
   recentCallsLayer:   null,      // L.layerGroup of recent-call ring markers
@@ -519,6 +521,7 @@ function initAirTrafficLayers() {
   if (!mapState.map) return;
   mapState.airportLayer      = L.layerGroup().addTo(mapState.map);
   mapState.trailLayer        = L.layerGroup().addTo(mapState.map);
+  mapState.forwardLayer      = L.layerGroup().addTo(mapState.map);
   mapState.recentCallsLayer  = L.layerGroup().addTo(mapState.map);
   mapState.aircraftLayer     = L.layerGroup().addTo(mapState.map);  // last so it's on top
   // Seed RGV airports — they don't move, so just place once.
@@ -690,21 +693,46 @@ function _aircraftIconShape(kind, fill, stroke) {
 // the icon floats `altPx` pixels above it. Only the icon glyph rotates
 // to flight track — the connector and shadow stay vertical/horizontal.
 // 2D Leaflet aircraft icon — kind-colored shape rotated by compass track.
-// Leaflet doesn't rotate the map, so the SVG-rotate angle equals the
-// flight track directly (no projection math like the old MapLibre path).
+// 38px (was 30) for visibility on OSM tiles. Background-disc behind the
+// shape gives high contrast against any tile color.
 function _aircraftSvg(kind, trackDeg, emergency) {
   const fill = _kindColor(kind, emergency);
   const stroke = "rgba(0,0,0,0.95)";
-  const ICON = 30;
+  const ICON = 38;
   const NATIVE = 28;
   const SCALE = ICON / NATIVE;
   const cx = ICON / 2;
   const rot = (trackDeg != null && Number.isFinite(trackDeg)) ? trackDeg : 0;
+  // Disc backplate punches through busy map tiles. Disc fades out at the
+  // edges so the icon doesn't look like it has a hard ring around it.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${ICON}" viewBox="0 0 ${ICON} ${ICON}">
+    <defs>
+      <radialGradient id="ac-bg-${kind}" cx="50%" cy="50%" r="55%">
+        <stop offset="0%"   stop-color="rgba(0,0,0,0.55)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
+      </radialGradient>
+    </defs>
+    <circle cx="${cx}" cy="${cx}" r="${cx-1}" fill="url(#ac-bg-${kind})"/>
     <g transform="rotate(${rot.toFixed(1)} ${cx} ${cx}) scale(${SCALE})">
       ${_aircraftIconShape(kind, fill, stroke)}
     </g>
   </svg>`;
+}
+
+// Project a point N minutes ahead given current position + track + speed.
+// Uses flat-earth approximation — fine for the 5–10 nm vector we draw at
+// typical RGV ground speeds. Returns null when track or speed is unknown.
+function _projectForward(lat, lon, trackDeg, speedKt, minutesAhead) {
+  if (lat == null || lon == null) return null;
+  if (trackDeg == null || !Number.isFinite(trackDeg)) return null;
+  if (speedKt == null || speedKt <= 0) return null;
+  const distNm = speedKt * (minutesAhead / 60);
+  if (distNm < 0.1) return null;
+  const rad = trackDeg * Math.PI / 180;
+  const dLat = (distNm * Math.cos(rad)) / 60.0;
+  const dLon = (distNm * Math.sin(rad)) /
+               (60.0 * Math.cos(lat * Math.PI / 180));
+  return [lat + dLat, lon + dLon];
 }
 
 function _airportSvg() {
@@ -765,34 +793,70 @@ async function refreshAircraft() {
     if (a.lat == null || a.lon == null) continue;
     seen.add(a.icao24);
 
-    // Trail (semi-transparent kind-colored polyline)
+    const color = _kindColor(a.kind, a.emergency);
+
+    // Trail (where they came from) — beefier than before so it actually
+    // reads on the OSM background. Same kind color as the icon, slightly
+    // dimmed for cloud-only aircraft so verified trails dominate.
     const trail = (a.trail || []).map(([lon, lat]) => [lat, lon]);
     let line = mapState.trailLines.get(a.icao24);
+    const trailOpacity = (a.source === "cloud") ? 0.45 : 0.85;
     if (trail.length >= 2) {
-      const color = _kindColor(a.kind, a.emergency);
       if (!line) {
-        line = L.polyline(trail, { color, weight: 1.8, opacity: 0.55 })
-          .addTo(mapState.trailLayer);
+        line = L.polyline(trail, {
+          color, weight: 3, opacity: trailOpacity, lineCap: "round", lineJoin: "round",
+        }).addTo(mapState.trailLayer);
         mapState.trailLines.set(a.icao24, line);
       } else {
         line.setLatLngs(trail);
-        line.setStyle({ color });
+        line.setStyle({ color, opacity: trailOpacity });
       }
     } else if (line) {
       line.remove();
       mapState.trailLines.delete(a.icao24);
     }
 
-    // Aircraft marker. The "source" tag (verified | local | cloud) is
-    // expressed as an extra class on the marker — verified planes render
-    // at full strength, cloud-only planes are dimmed so you can see at a
-    // glance which traffic the local antenna has actually confirmed.
+    // Forward projection (where they're headed) — if an airport event is
+    // attached (DEP/ARR detection), aim straight at that airport. Otherwise
+    // extrapolate ~6 minutes ahead based on track + ground speed. Dashed,
+    // same color as the trail, so it reads as "future intent" not "past
+    // path".
+    let forward = null;
+    const ev = a.airport_event;
+    if (ev && ev.icao) {
+      const ap = RGV_AIRPORTS_JS.find((x) => x.icao === ev.icao);
+      if (ap) forward = [ap.lat, ap.lon];
+    }
+    if (!forward) {
+      forward = _projectForward(a.lat, a.lon, a.track_deg, a.velocity_kt, 6);
+    }
+    let fline = mapState.forwardLines.get(a.icao24);
+    if (forward) {
+      const fwdLatLngs = [[a.lat, a.lon], forward];
+      if (!fline) {
+        fline = L.polyline(fwdLatLngs, {
+          color, weight: 2.5, opacity: 0.7,
+          dashArray: "6, 6", lineCap: "round",
+        }).addTo(mapState.forwardLayer);
+        mapState.forwardLines.set(a.icao24, fline);
+      } else {
+        fline.setLatLngs(fwdLatLngs);
+        fline.setStyle({ color });
+      }
+    } else if (fline) {
+      fline.remove();
+      mapState.forwardLines.delete(a.icao24);
+    }
+
+    // Aircraft marker. Bumped from 30→38 px for visibility on the OSM map,
+    // and the per-source class drives styling (verified planes pop with
+    // a glow, cloud-only planes still readable but slightly dimmer).
     const html = _aircraftSvg(a.kind, a.track_deg, a.emergency);
     const srcCls = `ac-src-${a.source || "cloud"}`;
     const icon = L.divIcon({
       html,
       className: `ac-leaflet ${srcCls}` + (a.emergency ? " ac-emergency" : ""),
-      iconSize: [30, 30], iconAnchor: [15, 15],
+      iconSize: [38, 38], iconAnchor: [19, 19],
     });
     let m = mapState.aircraftMarkers.get(a.icao24);
     if (!m) {
@@ -807,12 +871,15 @@ async function refreshAircraft() {
     }
   }
 
-  // Drop aircraft + trails not in this payload
+  // Drop aircraft + trails + forward lines not in this payload
   for (const [icao, m] of mapState.aircraftMarkers) {
     if (!seen.has(icao)) { m.remove(); mapState.aircraftMarkers.delete(icao); }
   }
   for (const [icao, line] of mapState.trailLines) {
     if (!seen.has(icao)) { line.remove(); mapState.trailLines.delete(icao); }
+  }
+  for (const [icao, line] of mapState.forwardLines) {
+    if (!seen.has(icao)) { line.remove(); mapState.forwardLines.delete(icao); }
   }
 
   // Status block in the bottom-left corner
