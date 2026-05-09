@@ -1977,6 +1977,57 @@ function bindAutoRefresh() {
   };
 }
 
+// ---- Cell-network glance widget (sidebar) ----
+//
+// Fetches /api/cell/quality and renders one row per active operator with a
+// colored chip and a quality summary. Cheap (server-side aggregation), so
+// refresh every 60s. Quietly hides itself if no observations exist yet
+// (cloud hub before edge sync wires up, freshly-installed Pi, etc.).
+async function refreshCellGlance() {
+  const ul = document.getElementById("cell-glance");
+  if (!ul) return;
+  let data;
+  try {
+    data = await api("/api/cell/quality");
+  } catch (e) {
+    return;
+  }
+  const ops = (data && data.operators) || [];
+  if (!ops.length) {
+    ul.innerHTML = '<li class="cell-glance-empty">no observations yet</li>';
+    return;
+  }
+  ul.innerHTML = ops.map((o) => {
+    const dbm = o.avg_rsrp != null ? Math.round(o.avg_rsrp) : null;
+    const q   = _glanceQuality(dbm);
+    return `<li>
+      <span class="op-dot" style="background:${_glanceOpColor(o.operator)}"></span>
+      <span class="op-name">${escapeHtml(o.operator || "Unknown")}</span>
+      <span class="op-meta">${o.n} · <span class="op-q ${q.cls}">${q.label}</span></span>
+    </li>`;
+  }).join("");
+}
+
+function _glanceOpColor(op) {
+  if (!op) return "#888";
+  if (op.startsWith("T-Mobile"))  return "#e20074";
+  if (op.startsWith("Verizon"))   return "#cd040b";
+  if (op.startsWith("AT&T"))      return "#00a8e0";
+  if (op.startsWith("FirstNet"))  return "#3a8df0";
+  if (op.startsWith("US Cellul")) return "#ff8200";
+  if (op.includes("Telcel"))      return "#0067ad";
+  if (op.includes("Movistar"))    return "#19be21";
+  return "#888";
+}
+function _glanceQuality(dbm) {
+  if (dbm == null) return { label: "—",     cls: "q-unknown" };
+  if (dbm >=  -85) return { label: "great", cls: "q-excellent" };
+  if (dbm >=  -95) return { label: "good",  cls: "q-good" };
+  if (dbm >= -105) return { label: "fair",  cls: "q-fair" };
+  if (dbm >= -115) return { label: "poor",  cls: "q-poor" };
+  return                  { label: "weak",  cls: "q-marginal" };
+}
+
 // ---- Polling ----
 function startPolling() {
   stopPolling();
@@ -2002,6 +2053,10 @@ function startPolling() {
   }, 120000);
   // Heatmap recomputes every 90s; geocoding cache fills in between passes
   state.pollTimers.heat = setInterval(refreshHeatmap, 90000);
+  // Cell-glance widget — refresh every 60s. Live observations only update
+  // when cellmon polls the modem, so a tighter cadence is wasted.
+  refreshCellGlance();
+  state.pollTimers.cellGlance = setInterval(refreshCellGlance, 60000);
 }
 function stopPolling() {
   Object.values(state.pollTimers).forEach(clearInterval);
