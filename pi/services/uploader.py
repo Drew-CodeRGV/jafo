@@ -61,7 +61,12 @@ def get_pending(conn, limit: int):
 def upload_one(call) -> tuple[bool, str | dict]:
     opus_full = CALLS_DIR / call["opus_path"]
     if not opus_full.exists():
-        return False, f"audio file missing: {opus_full}"
+        return False, {"permanent": True, "reason": f"audio file missing: {opus_full}"}
+    try:
+        if opus_full.stat().st_size == 0:
+            return False, {"permanent": True, "reason": f"audio file empty: {opus_full}"}
+    except OSError as e:
+        return False, {"permanent": True, "reason": f"audio stat failed: {e}"}
 
     payload = {
         "talkgroup":        call["talkgroup"],
@@ -96,7 +101,16 @@ def upload_one(call) -> tuple[bool, str | dict]:
             return True, r.json()
         except Exception:
             return True, {"ok": True}
-    return False, f"HTTP {r.status_code}: {r.text[:200]}"
+
+    body = r.text[:200]
+    # Hub-side permanent rejections — mark audio_deleted so we stop retrying.
+    permanent = (
+        r.status_code == 400 and "empty audio" in body
+    ) or r.status_code in (413, 415)
+    return False, {
+        "permanent": permanent,
+        "reason": f"HTTP {r.status_code}: {body}",
+    }
 
 
 def main() -> None:
@@ -141,8 +155,18 @@ def main() -> None:
                     else:
                         log.info("OK   id=%s (%.2fs)", call["id"], dt)
                 else:
-                    log.warning("FAIL id=%s: %s", call["id"], info)
-                    time.sleep(RETRY_BACKOFF_SEC)
+                    permanent = isinstance(info, dict) and info.get("permanent")
+                    reason = info.get("reason") if isinstance(info, dict) else info
+                    if permanent:
+                        conn.execute(
+                            "UPDATE calls SET audio_deleted = 1 WHERE id = ?",
+                            (call["id"],),
+                        )
+                        conn.commit()
+                        log.warning("DROP id=%s (permanent): %s", call["id"], reason)
+                    else:
+                        log.warning("FAIL id=%s: %s", call["id"], reason)
+                        time.sleep(RETRY_BACKOFF_SEC)
             except requests.exceptions.RequestException as e:
                 log.warning("Network error id=%s: %s", call["id"], e)
                 time.sleep(RETRY_BACKOFF_SEC)
