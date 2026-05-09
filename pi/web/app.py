@@ -2470,6 +2470,255 @@ def heatmap_points():
     })
 
 
+# -----------------------------------------------------------------------------
+# Cellular network monitor — surfaces serving + neighbor cells observed by the
+# M.2 modem, plus an outage/quality dashboard. Data comes from jafo-cellmon.
+# -----------------------------------------------------------------------------
+@app.route("/cell-network")
+def cell_network_page():
+    return render_template("cell_network.html",
+                           node_name=NODE_NAME,
+                           is_hub=not _is_edge_node(),
+                           hub_link=_hub_link_for_this_node())
+
+
+@app.route("/api/cell/sites")
+def api_cell_sites():
+    """All known sites + last-seen + last RSRP. Includes geo if known."""
+    cutoff_min = max(1, min(int(request.args.get("hours", 24)), 168)) * 3600
+    cutoff = int(time.time()) - cutoff_min
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM cell_sites
+        WHERE last_seen_at >= ?
+        ORDER BY last_seen_at DESC
+    """, (cutoff,)).fetchall()
+    conn.close()
+    return jsonify({
+        "now":   int(time.time()),
+        "count": len(rows),
+        "sites": [dict(r) for r in rows],
+    })
+
+
+@app.route("/api/cell/observations")
+def api_cell_observations():
+    """Recent observations across all cells, optionally filtered by site_id."""
+    minutes = max(1, min(int(request.args.get("minutes", 60)), 24 * 60))
+    cutoff = int(time.time()) - minutes * 60
+    site_id = request.args.get("site_id")
+    conn = get_db()
+    if site_id:
+        site = conn.execute("SELECT * FROM cell_sites WHERE id = ?",
+                            (site_id,)).fetchone()
+        if not site:
+            conn.close()
+            return jsonify({"error": "site_id not found"}), 404
+        rows = conn.execute("""
+            SELECT * FROM cell_observations
+            WHERE observed_at >= ?
+              AND ((cell_id IS NOT NULL AND cell_id = ?) OR
+                   (cell_id IS NULL AND pci = ? AND earfcn = ? AND rat = ?))
+            ORDER BY observed_at DESC
+            LIMIT 2000
+        """, (cutoff, site["cell_id"], site["pci"], site["earfcn"], site["rat"])).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT * FROM cell_observations
+            WHERE observed_at >= ?
+            ORDER BY observed_at DESC
+            LIMIT 2000
+        """, (cutoff,)).fetchall()
+    conn.close()
+    return jsonify({
+        "now":          int(time.time()),
+        "minutes":      minutes,
+        "count":        len(rows),
+        "observations": [dict(r) for r in rows],
+    })
+
+
+@app.route("/api/cell/asr")
+def api_cell_asr():
+    """ASR towers that have at least one cell_site pinned to them — i.e.
+    only towers we're actually observing. Each row carries cell-aggregate
+    metadata (count, operators present, dominant operator, max RSRP) so
+    the map marker can be sized + colored to communicate at a glance
+    'how busy is this tower in our observations'."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT a.asr_number, a.owner, a.structure_type, a.height_m,
+               a.lat, a.lng, a.city, a.state,
+               COUNT(s.id)                      AS cell_count,
+               GROUP_CONCAT(DISTINCT s.operator) AS operators,
+               MAX(s.last_rsrp_dbm)              AS max_rsrp_dbm
+        FROM fcc_asr a
+        JOIN cell_sites s ON s.asr_number = a.asr_number
+        WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL
+        GROUP BY a.asr_number
+        ORDER BY cell_count DESC
+    """).fetchall()
+    towers = []
+    for r in rows:
+        d = dict(r)
+        d["operators"] = sorted([o for o in (d.get("operators") or "").split(",") if o])
+        d["dominant_operator"] = d["operators"][0] if d["operators"] else None
+        towers.append(d)
+    conn.close()
+    return jsonify({
+        "now":    int(time.time()),
+        "count":  len(towers),
+        "towers": towers,
+    })
+
+
+@app.route("/api/cell/quality")
+def api_cell_quality():
+    """Aggregate dashboard data — counts + averages per operator + serving cell + recent state changes."""
+    now_ts = int(time.time())
+    one_h  = now_ts -    3600
+    six_h  = now_ts - 6 *3600
+    day    = now_ts - 24*3600
+
+    conn = get_db()
+    # Newest serving cell
+    serving_row = conn.execute("""
+        SELECT * FROM cell_observations
+        WHERE is_serving = 1
+        ORDER BY observed_at DESC LIMIT 1
+    """).fetchone()
+    serving = dict(serving_row) if serving_row else None
+
+    # Per-operator visibility right now (= sites seen in the last hour)
+    op_rows = conn.execute("""
+        SELECT operator, COUNT(*) AS n, AVG(last_rsrp_dbm) AS avg_rsrp
+        FROM cell_sites
+        WHERE last_seen_at >= ? AND operator IS NOT NULL
+        GROUP BY operator
+        ORDER BY n DESC
+    """, (one_h,)).fetchall()
+
+    # Sites that were active in the last 24h but haven't been seen in the last hour
+    stale_rows = conn.execute("""
+        SELECT id, site_key, operator, rat, band, pci, cell_id, last_rsrp_dbm,
+               last_seen_at, lat, lng
+        FROM cell_sites
+        WHERE last_seen_at < ? AND last_seen_at >= ?
+        ORDER BY last_seen_at DESC
+        LIMIT 50
+    """, (one_h, day)).fetchall()
+
+    # New sites that appeared today (first_seen in last 24h)
+    new_rows = conn.execute("""
+        SELECT id, site_key, operator, rat, band, pci, cell_id, last_rsrp_dbm,
+               first_seen_at, last_seen_at, lat, lng
+        FROM cell_sites
+        WHERE first_seen_at >= ?
+        ORDER BY first_seen_at DESC
+        LIMIT 50
+    """, (day,)).fetchall()
+
+    # Total visible sites in the last hour, vs the day average per hour
+    counts = conn.execute("""
+        SELECT
+          (SELECT COUNT(*) FROM cell_sites WHERE last_seen_at >= ?) AS sites_1h,
+          (SELECT COUNT(*) FROM cell_sites WHERE last_seen_at >= ?) AS sites_6h,
+          (SELECT COUNT(*) FROM cell_sites WHERE last_seen_at >= ?) AS sites_24h,
+          (SELECT COUNT(*) FROM cell_observations WHERE observed_at >= ?) AS obs_1h,
+          (SELECT COUNT(*) FROM cell_observations WHERE observed_at >= ?) AS obs_24h
+    """, (one_h, six_h, day, one_h, day)).fetchone()
+    conn.close()
+
+    return jsonify({
+        "now":         now_ts,
+        "serving":     serving,
+        "operators":   [dict(r) for r in op_rows],
+        "stale_sites": [dict(r) for r in stale_rows],
+        "new_sites":   [dict(r) for r in new_rows],
+        "counts":      dict(counts) if counts else {},
+    })
+
+
+@app.route("/api/recent-calls-geo")
+def recent_calls_geo():
+    """Calls in the last N minutes with lat/lng + minimal metadata, for the
+    3D-map overlay so users can correlate radio activity with aircraft positions
+    (e.g., medevac helicopter responding to an MVA on the same map view)."""
+    minutes = max(1, min(int(request.args.get("minutes", 15)), 120))
+    cutoff = int(time.time()) - minutes * 60
+
+    conn = get_db()
+    cur = conn.execute("""
+        SELECT id, talkgroup, talkgroup_tag, incident_type, incident_severity,
+               incident_summary, incident_location, start_time, duration_sec
+        FROM calls
+        WHERE status = 'kept' AND start_time > ?
+        ORDER BY start_time DESC
+        LIMIT 500
+    """, (cutoff,))
+    rows = [dict(r) for r in cur]
+    cur = conn.execute("""
+        SELECT location_text, lat, lng FROM geocoded_locations
+        WHERE lat IS NOT NULL AND lng IS NOT NULL
+    """)
+    geocoded = {r["location_text"]: (r["lat"], r["lng"]) for r in cur}
+    conn.close()
+
+    overrides = load_overrides()
+    csv_meta = load_talkgroup_metadata()
+
+    out = []
+    for c in rows:
+        loc_text = (c.get("incident_location") or "").strip()
+        lat = lng = None
+        precise = False
+        if loc_text and loc_text in geocoded:
+            lat, lng = geocoded[loc_text]
+            precise = True
+        else:
+            tg = c["talkgroup"]
+            ov = overrides.get(tg, {})
+            if ov.get("lat") is not None and ov.get("lng") is not None:
+                lat, lng = ov["lat"], ov["lng"]
+            else:
+                city = ov.get("city") or csv_meta.get(tg, {}).get("category") or ""
+                (lat, lng), matched = lookup_city_coord(city)
+                if not matched:
+                    continue  # no usable location at all — skip
+
+        tag = (c.get("talkgroup_tag") or "").upper()
+        if "FD" in tag or "FIRE" in tag:
+            kind = "fire"
+        elif "EMS" in tag or "MMH" in tag or "MEDIC" in tag or "AMBU" in tag or "HOSP" in tag:
+            kind = "ems"
+        elif any(x in tag for x in ("PD", "DPS", "POLICE", "SHERIFF", "CONST")):
+            kind = "law"
+        else:
+            kind = "other"
+
+        out.append({
+            "id":                 c["id"],
+            "lat":                lat,
+            "lng":                lng,
+            "precise":            precise,
+            "talkgroup":          c["talkgroup"],
+            "talkgroup_tag":      c.get("talkgroup_tag"),
+            "incident_type":      c.get("incident_type"),
+            "incident_severity":  c.get("incident_severity"),
+            "incident_summary":   c.get("incident_summary"),
+            "incident_location":  c.get("incident_location"),
+            "start_time":         c["start_time"],
+            "kind":               kind,
+        })
+
+    return jsonify({
+        "now":     int(time.time()),
+        "minutes": minutes,
+        "count":   len(out),
+        "calls":   out,
+    })
+
+
 @app.route("/api/map-config")
 def map_config():
     """Bounds + center for the live map. Frontend uses these to fit the view."""
@@ -2487,6 +2736,37 @@ def map_config():
 _AIRCRAFT_CACHE: dict[str, dict] = {}   # region_slug → {"ts", "payload"}
 _AIRCRAFT_LOCK = threading.Lock()
 AIRCRAFT_TTL_SEC = 20  # poll adsb.lol every 20s for smoother in-flight tracking
+
+# Local ADS-B feed — written by a co-resident decoder every ~1s.
+# We prefer this over adsb.lol when available: faster updates, better
+# low-altitude coverage, no rate limits, no internet dependency.
+# Probe every common decoder's path so the integration works whether
+# the user ends up running readsb, dump1090-fa, dump1090-mutability, etc.
+LOCAL_ADSB_PATHS = (
+    "/run/dump1090-fa/aircraft.json",          # FlightAware fork (most common)
+    "/run/readsb/aircraft.json",               # readsb (when built with RTL)
+    "/run/dump1090-mutability/aircraft.json",  # older mutability fork
+    "/run/dump1090/aircraft.json",             # generic
+)
+LOCAL_ADSB_FRESHNESS_SEC = 5    # older than this = decoder stopped
+
+
+def _load_local_readsb() -> dict | None:
+    """Read whichever local decoder is running. Returns adsb.lol-shaped
+    payload or None if no decoder produced fresh data."""
+    import json as _json, os as _os
+    now_t = time.time()
+    for path in LOCAL_ADSB_PATHS:
+        try:
+            st = _os.stat(path)
+            if now_t - st.st_mtime > LOCAL_ADSB_FRESHNESS_SEC:
+                continue
+            with open(path, "r") as f:
+                data = _json.load(f)
+            return {"ac": data.get("aircraft", []), "now": data.get("now")}
+        except (FileNotFoundError, PermissionError, _json.JSONDecodeError, OSError):
+            continue
+    return None
 
 # Per-aircraft positional history for trail rendering. Keyed by icao24.
 # Kept in memory (small) — at ~10-30 active aircraft × 90 points × ~32 bytes
@@ -2556,25 +2836,36 @@ def api_aircraft():
 
     with _AIRCRAFT_LOCK:
         cached = _AIRCRAFT_CACHE.get(region_slug)
-        if cached and now - cached["ts"] < AIRCRAFT_TTL_SEC:
+        # When the cached payload came from local readsb, it's cheap to
+        # refresh (file read), so use a much tighter cache window for
+        # near-real-time updates of choppers etc. that motivated this work.
+        cache_ttl = 2 if (cached and cached.get("payload", {}).get("data_source") == "readsb-local") else AIRCRAFT_TTL_SEC
+        if cached and now - cached["ts"] < cache_ttl:
             return jsonify(cached["payload"])
 
         try:
-            import requests as _r
-            # adsb.lol query is point + radius (nm). Compute a radius that
-            # covers the bbox: half the diagonal in nm.
-            lat_c = (north + south) / 2.0
-            lon_c = (east + west) / 2.0
-            # 1° latitude ≈ 60 nm; 1° lon at lat ≈ 60·cos(lat)
-            import math
-            dlat_nm = (north - south) / 2.0 * 60.0
-            dlon_nm = (east - west) / 2.0 * 60.0 * math.cos(math.radians(lat_c))
-            radius_nm = max(60, int(math.hypot(dlat_nm, dlon_nm)) + 10)
-            url = f"https://api.adsb.lol/v2/lat/{lat_c}/lon/{lon_c}/dist/{radius_nm}"
-            resp = _r.get(url, timeout=10,
-                          headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
-            resp.raise_for_status()
-            data = resp.json() or {}
+            # Prefer local readsb — faster, lower-altitude coverage, no rate
+            # limit. Fall back to adsb.lol's cloud feed only when readsb is
+            # absent or stale.
+            data = _load_local_readsb()
+            data_source = "readsb-local"
+            if data is None:
+                import requests as _r
+                # adsb.lol query is point + radius (nm). Compute a radius
+                # that covers the bbox: half the diagonal in nm.
+                lat_c = (north + south) / 2.0
+                lon_c = (east + west) / 2.0
+                # 1° latitude ≈ 60 nm; 1° lon at lat ≈ 60·cos(lat)
+                import math
+                dlat_nm = (north - south) / 2.0 * 60.0
+                dlon_nm = (east - west) / 2.0 * 60.0 * math.cos(math.radians(lat_c))
+                radius_nm = max(60, int(math.hypot(dlat_nm, dlon_nm)) + 10)
+                url = f"https://api.adsb.lol/v2/lat/{lat_c}/lon/{lon_c}/dist/{radius_nm}"
+                resp = _r.get(url, timeout=10,
+                              headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
+                resp.raise_for_status()
+                data = resp.json() or {}
+                data_source = "adsb.lol"
             ac_list = data.get("ac") or []
             aircraft = []
             for a in ac_list:
@@ -2742,6 +3033,7 @@ def api_aircraft():
                 "bbox": {"north": north, "south": south, "east": east, "west": west},
                 "fetched_at": int(now),
                 "upstream_time": data.get("now"),
+                "data_source":   data_source,
                 "count": len(aircraft),
                 "aircraft": aircraft,
                 "airports": airports_visible,
@@ -2756,6 +3048,10 @@ def api_aircraft():
             return jsonify(payload), 502
 
 
+# Apply the full SCHEMA (calls + cell_* + opencellid) once at startup so any
+# tables added in newer releases are present even on long-running edge nodes
+# whose get_db() short-circuits the schema apply when the DB file exists.
+db_connect().close()
 # Ensure the overrides table exists. Safe to call repeatedly.
 ensure_overrides_table()
 # Stories generation only runs on the hub. Edge nodes proxy /api/stories

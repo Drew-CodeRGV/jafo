@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo — cell network · {{ node_name }}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('cell.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+</head>
+<body class="cell-page">
+
+<header class="topbar">
+  <div class="brand">
+    <a href="/" class="brand-link">
+      <img class="logo-img" src="/static/logo.png" alt="jafo">
+    </a>
+    <span class="sub">cell network · {{ node_name }}</span>
+  </div>
+  <div class="actions">
+    <a href="/" class="nav-link" title="Back to scanner dashboard">← Scanner</a>
+  </div>
+</header>
+
+<main class="cell-main">
+
+  <!-- Top: dashboard summary cards -->
+  <section id="cell-dash" class="cell-dash">
+    <div class="cell-card kpi" id="kpi-serving">
+      <div class="kpi-label">Serving cell</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">awaiting modem</div>
+    </div>
+    <div class="cell-card kpi" id="kpi-visible">
+      <div class="kpi-label">Cells visible (1 h)</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">vs <span class="kpi-baseline">—</span> in 24h</div>
+    </div>
+    <div class="cell-card kpi" id="kpi-operators">
+      <div class="kpi-label">Operators</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">active networks</div>
+    </div>
+    <div class="cell-card kpi alert" id="kpi-stale">
+      <div class="kpi-label">Sites gone quiet</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">last 24h, unseen 1h+</div>
+    </div>
+    <div class="cell-card kpi new" id="kpi-new">
+      <div class="kpi-label">New sites today</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">first-seen in 24h</div>
+    </div>
+  </section>
+
+  <!-- Map of detected towers -->
+  <section class="cell-map-section">
+    <div id="cell-map" class="cell-map" aria-label="Map of detected cell towers"></div>
+  </section>
+
+  <!-- Per-operator quality table -->
+  <section class="cell-block">
+    <h2>By operator</h2>
+    <table class="cell-table" id="op-table">
+      <thead><tr>
+        <th>Operator</th>
+        <th>Sites</th>
+        <th>Avg RSRP</th>
+        <th>Quality</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- Full site list -->
+  <section class="cell-block">
+    <div class="block-head">
+      <h2>All known sites</h2>
+      <div class="block-controls">
+        <select id="filter-operator">
+          <option value="">All operators</option>
+        </select>
+        <select id="filter-rat">
+          <option value="">All RATs</option>
+          <option value="LTE">LTE</option>
+          <option value="NR5G-SA">5G NR-SA</option>
+          <option value="NR5G-NSA">5G NR-NSA</option>
+          <option value="WCDMA">WCDMA</option>
+        </select>
+      </div>
+    </div>
+    <table class="cell-table" id="sites-table">
+      <thead><tr>
+        <th>Operator</th>
+        <th>RAT</th>
+        <th>Band</th>
+        <th>PCI</th>
+        <th>Cell ID</th>
+        <th>EARFCN/ARFCN</th>
+        <th>Last RSRP</th>
+        <th>First seen</th>
+        <th>Last seen</th>
+        <th>Obs</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="cell-empty" id="sites-empty" hidden>
+      No cell observations yet. Connect the M.2 modem and the
+      <code>jafo-cellmon</code> service will start logging within a minute.
+    </div>
+  </section>
+
+  <!-- Recent state changes -->
+  <section class="cell-block grid-2">
+    <div>
+      <h2>Recently quiet</h2>
+      <table class="cell-table compact" id="stale-table">
+        <thead><tr><th>Operator</th><th>Cell</th><th>Last seen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div>
+      <h2>New today</h2>
+      <table class="cell-table compact" id="new-table">
+        <thead><tr><th>Operator</th><th>Cell</th><th>First seen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script src="{{ static_v('cell.js') }}"></script>
+</body>
+</html>

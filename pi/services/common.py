@@ -146,6 +146,100 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE INDEX IF NOT EXISTS idx_nodes_region ON nodes(region_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_token  ON nodes(token_hash);
 
+-- Cellular network observations from the M.2 modem (jafo-cellmon).
+-- Each row is one cell sighting from a single AT-command poll. Per-poll snapshots
+-- are kept long enough to compute averages + detect appearances/disappearances.
+CREATE TABLE IF NOT EXISTS cell_observations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_at   INTEGER NOT NULL,
+    rat           TEXT,                -- "LTE" | "NR5G-SA" | "NR5G-NSA" | "WCDMA"
+    is_serving    INTEGER DEFAULT 0,   -- 1 = serving cell, 0 = neighbor
+    state         TEXT,                -- "CONNECT" | "NOCONN" | "SEARCH" | "REGISTERED" | NULL
+    mcc           INTEGER,
+    mnc           INTEGER,
+    cell_id       TEXT,                -- full hex cell ID (serving) or NULL (neighbor)
+    pci           INTEGER,
+    earfcn        INTEGER,              -- LTE EARFCN or NR ARFCN
+    band          TEXT,                 -- "B12", "n41", etc
+    tac           TEXT,                 -- hex tracking area
+    rsrp_dbm      INTEGER,
+    rsrq_db       REAL,
+    rssi_dbm      INTEGER,
+    sinr_db       REAL,
+    operator      TEXT,                 -- "T-Mobile US" | "Verizon" etc — from MCC/MNC
+    raw_text      TEXT                  -- original AT line, kept for re-parsing
+);
+CREATE INDEX IF NOT EXISTS idx_cellobs_time         ON cell_observations(observed_at);
+CREATE INDEX IF NOT EXISTS idx_cellobs_serving      ON cell_observations(is_serving, observed_at);
+CREATE INDEX IF NOT EXISTS idx_cellobs_pci_earfcn   ON cell_observations(pci, earfcn, observed_at);
+CREATE INDEX IF NOT EXISTS idx_cellobs_op           ON cell_observations(operator, observed_at);
+
+-- Per-site rollup: one row per unique cell tower we've ever heard from.
+-- "Unique" = (rat, mcc, mnc, pci, earfcn) — for serving cells we also keep
+-- the full cell_id; neighbors don't expose it but the composite key is stable.
+CREATE TABLE IF NOT EXISTS cell_sites (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_key       TEXT UNIQUE NOT NULL,
+    rat            TEXT,
+    mcc            INTEGER,
+    mnc            INTEGER,
+    cell_id        TEXT,
+    pci            INTEGER,
+    earfcn         INTEGER,
+    band           TEXT,
+    operator       TEXT,
+    first_seen_at  INTEGER,
+    last_seen_at   INTEGER,
+    last_rsrp_dbm  INTEGER,
+    obs_count      INTEGER DEFAULT 0,
+    -- geolocation (filled in by OpenCellID lookup or manual)
+    lat            REAL,
+    lng            REAL,
+    geo_source     TEXT,                 -- "opencellid" | "manual" | "asr-proximity" | "triangulated"
+    asr_number     TEXT,                 -- FCC ASR this cell is pinned to (proximity match)
+    notes          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cellsites_lastseen ON cell_sites(last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_cellsites_op       ON cell_sites(operator);
+-- idx_cellsites_asr is created in _migrate() after the ALTER TABLE adds
+-- the asr_number column on existing DBs (CREATE TABLE IF NOT EXISTS won't
+-- backfill the column, so the index creation moves to migration time).
+
+-- FCC Antenna Structure Registration — physical tower locations from the
+-- weekly r_tower.zip dump. Free, public, comprehensive (every registered
+-- structure >200ft or near an airport). Used as a reference layer on the
+-- cell-network map and (later) for cell-to-tower proximity matching.
+CREATE TABLE IF NOT EXISTS fcc_asr (
+    asr_number      TEXT PRIMARY KEY,
+    owner           TEXT,
+    structure_type  TEXT,                  -- TOWER, POLE, MAST, etc.
+    height_m        REAL,                  -- overall above-ground height
+    lat             REAL,
+    lng             REAL,
+    city            TEXT,
+    state           TEXT,
+    status          TEXT,                  -- A = active/granted, etc.
+    imported_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_asr_geo   ON fcc_asr(lat, lng);
+CREATE INDEX IF NOT EXISTS idx_asr_owner ON fcc_asr(owner);
+
+-- OpenCellID lookup table — populated by an offline import of the OCID CSV.
+-- Empty until the user runs the importer. Lookups are by (mcc, mnc, lac/tac, cid).
+CREATE TABLE IF NOT EXISTS opencellid (
+    radio    TEXT,
+    mcc      INTEGER,
+    mnc      INTEGER,
+    area     INTEGER,        -- LAC for GSM/UMTS, TAC for LTE
+    cell     INTEGER,
+    lon      REAL,
+    lng      REAL,            -- alias kept for naming consistency
+    lat      REAL,
+    range_m  INTEGER,
+    samples  INTEGER,
+    PRIMARY KEY (radio, mcc, mnc, area, cell)
+) WITHOUT ROWID;
+
 -- Full-text search on transcripts and summaries
 CREATE VIRTUAL TABLE IF NOT EXISTS calls_fts USING fts5(
     transcript,
@@ -208,6 +302,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_uploaded      ON calls(uploaded_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_hash          ON calls(content_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_shadow_pending ON calls(enriched_at, enriched_at_ollama)")
+
+    # cell_sites — add the asr_number column on existing DBs (introduced
+    # with the FCC ASR proximity-matching feature). Safe to run repeatedly.
+    cs_cols = {row[1] for row in conn.execute("PRAGMA table_info(cell_sites)")}
+    if "asr_number" not in cs_cols:
+        conn.execute("ALTER TABLE cell_sites ADD COLUMN asr_number TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cellsites_asr ON cell_sites(asr_number)")
 
 
 def db_connect() -> sqlite3.Connection:

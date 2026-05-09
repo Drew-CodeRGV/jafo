@@ -1,0 +1,20 @@
+[Unit]
+Description=jafo — cellmon (M.2 modem cellular network observer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+SupplementaryGroups=dialout
+WorkingDirectory=/home/pi/jafo-data
+EnvironmentFile=/home/pi/jafo/.env
+Environment=JAFO_DATA_DIR=/home/pi/jafo-data
+ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/cellmon.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
