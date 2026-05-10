@@ -1011,8 +1011,12 @@ function renderAirStrip(list) {
 }
 
 // ----------------------------------------------------------------------
-// Sidebar "Aircraft seen" panel — a compact rollup by kind with the
-// most-interesting tier (emergency / military) at the top, color-coded.
+// Sidebar "Aircraft seen" panel — rolled up by ICAO type code (B738 = 737-
+// 800, A20N = A320neo, EC30 = Eurocopter EC130, etc.) so you see the
+// fleet mix rather than just kind buckets. Anomaly tier (emergency,
+// military, helicopter, UAV) is pulled to the top regardless of type.
+// Color dot still keys off `kind` so the visual scan-at-a-glance
+// matches the map and air-strip.
 // ----------------------------------------------------------------------
 function renderAircraftTypes(list) {
   const ul     = document.getElementById("ac-types-list");
@@ -1025,41 +1029,61 @@ function renderAircraftTypes(list) {
     return;
   }
 
-  // Bucket: emergency stays its own bucket, then per-kind counts.
-  const bucket = new Map();
-  let emerg = 0;
+  // Friendly labels for kinds when an aircraft has no type_code.
+  const KIND_LABEL = {
+    light: "Light/GA", commercial: "Commercial", heavy: "Heavy", jet: "Jet",
+    military: "Military", helicopter: "Helicopter", uav: "UAV/Drone",
+    glider: "Glider", balloon: "Balloon",
+  };
+  // Treat these as "interesting" — they bubble up regardless of count.
+  const ANOMALY_KINDS = new Set(["military", "helicopter", "uav"]);
+
+  // Bucket: separate "emergency" pseudo-key, otherwise key on type_code,
+  // falling back to kind for aircraft that broadcast no type info.
+  const buckets = new Map(); // key → {kind, label, count, anomaly, descSamples:Set}
+  let emergCount = 0;
   for (const a of list) {
-    if (a.emergency) { emerg++; continue; }
-    const k = a.kind || "light";
-    bucket.set(k, (bucket.get(k) || 0) + 1);
+    if (a.emergency) { emergCount++; continue; }
+    const tcode = (a.type_code || "").trim().toUpperCase();
+    const kind  = a.kind || "light";
+    const desc  = (a.description || "").trim();
+    const key   = tcode ? `t:${tcode}` : `k:${kind}`;
+    const label = tcode || (KIND_LABEL[kind] || "Unknown");
+
+    let b = buckets.get(key);
+    if (!b) {
+      b = { kind, label, count: 0,
+            anomaly: ANOMALY_KINDS.has(kind),
+            descSamples: new Set() };
+      buckets.set(key, b);
+    }
+    b.count++;
+    if (desc) b.descSamples.add(desc);
   }
 
-  const KIND_ORDER = [
-    ["military",  "Military",   true],
-    ["helicopter","Helicopter", true],
-    ["uav",       "UAV/Drone",  true],
-    ["heavy",     "Heavy",      false],
-    ["commercial","Commercial", false],
-    ["jet",       "Jet",        false],
-    ["light",     "Light/GA",   false],
-    ["glider",    "Glider",     false],
-    ["balloon",   "Balloon",    false],
-  ];
   const rows = [];
-  if (emerg > 0) {
-    rows.push({ key: "emergency", label: "EMERGENCY", n: emerg, anomaly: true });
+  if (emergCount > 0) {
+    rows.push({ kind: "emergency", label: "EMERGENCY", count: emergCount,
+                anomaly: true, descSamples: new Set() });
   }
-  for (const [k, lbl, anomaly] of KIND_ORDER) {
-    const n = bucket.get(k) || 0;
-    if (n > 0) rows.push({ key: k, label: lbl, n, anomaly });
-  }
+  // Anomalies first (military/heli/UAV), then everyone else by count desc;
+  // ties broken alphabetically by label so order is stable across polls.
+  const sorted = [...buckets.values()].sort((a, b) => {
+    if (a.anomaly !== b.anomaly) return a.anomaly ? -1 : 1;
+    if (a.count !== b.count)     return b.count - a.count;
+    return a.label.localeCompare(b.label);
+  });
+  rows.push(...sorted);
 
-  ul.innerHTML = rows.map((r) => `
-    <li class="ac-type-row${r.anomaly ? " anomaly" : ""} kind-${r.key}">
+  ul.innerHTML = rows.map((r) => {
+    const tip = [...r.descSamples].slice(0, 3).join("\n") ||
+                (r.kind !== "emergency" ? r.label : "Aircraft squawking 7500/7600/7700");
+    return `<li class="ac-type-row${r.anomaly ? " anomaly" : ""} kind-${r.kind}" title="${escapeHtml(tip)}">
       <span class="ac-type-dot" aria-hidden="true"></span>
       <span class="ac-type-label">${escapeHtml(r.label)}</span>
-      <span class="ac-type-count">${r.n}</span>
-    </li>`).join("");
+      <span class="ac-type-count">${r.count}</span>
+    </li>`;
+  }).join("");
 }
 
 // Aircraft popup card — same fields as before, just rendered inside
