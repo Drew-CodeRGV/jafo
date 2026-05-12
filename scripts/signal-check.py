@@ -26,6 +26,15 @@ CONTROL_CHANS = [
     ('McAllen', 852_962_500),
 ]
 
+# Additional channels worth checking — conventional sources we monitor on the
+# SDRplay but want to verify presence-of-carrier on the HackRF too. The HackRF
+# captures 849.5–857.5 MHz @ 7.968 MS/s, so anything inside that window can be
+# probed for "is there even a carrier here?" before chasing config gremlins.
+EXTRA_CHANS = [
+    ('MISD-PD', 856_037_500),   # conventional McAllen ISD PD 1
+    ('MISD-PD', 857_212_500),   # conventional McAllen ISD PD 2 (very near HackRF window edge)
+]
+
 CENTER = 853_500_000
 SRATE  = 7_968_000
 NSAMP  = 1 << 18      # 262 144 samples ≈ 33 ms per capture
@@ -101,21 +110,29 @@ def main():
         hi = np.searchsorted(freqs, f_hi)
         mask[lo:hi] = False
     excise(CENTER - 50_000, CENTER + 50_000)
-    for _, cf in CONTROL_CHANS:
+    for _, cf in CONTROL_CHANS + EXTRA_CHANS:
         excise(cf - 25_000, cf + 25_000)
     floor = np.percentile(psd[mask], 10)
 
     print(f"\nNoise floor (10th pct, masked): {floor:+.1f} dB/Hz (relative)\n")
     print(f"{'Site':8s}  {'Freq (MHz)':>10s}  {'Peak':>8s}  {'SNR':>8s}")
     print("-" * 42)
-    for site, cf in CONTROL_CHANS:
+
+    def report(label, cf):
         lo = np.searchsorted(freqs, cf - 12_500)
         hi = np.searchsorted(freqs, cf + 12_500)
         if lo >= hi:
-            print(f"{site:8s}  {cf/1e6:>10.4f}   out-of-window")
-            continue
+            print(f"{label:8s}  {cf/1e6:>10.4f}   out-of-window")
+            return
         peak = psd[lo:hi].max()
-        print(f"{site:8s}  {cf/1e6:>10.4f}  {peak:+7.1f}  {peak-floor:+7.1f}")
+        print(f"{label:8s}  {cf/1e6:>10.4f}  {peak:+7.1f}  {peak-floor:+7.1f}")
+
+    for site, cf in CONTROL_CHANS:
+        report(site, cf)
+    if EXTRA_CHANS:
+        print("-" * 42)
+        for site, cf in EXTRA_CHANS:
+            report(site, cf)
 
 if __name__ == "__main__":
     main()
