@@ -204,12 +204,16 @@ function toggleFavorite(tg, tag) {
 
 async function refreshFavorites() {
   const favs = getFavorites();
-  const root = document.getElementById("favorites-cards");
+  const strip = document.getElementById("favorites-strip");
+  const root  = document.getElementById("favorites-cards");
   const countEl = document.getElementById("favorites-count");
   if (!root) return;
   if (countEl) countEl.textContent = String(favs.length);
+  // Hide the whole strip when there are no favorites — no "empty state"
+  // panel cluttering the page.
   if (!favs.length) {
-    root.innerHTML = `<div class="favorites-empty">No favorites yet — tap a ☆ in the sidebar.</div>`;
+    if (strip) strip.classList.add("hidden");
+    root.innerHTML = "";
     return;
   }
   const ids = favs.filter(Number.isInteger);
@@ -227,12 +231,17 @@ async function refreshFavorites() {
 }
 
 function renderFavoriteCards(calls) {
-  const root = document.getElementById("favorites-cards");
+  const strip = document.getElementById("favorites-strip");
+  const root  = document.getElementById("favorites-cards");
   if (!root) return;
+  // No calls on the user's favorited talkgroups → keep the strip hidden.
+  // We only surface it once there's actual content.
   if (!calls.length) {
-    root.innerHTML = `<div class="favorites-empty">No recent calls on your favorited talkgroups yet.</div>`;
+    if (strip) strip.classList.add("hidden");
+    root.innerHTML = "";
     return;
   }
+  if (strip) strip.classList.remove("hidden");
   root.innerHTML = "";
   calls.slice(0, 8).forEach(c => {
     const sev = (c.incident_severity || "unknown").toLowerCase();
@@ -515,6 +524,7 @@ const mapState = {
   // in-place updates between polls.
   aircraftLayer: null,           // L.layerGroup of aircraft markers
   aircraftMarkers: new Map(),    // icao24 → L.marker
+  aircraftLastSeen: new Map(),   // icao24 → Date.now() of last API sighting
   trailLayer:    null,           // L.layerGroup of trail polylines (where they came from)
   trailLines:    new Map(),      // icao24 → L.polyline
   forwardLayer:  null,           // L.layerGroup of projection lines (where they're headed)
@@ -539,23 +549,50 @@ const RGV_AIRPORTS_JS = [
   { icao: "KRWV", name: "Caldwell (Mid-Vly)", lat: 26.17556, lon: -97.97306 },
 ];
 
+// Heatmap with time-decay: each call contributes full intensity at t=0
+// and fades to zero over HEAT_WINDOW_MS. New calls in the same cluster
+// stack their (decayed) weights, keeping busy areas "hot" while quiet
+// areas fade away within a minute.
+const HEAT_WINDOW_MS = 60_000;   // contribute for 60s after start_time
+const HEAT_TICK_MS   = 2_000;    // recompute decay every 2s
+const HEAT_FETCH_SEC = 120;      // backend returns last 2 min of calls
+
+function heatTick() {
+  if (!mapState.heatLayer) return;
+  const raw = mapState.heatRawPoints || [];
+  const nowMs = Date.now();
+  const decayed = [];
+  for (const p of raw) {
+    const age = nowMs - p.tMs;
+    if (age < 0 || age >= HEAT_WINDOW_MS) continue;
+    const decay = 1 - age / HEAT_WINDOW_MS;
+    decayed.push([p.lat, p.lng, p.base * decay]);
+  }
+  mapState.heatLayer.setLatLngs(decayed);
+}
+
 async function refreshHeatmap() {
   if (!mapState.map || typeof L.heatLayer !== "function") return;
   try {
-    const data = await api("/api/heatmap");
-    if (mapState.heatLayer) {
-      mapState.map.removeLayer(mapState.heatLayer);
-      mapState.heatLayer = null;
-    }
-    if (data.points && data.points.length) {
-      mapState.heatLayer = L.heatLayer(data.points, {
+    const data = await api(`/api/heatmap?window_sec=${HEAT_FETCH_SEC}`);
+    // Cache raw points keyed by lat,lng,start_time — heatTick recomputes
+    // weights from these every HEAT_TICK_MS.
+    mapState.heatRawPoints = (data.points || [])
+      .filter(p => p.length >= 4)
+      .map(p => ({ lat: p[0], lng: p[1], base: p[2], tMs: p[3] * 1000 }));
+
+    if (!mapState.heatLayer) {
+      mapState.heatLayer = L.heatLayer([], {
         radius: 28,
         blur: 22,
         maxZoom: 13,
-        // Cool-to-hot: blue → green → yellow → orange → red.
         gradient: { 0.0: "#3a8df0", 0.35: "#4cc06b", 0.6: "#e8d23c", 0.8: "#ec8a3c", 1.0: "#ef4848" },
       });
       if (mapState.heatVisible) mapState.heatLayer.addTo(mapState.map);
+    }
+    heatTick();
+    if (!mapState.heatTickTimer) {
+      mapState.heatTickTimer = setInterval(heatTick, HEAT_TICK_MS);
     }
     updateHeatToggleLabel(data);
   } catch (e) {
@@ -609,17 +646,18 @@ async function initMap() {
     maxZoom: 14,
   });
   mapState.map.fitBounds(cfg.bounds);
-  mapState.map.setZoom(mapState.map.getZoom() + 2);
+  // +2 used to zoom in tightly; +1 gives a slightly wider regional view so
+  // edge-of-range aircraft stay on screen.
+  mapState.map.setZoom(mapState.map.getZoom() + 1);
   mapState.map.setMaxBounds(L.latLngBounds(cfg.bounds[0], cfg.bounds[1]).pad(0.5));
 
-  // Standard OSM tiles — we recolor them to a slate-blue dark mode via
-  // a CSS filter on .leaflet-tile-pane (see style.css). Doing it via
-  // filter instead of switching providers gives precise control over
-  // brightness/saturation/hue so we land exactly on slate-blue rather
-  // than a stock dark theme.
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+  // CartoDB Positron — light slate-gray basemap. Neutral, no CSS filter
+  // tricks. Aircraft + call markers read cleanly on top without competing
+  // with bold tile colors.
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
+    maxZoom: 20,
   }).addTo(mapState.map);
 
   addHeatToggleControl();
@@ -908,10 +946,12 @@ async function refreshAircraft() {
   }
   const list = payload.aircraft || [];
   const seen = new Set();
+  const now = Date.now();
 
   for (const a of list) {
     if (a.lat == null || a.lon == null) continue;
     seen.add(a.icao24);
+    mapState.aircraftLastSeen.set(a.icao24, now);
 
     const color = _kindColor(a.kind, a.emergency);
 
@@ -991,15 +1031,33 @@ async function refreshAircraft() {
     }
   }
 
-  // Drop aircraft + trails + forward lines not in this payload
+  // Keep aircraft on the map for 15 minutes after they drop from the upstream
+  // feed, so the historical track is visible even after a plane flies out of
+  // receiver range. Markers fade from full opacity at FADE_AT to ~25% by the
+  // end of the linger window, then get removed.
+  const AIRCRAFT_LINGER_MS  = 15 * 60_000;  // 15 min
+  const AIRCRAFT_FADE_AT_MS = 30_000;       // 30s grace at full opacity
+  const AIRCRAFT_MIN_OPACITY = 0.25;
   for (const [icao, m] of mapState.aircraftMarkers) {
-    if (!seen.has(icao)) { m.remove(); mapState.aircraftMarkers.delete(icao); }
-  }
-  for (const [icao, line] of mapState.trailLines) {
-    if (!seen.has(icao)) { line.remove(); mapState.trailLines.delete(icao); }
-  }
-  for (const [icao, line] of mapState.forwardLines) {
-    if (!seen.has(icao)) { line.remove(); mapState.forwardLines.delete(icao); }
+    const lastSeen = mapState.aircraftLastSeen.get(icao) || 0;
+    const unseenFor = now - lastSeen;
+    if (unseenFor > AIRCRAFT_LINGER_MS) {
+      m.remove();
+      mapState.aircraftMarkers.delete(icao);
+      mapState.aircraftLastSeen.delete(icao);
+      const line = mapState.trailLines.get(icao);
+      if (line) { line.remove(); mapState.trailLines.delete(icao); }
+      const fline = mapState.forwardLines.get(icao);
+      if (fline) { fline.remove(); mapState.forwardLines.delete(icao); }
+    } else if (!seen.has(icao) && unseenFor > AIRCRAFT_FADE_AT_MS) {
+      const t = (unseenFor - AIRCRAFT_FADE_AT_MS) / (AIRCRAFT_LINGER_MS - AIRCRAFT_FADE_AT_MS);
+      m.setOpacity(1.0 - (1.0 - AIRCRAFT_MIN_OPACITY) * t);
+      // Also fade the historical trail so it doesn't shout over the live planes
+      const line = mapState.trailLines.get(icao);
+      if (line) line.setStyle({ opacity: 0.6 * (1 - t) + 0.2 });
+    } else if (seen.has(icao)) {
+      m.setOpacity(1.0);  // restore if it came back
+    }
   }
 
   // Status block in the bottom-left corner
@@ -2051,6 +2109,12 @@ function renderCall(c) {
   const svcIcon = cat ? ICON_BY_ID[cat] : null;
 
   const headerBits = [];
+  // AI sparkle: shown when the enricher (local Gemma / Claude) has actually
+  // processed this call. Distinct from the "Enhanced" badge below (which
+  // signals a premium Groq re-transcription).
+  if (c.enriched_at) {
+    headerBits.push(`<span class="ai-enriched" title="AI-enriched (incident type + summary)">${AI_STAR_SVG}</span>`);
+  }
   if (c.talkgroup_tag) {
     headerBits.push(`<span class="tag">${escapeHtml(c.talkgroup_tag)}</span>`);
   }
@@ -2367,7 +2431,8 @@ function startPolling() {
     });
   }, 120000);
   // Heatmap recomputes every 90s; geocoding cache fills in between passes
-  state.pollTimers.heat = setInterval(refreshHeatmap, 90000);
+  // Poll every 15s so newly-landed calls hit the decay window quickly.
+  state.pollTimers.heat = setInterval(refreshHeatmap, 15000);
   // Cell-glance widget — refresh every 60s. Live observations only update
   // when cellmon polls the modem, so a tighter cadence is wasted.
   refreshCellGlance();

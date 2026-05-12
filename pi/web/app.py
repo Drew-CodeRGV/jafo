@@ -1007,6 +1007,7 @@ def talkgroup_groups():
         sort = "count"
 
     meta = load_talkgroup_metadata()
+    overrides = load_overrides()
     # TGs explicitly defined in the conventional CSVs (e.g. GMRS) — these
     # should appear in the sidebar even with n=0 so the user can see the
     # section is wired up before the first call lands.
@@ -1027,17 +1028,24 @@ def talkgroup_groups():
     rows = [dict(r) for r in cur]
     conn.close()
 
-    # Decorate each row with metadata
+    # Decorate each row with metadata. User overrides win over the CSV — so
+    # once someone names a previously-unknown talkgroup (e.g. tg-62037 → "RGV
+    # K9 dispatch") via the editor, it leaves the "(uncategorized)" bucket
+    # and appears under the assigned service type.
     decorated = []
     seen_tg_ids = set()
     for r in rows:
         m = meta.get(r["talkgroup"], {})
+        ov = overrides.get(r["talkgroup"], {})
         seen_tg_ids.add(r["talkgroup"])
+        display = ov.get("display_name") or r["talkgroup_tag"] or m.get("alpha_tag") or f"tg-{r['talkgroup']}"
+        service = ov.get("service_type") or m.get("tag", "")
+        city    = ov.get("city")         or m.get("category", "")
         decorated.append({
             "talkgroup": r["talkgroup"],
-            "talkgroup_tag": r["talkgroup_tag"] or m.get("alpha_tag") or f"tg-{r['talkgroup']}",
-            "tag": m.get("tag", ""),  # service type
-            "category": m.get("category", ""),  # city/agency
+            "talkgroup_tag": display,
+            "tag": service,    # service type
+            "category": city,  # city/agency
             "description": m.get("description", ""),
             "mode": m.get("mode", ""),
             "n": r["n"],
@@ -2577,16 +2585,32 @@ def _start_heatmap_thread():
 
 @app.route("/api/heatmap")
 def heatmap_points():
-    """Aggregated points for the heatmap layer. Skips unknowns."""
-    hours = max(1, min(int(request.args.get("hours", default=24)), 168))
-    cutoff = int(time.time()) - hours * 3600
+    """Aggregated points for the heatmap layer. Skips unknowns.
+
+    Query params:
+      hours       (default 24, max 168) — coarse window in hours
+      window_sec  (optional) — fine-grained window in seconds. Overrides
+                   `hours` and switches to start_time-based filtering for
+                   the live decay heatmap.
+    """
+    window_sec = request.args.get("window_sec", type=int)
+    if window_sec is not None:
+        window_sec = max(10, min(window_sec, 86400))
+        cutoff_st = int(time.time()) - window_sec
+        time_filter_sql = "start_time > ?"
+        time_filter_arg = cutoff_st
+    else:
+        hours = max(1, min(int(request.args.get("hours", default=24)), 168))
+        cutoff_pr = int(time.time()) - hours * 3600
+        time_filter_sql = "processed_at > ?"
+        time_filter_arg = cutoff_pr
 
     conn = get_db()
-    cur = conn.execute("""
+    cur = conn.execute(f"""
         SELECT id, talkgroup, incident_location, start_time
         FROM calls
-        WHERE status = 'kept' AND processed_at > ?
-    """, (cutoff,))
+        WHERE status = 'kept' AND {time_filter_sql}
+    """, (time_filter_arg,))
     calls = [dict(r) for r in cur]
 
     cur = conn.execute("""
@@ -2599,15 +2623,23 @@ def heatmap_points():
     overrides = load_overrides()
     csv_meta = load_talkgroup_metadata()
 
+    # When window_sec mode is active, include start_time so the client can do
+    # time-decay weighting (fade-out over a few seconds). When in coarse
+    # `hours` mode, the 4th element is 0 and the client treats all weights
+    # as static.
+    decay_mode = window_sec is not None
     points: list[list[float]] = []
     address_hits = 0
     city_hits = 0
     for c in calls:
+        st = c.get("start_time") or 0
         # Prefer a geocoded street/address — most precise
         loc_text = (c.get("incident_location") or "").strip()
         if loc_text and loc_text in geocoded:
             lat, lng = geocoded[loc_text]
-            points.append([lat, lng, 1.0])
+            pt = [lat, lng, 1.0]
+            if decay_mode: pt.append(st)
+            points.append(pt)
             address_hits += 1
             continue
 
@@ -2615,14 +2647,18 @@ def heatmap_points():
         tg = c["talkgroup"]
         ov = overrides.get(tg, {})
         if ov.get("lat") is not None and ov.get("lng") is not None:
-            points.append([ov["lat"], ov["lng"], 0.5])
+            pt = [ov["lat"], ov["lng"], 0.5]
+            if decay_mode: pt.append(st)
+            points.append(pt)
             city_hits += 1
             continue
 
         city = ov.get("city") or csv_meta.get(tg, {}).get("category") or ""
         (lat, lng), matched = lookup_city_coord(city)
         if matched:
-            points.append([lat, lng, 0.5])
+            pt = [lat, lng, 0.5]
+            if decay_mode: pt.append(st)
+            points.append(pt)
             city_hits += 1
         # No real location → skip (don't pile on the centroid)
 

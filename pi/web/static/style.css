@@ -125,6 +125,27 @@ body {
 .filter-more-btn:hover { text-decoration: underline; }
 .filter-more-btn.hidden { display: none; }
 
+/* Aircraft-seen now lives in the fixed top zone — cap its visible
+   height so a busy sky doesn't push everything else off-screen. */
+.aircraft-block .ac-types-list {
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+/* AI-enriched sparkle on call cards. Purple-ish to distinguish from the
+   Groq "Enhanced" badge (which uses the same SVG in green). */
+.ai-enriched {
+  display: inline-flex;
+  align-items: center;
+  color: #a78bfa;
+  margin-right: 2px;
+}
+.ai-enriched .ai-star {
+  width: 14px;
+  height: 14px;
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.5));
+}
+
 /* GMRS section pinned at the bottom of the column. Internal scroll keeps
    the overall height capped while still showing all configured channels. */
 .gmrs-block { margin-bottom: 0; }
@@ -623,14 +644,15 @@ body {
   align-items: center;
   gap: 1px;
   pointer-events: none;
-  filter: drop-shadow(0 0 4px rgba(0,0,0,0.85));
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.55));
+  opacity: 0.72;
 }
 .airport-marker svg { display: block; }
 .airport-marker .airport-label {
   font: 600 9px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  color: #ffe87a;
-  background: rgba(0, 18, 30, 0.85);
-  border: 1px solid rgba(255, 232, 122, 0.5);
+  color: #d6c45a;
+  background: rgba(0, 18, 30, 0.6);
+  border: 1px solid rgba(214, 196, 90, 0.35);
   padding: 1px 4px;
   border-radius: 3px;
   letter-spacing: 0.04em;
@@ -670,8 +692,8 @@ body {
    render as overlay layers on this one map. Capped at 38vh. */
 .map-pane {
   flex: 0 0 auto;
-  height: 38vh;
-  max-height: 38vh;
+  height: 34vh;
+  max-height: 34vh;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
   position: relative;
@@ -681,17 +703,8 @@ body {
   width: 100%;
   height: 100%;
 }
-/* Slate-blue dark mode for the OSM tile layer.
-     invert(1)        flips the cream/white OSM background to dark
-     hue-rotate(190°) shifts the inverted hues toward slate-blue
-     brightness(0.95) trims the brightest highlights so colors don't blow out
-     saturate(0.55)   desaturates so the map reads as a backdrop, not a
-                      competing-color foreground vs the aircraft icons
-   Aircraft / call markers / airports are rendered as separate Leaflet
-   panes/layers and are not affected by this filter — only the tile pane. */
-.map-pane .map-2d .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(190deg) brightness(0.95) saturate(0.55);
-}
+/* No CSS filter — basemap is CartoDB Positron (native light-gray slate
+   tiles), so we leave the tile pane alone. */
 /* Draggable column splitter between the 2D street map and the 3D
    air-traffic view. Width-based resize is persisted to localStorage. */
 .map-splitter {
