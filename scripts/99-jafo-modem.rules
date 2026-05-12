@@ -1,0 +1,23 @@
+# jafo — stable name for the Quectel M.2 modem's AT port
+#
+# Without this, kernel-assigned /dev/ttyUSBN numbers shift whenever the
+# modem disconnects and re-enumerates while another USB-serial device
+# (e.g., an RTL-SDR plugged-and-unplugged) holds a port number — so
+# cellmon, which is hardcoded to one specific path, breaks.
+#
+# This udev rule creates /dev/jafo-modem as a symlink to whichever
+# /dev/ttyUSBN the modem's AT-command interface (bInterfaceNumber 02
+# on RM520N-GL firmware AAR03A03M4G) ends up on.
+#
+# Install:
+#   sudo cp ~/jafo/scripts/99-jafo-modem.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   sudo udevadm trigger
+#   ls -l /dev/jafo-modem      # should symlink to whatever ttyUSBN is the AT port
+#
+# Quectel RM520N-GL (vendor 2c7c, product 0801) interface layout:
+#   00: DM port           01: NMEA/GPS         02: AT port  ← we want this one
+#   03: secondary AT      04: QMI data path
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2c7c", ATTRS{idProduct}=="0801", \
+    ATTRS{bInterfaceNumber}=="02", SYMLINK+="jafo-modem"
