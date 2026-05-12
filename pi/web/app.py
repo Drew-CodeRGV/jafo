@@ -224,22 +224,24 @@ def load_overrides() -> dict[int, dict]:
 # the CSV is reflected without a service restart.
 # -----------------------------------------------------------------------------
 TALKGROUPS_CSV = DATA_DIR / "config" / "talkgroups.csv"
+# Additional non-trunked CSVs (e.g. conventional systems like GMRS). Loaded
+# alongside the main talkgroups.csv so the sidebar/grouping endpoints see
+# every system, not just the trunked one. Conventional channels use small
+# sequential TG IDs (trunk-recorder assigns 1..N from channel-array order),
+# which won't collide with real LRGVRRS TGs (those are 60000+).
+EXTRA_TALKGROUPS_CSVS = [
+    DATA_DIR / "config" / "gmrs-talkgroups.csv",
+]
 
 
-def load_talkgroup_metadata() -> dict[int, dict]:
-    """Return {tg_decimal: {tag, category, alpha_tag, description}}.
-
-    Empty dict if CSV missing or unreadable.
-    """
+def _read_tg_csv(path) -> dict[int, dict]:
     out: dict[int, dict] = {}
-    if not TALKGROUPS_CSV.exists():
+    if not path.exists():
         return out
     try:
-        with open(TALKGROUPS_CSV, newline="", encoding="utf-8") as f:
+        with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Trunk-recorder is forgiving but the parser keys are case-sensitive
-                # in different RR exports. Normalize.
                 norm = {k.strip().lower(): (v or "").strip() for k, v in row.items() if k}
                 try:
                     decimal = int(norm.get("decimal", "") or "0")
@@ -255,7 +257,22 @@ def load_talkgroup_metadata() -> dict[int, dict]:
                     "mode": norm.get("mode", ""),
                 }
     except Exception as e:
-        print(f"Failed to load talkgroups CSV: {e}", file=sys.stderr)
+        print(f"Failed to load talkgroups CSV {path}: {e}", file=sys.stderr)
+    return out
+
+
+def load_talkgroup_metadata() -> dict[int, dict]:
+    """Return {tg_decimal: {tag, category, alpha_tag, description}}.
+
+    Merges the primary LRGVRRS talkgroups CSV with any additional
+    conventional-system CSVs (EXTRA_TALKGROUPS_CSVS). Empty dict if all
+    are missing or unreadable.
+    """
+    out = _read_tg_csv(TALKGROUPS_CSV)
+    for extra in EXTRA_TALKGROUPS_CSVS:
+        # Extra CSVs win on collision — but in practice we keep their TG IDs
+        # in a non-overlapping range (1..30 for conventional vs 60000+ for trunked).
+        out.update(_read_tg_csv(extra))
     return out
 
 
@@ -990,6 +1007,13 @@ def talkgroup_groups():
         sort = "count"
 
     meta = load_talkgroup_metadata()
+    # TGs explicitly defined in the conventional CSVs (e.g. GMRS) — these
+    # should appear in the sidebar even with n=0 so the user can see the
+    # section is wired up before the first call lands.
+    seeded_tgs: dict[int, dict] = {}
+    for extra in EXTRA_TALKGROUPS_CSVS:
+        seeded_tgs.update(_read_tg_csv(extra))
+
     conn = get_db()
     cur = conn.execute(
         """
@@ -1005,8 +1029,10 @@ def talkgroup_groups():
 
     # Decorate each row with metadata
     decorated = []
+    seen_tg_ids = set()
     for r in rows:
         m = meta.get(r["talkgroup"], {})
+        seen_tg_ids.add(r["talkgroup"])
         decorated.append({
             "talkgroup": r["talkgroup"],
             "talkgroup_tag": r["talkgroup_tag"] or m.get("alpha_tag") or f"tg-{r['talkgroup']}",
@@ -1015,6 +1041,21 @@ def talkgroup_groups():
             "description": m.get("description", ""),
             "mode": m.get("mode", ""),
             "n": r["n"],
+        })
+
+    # Seed conventional-CSV talkgroups (e.g. GMRS) that haven't yet been heard,
+    # so the section appears immediately rather than waiting for the first call.
+    for tg, m in seeded_tgs.items():
+        if tg in seen_tg_ids:
+            continue
+        decorated.append({
+            "talkgroup": tg,
+            "talkgroup_tag": m.get("alpha_tag") or f"tg-{tg}",
+            "tag": m.get("tag", ""),
+            "category": m.get("category", ""),
+            "description": m.get("description", ""),
+            "mode": m.get("mode", ""),
+            "n": 0,
         })
 
     # Sort within group

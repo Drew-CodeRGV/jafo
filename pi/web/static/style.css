@@ -90,9 +90,60 @@ body {
   grid-area: sidebar;
   background: var(--bg-alt);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  /* Three-zone layout: fixed top (cell + incident types), scrolling middle
+     (aircraft seen + severity + talkgroups), fixed bottom (GMRS). */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 12px;
+  min-height: 0;
 }
+.sidebar-fixed-top    { flex: 0 0 auto; }
+.sidebar-fixed-bottom {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  margin: 8px -12px 0;
+  padding: 10px 12px 4px;
+  background: var(--bg-alt);
+}
+.sidebar-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 0 -12px;
+  padding: 0 12px;
+  min-height: 0;  /* required so the flex child can actually shrink + scroll */
+}
+.filter-more-btn {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 6px;
+  font-family: var(--font-sans);
+}
+.filter-more-btn:hover { text-decoration: underline; }
+.filter-more-btn.hidden { display: none; }
+
+/* GMRS section pinned at the bottom of the column. Internal scroll keeps
+   the overall height capped while still showing all configured channels. */
+.gmrs-block { margin-bottom: 0; }
+.gmrs-block .filter-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.gmrs-now {
+  font: 11px var(--font-mono);
+  color: var(--text-faint);
+}
+.gmrs-list {
+  max-height: 168px;   /* ~6 rows visible, rest scrolls inside */
+  overflow-y: auto;
+  font: 12px var(--font-mono);
+}
+.gmrs-list li { padding: 2px 6px; font-size: 12px; }
+.gmrs-empty { padding: 4px 6px; }
 .search-block { margin-bottom: 16px; }
 .search-block input {
   width: 100%;

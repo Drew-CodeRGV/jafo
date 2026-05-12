@@ -1123,6 +1123,148 @@ function renderAirStrip(list) {
 }
 
 // ----------------------------------------------------------------------
+// Static ICAO 8643 type-code → friendly-name map. Curated for what
+// actually shows up in McAllen / RGV airspace: US/MX airliners,
+// regional jets, common GA singles + twins, biz jets, helicopters,
+// turboprops, military. Unmapped codes fall through to showing the
+// raw ICAO designator. Add entries as you see new types in the wild.
+const ICAO_TYPE_NAMES = {
+  // Airbus narrowbody
+  A19N: "A319neo", A20N: "A320neo", A21N: "A321neo",
+  A318: "A318",  A319: "A319",  A320: "A320",  A321: "A321",
+  // Airbus widebody
+  A332: "A330-200", A333: "A330-300", A338: "A330-800",
+  A339: "A330-900", A359: "A350-900", A35K: "A350-1000",
+  A388: "A380",
+  // Airbus regional (formerly Bombardier C-Series)
+  BCS1: "A220-100", BCS3: "A220-300",
+  // Boeing narrowbody
+  B712: "717",  B722: "727", B732: "737-200", B733: "737-300",
+  B734: "737-400", B735: "737-500", B736: "737-600",
+  B737: "737-700", B738: "737-800", B739: "737-900",
+  B37M: "737 MAX 7", B38M: "737 MAX 8", B39M: "737 MAX 9", B3XM: "737 MAX 10",
+  B752: "757-200", B753: "757-300",
+  // Boeing widebody
+  B762: "767-200", B763: "767-300", B764: "767-400",
+  B772: "777-200", B77L: "777-200LR", B77W: "777-300ER", B77F: "777F",
+  B788: "787-8", B789: "787-9", B78X: "787-10",
+  B741: "747-100", B742: "747-200", B743: "747-300",
+  B744: "747-400", B748: "747-8", B74F: "747F",
+  // McDonnell Douglas (legacy)
+  MD11: "MD-11", MD82: "MD-82", MD83: "MD-83", MD88: "MD-88", MD90: "MD-90",
+  // Embraer
+  E135: "ERJ-135", E145: "ERJ-145",
+  E170: "E170", E175: "E175", E190: "E190", E195: "E195",
+  E290: "E190-E2", E295: "E195-E2", E75L: "E175 (long)", E75S: "E175 (short)",
+  E50P: "Phenom 100", E55P: "Phenom 300",
+  // Bombardier CRJ
+  CRJ1: "CRJ-100", CRJ2: "CRJ-200", CRJ7: "CRJ-700", CRJ9: "CRJ-900", CRJX: "CRJ-1000",
+  // Turboprop regional
+  AT43: "ATR 42-300", AT45: "ATR 42-500", AT72: "ATR 72-200",
+  AT75: "ATR 72-500", AT76: "ATR 72-600",
+  DH8A: "Dash 8-100", DH8B: "Dash 8-200",
+  DH8C: "Dash 8-300", DH8D: "Dash 8-Q400",
+  SF34: "Saab 340", JS31: "Jetstream 31", JS41: "Jetstream 41",
+  // Cessna piston singles
+  C150: "Cessna 150", C152: "Cessna 152", C162: "Cessna 162 Skycatcher",
+  C172: "Cessna 172 Skyhawk", C177: "Cessna 177 Cardinal",
+  C182: "Cessna 182 Skylane", C185: "Cessna 185 Skywagon",
+  C206: "Cessna 206 Stationair", C207: "Cessna 207",
+  C208: "Cessna 208 Caravan", C210: "Cessna 210 Centurion",
+  // Cessna twins + turboprop
+  C310: "Cessna 310", C337: "Cessna 337 Skymaster",
+  C402: "Cessna 402", C414: "Cessna 414 Chancellor",
+  C421: "Cessna 421 Golden Eagle", C425: "Cessna 425 Conquest I",
+  C441: "Cessna 441 Conquest II",
+  // Citation business jets
+  C25A: "CitationJet CJ2", C25B: "CitationJet CJ3", C25C: "CitationJet CJ4",
+  C25M: "Citation M2", C500: "Citation I", C510: "Citation Mustang",
+  C525: "CitationJet", C550: "Citation II", C551: "Citation II/SP",
+  C560: "Citation V", C56X: "Citation Excel/XLS",
+  C650: "Citation III/VI/VII", C680: "Citation Sovereign",
+  C68A: "Citation Latitude", C700: "Citation Longitude", C750: "Citation X",
+  // Beechcraft pistons + turboprop
+  BE17: "Staggerwing", BE18: "Twin Beech",
+  BE23: "Musketeer", BE24: "Sierra",
+  BE33: "Debonair", BE35: "Bonanza V-tail", BE36: "Bonanza A36",
+  BE55: "Baron 55", BE58: "Baron 58", BE60: "Duke",
+  BE76: "Duchess", BE99: "Beech 99 Airliner",
+  BE9L: "King Air 90 (piston)", BE9T: "King Air 90 (turbine)",
+  BE10: "King Air 100", BE20: "King Air 200", B350: "Super King Air 350",
+  B190: "Beech 1900", B36T: "Bonanza A36 Turbo",
+  BE40: "Beechjet 400", BE4W: "Hawker 400XP",
+  // Piper
+  PA18: "Super Cub", PA22: "Tri-Pacer", PA23: "Apache/Aztec",
+  PA24: "Comanche", PA28: "Cherokee/Warrior/Archer",
+  PA30: "Twin Comanche", PA31: "Navajo", PA32: "Cherokee Six/Saratoga",
+  PA34: "Seneca", PA38: "Tomahawk", PA42: "Cheyenne",
+  PA44: "Seminole", PA46: "Malibu/Mirage/Meridian/M350",
+  P28A: "Cherokee 140/160", P28R: "Arrow", P28T: "Turbo Arrow",
+  PNR1: "Pilatus PC-9",
+  // Cirrus
+  SR20: "Cirrus SR20", SR22: "Cirrus SR22", SR2T: "Cirrus SR22T",
+  // Mooney
+  M20J: "Mooney 201", M20K: "Mooney 231/252", M20M: "Mooney TLS/Bravo",
+  M20R: "Mooney Ovation", M20T: "Mooney Acclaim Type S", M20V: "Mooney Ultra",
+  // Diamond
+  DA20: "Diamond DA20 Katana", DA40: "Diamond DA40 Star",
+  DA42: "Diamond DA42 Twin Star", DA50: "Diamond DA50",
+  DA62: "Diamond DA62",
+  // Grumman / others light GA
+  AA1: "Grumman Yankee", AA5: "Grumman Tiger",
+  RV6: "Van's RV-6", RV7: "Van's RV-7", RV8: "Van's RV-8",
+  RV9: "Van's RV-9", RV10: "Van's RV-10", RV14: "Van's RV-14",
+  GLAS: "Glasair", LAN4: "Lancair IV",
+  // Pilatus + TBM
+  PC12: "Pilatus PC-12", PC24: "Pilatus PC-24",
+  TBM7: "TBM 700", TBM8: "TBM 850", TBM9: "TBM 900", TBM10: "TBM 940",
+  // Gulfstream
+  GLF2: "G-II", GLF3: "G-III", GLF4: "G-IV/G450",
+  GLF5: "G-V/G500/G550", GLF6: "G650", G280: "G280",
+  GA5C: "G500 (clean-sheet)", GA7C: "G700",
+  // Bombardier biz
+  CL30: "Challenger 300/350", CL35: "Challenger 350",
+  CL60: "Challenger 600/601/604/605",
+  GL5T: "Global 5000", GL6T: "Global 6000", GL7T: "Global 7500",
+  // Dassault Falcon
+  FA10: "Falcon 10", FA20: "Falcon 20", FA50: "Falcon 50",
+  FA7X: "Falcon 7X", F2TH: "Falcon 2000", F900: "Falcon 900", F8X: "Falcon 8X",
+  // Hawker / Learjet
+  HS25: "Hawker 800/850/900",
+  LJ24: "Lear 24", LJ31: "Lear 31", LJ35: "Lear 35", LJ40: "Lear 40",
+  LJ45: "Lear 45", LJ55: "Lear 55", LJ60: "Lear 60",
+  LJ70: "Lear 70", LJ75: "Lear 75",
+  // Helicopters
+  R22:  "Robinson R22",  R44:  "Robinson R44", R66:  "Robinson R66",
+  B06:  "Bell 206 JetRanger", B06T: "Bell 206L LongRanger",
+  B407: "Bell 407", B412: "Bell 412", B429: "Bell 429", B505: "Bell 505",
+  AS50: "AS350 Squirrel", AS55: "AS355 TwinSquirrel", AS65: "AS365 Dauphin",
+  EC20: "EC120 Colibri", EC30: "H130", EC35: "H135", EC45: "H145",
+  EC55: "EC155", EC75: "H175",
+  H47:  "CH-47 Chinook", H60:  "UH-60 Black Hawk", H64:  "AH-64 Apache", H65:  "MH-65 Dolphin",
+  S70:  "S-70", S76:  "S-76", S92:  "S-92",
+  AW09: "AW009", AW119: "AW119 Koala",
+  AW139: "AW139", AW169: "AW169", AW189: "AW189",
+  MD52: "MD 520N", MD60: "MD 600N", MD90: "MD 900 Explorer",
+  // Military fixed-wing
+  F16:  "F-16 Falcon",   F18:  "F/A-18 Hornet/Super Hornet",
+  F22:  "F-22 Raptor",   F35:  "F-35 Lightning II",
+  A10:  "A-10 Warthog",  AV8B: "AV-8B Harrier",
+  B1:   "B-1 Lancer",    B2:   "B-2 Spirit", B52: "B-52 Stratofortress",
+  C130: "C-130 Hercules", C17: "C-17 Globemaster", C5: "C-5 Galaxy",
+  KC135: "KC-135 Stratotanker", KC46: "KC-46 Pegasus",
+  E3:   "E-3 Sentry (AWACS)",  E8:   "E-8 JSTARS",
+  P3:   "P-3 Orion",     P8:   "P-8 Poseidon",
+  T6:   "T-6 Texan II",  T38:  "T-38 Talon",  T45:  "T-45 Goshawk",
+  U2:   "U-2 Dragon Lady",
+  // UAV
+  RQ4:  "RQ-4 Global Hawk", MQ9:  "MQ-9 Reaper",
+  MQ1:  "MQ-1 Predator",    RQ11: "RQ-11 Raven",
+  // Other notable
+  BLCF: "747 Dreamlifter", BSCA: "Shuttle Carrier",
+  CONC: "Concorde",
+};
+
 // Sidebar "Aircraft seen" panel — rolled up by ICAO type code (B738 = 737-
 // 800, A20N = A320neo, EC30 = Eurocopter EC130, etc.) so you see the
 // fleet mix rather than just kind buckets. Anomaly tier (emergency,
@@ -1160,7 +1302,10 @@ function renderAircraftTypes(list) {
     const kind  = a.kind || "light";
     const desc  = (a.description || "").trim();
     const key   = tcode ? `t:${tcode}` : `k:${kind}`;
-    const label = tcode || (KIND_LABEL[kind] || "Unknown");
+    const friendly = tcode ? ICAO_TYPE_NAMES[tcode] : null;
+    const label = friendly
+      ? `${tcode} — ${friendly}`
+      : (tcode || KIND_LABEL[kind] || "Unknown");
 
     let b = buckets.get(key);
     if (!b) {
@@ -1523,7 +1668,13 @@ async function refreshTalkgroups() {
     const root = document.getElementById("talkgroup-groups");
     root.innerHTML = "";
 
-    if (!data.groups.length || data.groups.every((g) => !g.talkgroups.length)) {
+    // GMRS lives in its own pinned section at the bottom of the sidebar.
+    // Pull it out so the main talkgroups area only shows trunked-system TGs.
+    const gmrsGroup = data.groups.find((g) => g.name === "GMRS");
+    renderGmrsSection(gmrsGroup);
+    const groupsForTrunked = data.groups.filter((g) => g.name !== "GMRS");
+
+    if (!groupsForTrunked.length || groupsForTrunked.every((g) => !g.talkgroups.length)) {
       root.innerHTML = '<div class="empty-tg">No talkgroup activity yet.</div>';
       return;
     }
@@ -1532,8 +1683,9 @@ async function refreshTalkgroups() {
     if (state.groupBy === "flat") {
       const ul = document.createElement("ul");
       ul.className = "filter-list";
-      const tgs = data.groups[0]?.talkgroups || [];
-      // Cap to keep the sidebar manageable
+      // Flat mode: combine all groups (except GMRS, already pulled out),
+      // then cap.
+      const tgs = groupsForTrunked.flatMap((g) => g.talkgroups);
       for (const tg of tgs.slice(0, 50)) {
         ul.appendChild(renderTalkgroupItem(tg));
       }
@@ -1542,7 +1694,7 @@ async function refreshTalkgroups() {
     }
 
     // Grouped mode: render expandable sections.
-    for (const group of data.groups) {
+    for (const group of groupsForTrunked) {
       if (!group.talkgroups.length) continue;
       const isExpanded = state.expandedGroups.has(group.key);
       const section = document.createElement("div");
@@ -1611,6 +1763,26 @@ async function refreshTalkgroups() {
   }
 }
 
+// GMRS gets its own pinned section at the bottom of the sidebar (separate
+// from the trunked-system talkgroups). Same per-channel UI as the rest —
+// star to favorite, click to filter, count on the right — just rendered
+// in a separate <ul> with internal scroll.
+function renderGmrsSection(group) {
+  const ul    = document.getElementById("gmrs-channel-list");
+  const count = document.getElementById("gmrs-count");
+  if (!ul) return;
+  ul.innerHTML = "";
+  if (!group || !group.talkgroups.length) {
+    ul.innerHTML = '<li class="gmrs-empty" style="color:var(--text-faint);font-size:12px">no GMRS configured</li>';
+    if (count) count.textContent = "0";
+    return;
+  }
+  if (count) count.textContent = `${group.total} call${group.total === 1 ? "" : "s"} · ${group.talkgroups.length} ch`;
+  for (const tg of group.talkgroups) {
+    ul.appendChild(renderTalkgroupItem(tg));
+  }
+}
+
 function renderTalkgroupItem(tg) {
   const li = document.createElement("li");
   li.dataset.tg = tg.talkgroup;
@@ -1653,19 +1825,30 @@ function renderTalkgroupItem(tg) {
   return li;
 }
 
+// Incident-types panel lives in the fixed top zone, so the default is
+// "compact" (top 5). A "Show all (N)" link reveals the long tail and
+// the fixed area grows downward, pushing the scrolling middle smaller.
+const INCIDENT_TYPES_COMPACT = 5;
+const INCIDENT_TYPES_MAX     = 25;
+let _incidentTypesExpanded = false;
 async function refreshIncidentTypes() {
   try {
     const data = await api("/api/incident-types");
-    const ul = document.getElementById("incident-type-list");
+    const ul     = document.getElementById("incident-type-list");
+    const toggle = document.getElementById("incident-type-toggle");
     ul.innerHTML = "";
     const filtered = data.incident_types.filter(
       (t) => t.incident_type && t.incident_type !== "radio_chatter"
     );
     if (!filtered.length) {
       ul.innerHTML = '<li style="color:var(--text-faint)">No incidents yet</li>';
+      if (toggle) toggle.classList.add("hidden");
       return;
     }
-    for (const t of filtered.slice(0, 25)) {
+    const shown = _incidentTypesExpanded
+      ? filtered.slice(0, INCIDENT_TYPES_MAX)
+      : filtered.slice(0, INCIDENT_TYPES_COMPACT);
+    for (const t of shown) {
       const li = document.createElement("li");
       li.innerHTML = `<span>${escapeHtml(t.incident_type)}</span><span class="count">${t.n}</span>`;
       if (state.filters.incident_type === t.incident_type) li.classList.add("active");
@@ -1676,6 +1859,21 @@ async function refreshIncidentTypes() {
         resetAndLoad();
       };
       ul.appendChild(li);
+    }
+    if (toggle) {
+      const overflow = Math.min(filtered.length, INCIDENT_TYPES_MAX) - INCIDENT_TYPES_COMPACT;
+      if (overflow > 0) {
+        toggle.classList.remove("hidden");
+        toggle.textContent = _incidentTypesExpanded
+          ? `Show top ${INCIDENT_TYPES_COMPACT}`
+          : `Show all (+${overflow})`;
+        toggle.onclick = () => {
+          _incidentTypesExpanded = !_incidentTypesExpanded;
+          refreshIncidentTypes();
+        };
+      } else {
+        toggle.classList.add("hidden");
+      }
     }
   } catch (e) {
     console.error("Incident type refresh failed:", e);

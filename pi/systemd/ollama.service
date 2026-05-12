@@ -1,0 +1,25 @@
+[Unit]
+Description=Ollama local LLM server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Environment=HOME=/home/pi
+Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Bind only to localhost — jafo-enricher talks to it from the same host
+Environment=OLLAMA_HOST=127.0.0.1:11434
+# Keep one model loaded at a time; Pi 5 has finite RAM
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_NUM_PARALLEL=1
+# Stash models in the user's home so they survive reinstalls
+Environment=OLLAMA_MODELS=/home/pi/.ollama/models
+ExecStart=/home/pi/.local/bin/ollama serve
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
