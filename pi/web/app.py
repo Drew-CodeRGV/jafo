@@ -747,6 +747,30 @@ def calls_list():
     if talkgroup_tag:
         where.append("talkgroup_tag = ?")
         params.append(talkgroup_tag)
+    # `talkgroups` (IDs) and `talkgroup_tags` (string tags) are OR'd together
+    # so the favorites widget can mix trunked TGs with conventional channels
+    # (which share TG ids like 1/2 across systems, making the tag the only
+    # stable handle for things like the "misd-pd" conventional source).
+    talkgroups_csv = request.args.get("talkgroups")
+    tg_list: list[int] = []
+    if talkgroups_csv:
+        try:
+            tg_list = [int(x) for x in talkgroups_csv.split(",") if x.strip()]
+        except ValueError:
+            tg_list = []
+    talkgroup_tags_csv = request.args.get("talkgroup_tags")
+    tag_list: list[str] = []
+    if talkgroup_tags_csv:
+        tag_list = [t.strip() for t in talkgroup_tags_csv.split(",") if t.strip()]
+    if tg_list or tag_list:
+        clauses = []
+        if tg_list:
+            clauses.append(f"talkgroup IN ({','.join('?' * len(tg_list))})")
+            params.extend(tg_list)
+        if tag_list:
+            clauses.append(f"talkgroup_tag IN ({','.join('?' * len(tag_list))})")
+            params.extend(tag_list)
+        where.append("(" + " OR ".join(clauses) + ")")
     if incident_type:
         where.append("incident_type = ?")
         params.append(incident_type)

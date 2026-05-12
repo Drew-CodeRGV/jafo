@@ -146,6 +146,118 @@ function bindShareModal() {
 // Backwards-compat shim used by the story modal close — it called this name.
 function closePopovers() { closeShareModal(); }
 
+// ---- Favorites strip ----
+const FAV_STORAGE_KEY = "jafo.favoriteTalkgroups";
+// Pre-seed McAllen ISD PD on first visit so the section is useful out of the
+// box. Two routes get monitored: the conventional "misd-pd" SDRplay source
+// (tag-based — TG ids 1/2 would collide with other conventional systems),
+// and the trunked LRGVRRS TGs 61175–79 as a backup. Once the user touches
+// the star UI, their stored array (even empty) overrides this default.
+//
+// Entries can be numbers (trunked TG ids) or strings (talkgroup tags).
+const FAV_DEFAULT = ["misd-pd", 61175, 61176, 61177, 61178, 61179];
+
+function getFavorites() {
+  try {
+    const raw = localStorage.getItem(FAV_STORAGE_KEY);
+    if (raw === null) return FAV_DEFAULT.slice();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(v => Number.isInteger(v) || (typeof v === "string" && v.length));
+  } catch (_) {
+    return FAV_DEFAULT.slice();
+  }
+}
+function setFavorites(arr) {
+  localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(arr));
+}
+// favKey() picks the most stable handle for a talkgroup row: tag if present,
+// else numeric id. The same key is what gets stored and what we check against.
+function favKey(tg, tag) {
+  if (typeof tag === "string" && tag.length) return tag;
+  return Number(tg);
+}
+function isFavorite(tg, tag) {
+  const favs = getFavorites();
+  if (typeof tag === "string" && tag.length && favs.includes(tag)) return true;
+  if (tg != null && favs.includes(Number(tg))) return true;
+  return false;
+}
+function toggleFavorite(tg, tag) {
+  const favs = getFavorites();
+  const tagKey = (typeof tag === "string" && tag.length) ? tag : null;
+  const idKey = (tg != null) ? Number(tg) : null;
+  const has = (tagKey && favs.includes(tagKey)) || (idKey != null && favs.includes(idKey));
+  if (has) {
+    // Remove every form so we don't leave the same TG half-favorited.
+    if (tagKey) {
+      const i = favs.indexOf(tagKey); if (i >= 0) favs.splice(i, 1);
+    }
+    if (idKey != null) {
+      const i = favs.indexOf(idKey); if (i >= 0) favs.splice(i, 1);
+    }
+  } else {
+    favs.push(favKey(tg, tag));
+  }
+  setFavorites(favs);
+}
+
+async function refreshFavorites() {
+  const favs = getFavorites();
+  const root = document.getElementById("favorites-cards");
+  const countEl = document.getElementById("favorites-count");
+  if (!root) return;
+  if (countEl) countEl.textContent = String(favs.length);
+  if (!favs.length) {
+    root.innerHTML = `<div class="favorites-empty">No favorites yet — tap a ☆ in the sidebar.</div>`;
+    return;
+  }
+  const ids = favs.filter(Number.isInteger);
+  const tags = favs.filter(v => typeof v === "string");
+  const qs = new URLSearchParams();
+  if (ids.length)  qs.set("talkgroups", ids.join(","));
+  if (tags.length) qs.set("talkgroup_tags", tags.join(","));
+  qs.set("limit", "8");
+  try {
+    const data = await api(`/api/calls?${qs.toString()}`);
+    renderFavoriteCards(data.calls || []);
+  } catch (e) {
+    console.error("favorites refresh failed", e);
+  }
+}
+
+function renderFavoriteCards(calls) {
+  const root = document.getElementById("favorites-cards");
+  if (!root) return;
+  if (!calls.length) {
+    root.innerHTML = `<div class="favorites-empty">No recent calls on your favorited talkgroups yet.</div>`;
+    return;
+  }
+  root.innerHTML = "";
+  calls.slice(0, 8).forEach(c => {
+    const sev = (c.incident_severity || "unknown").toLowerCase();
+    const card = document.createElement("div");
+    card.className = `favorite-card sev-${sev}`;
+    const tag = c.talkgroup_tag || `tg-${c.talkgroup}`;
+    const body = c.summary || c.transcript || "(no transcript yet)";
+    const ago = fmtAgo(c.start_time);
+    const incType = c.incident_type && c.incident_type !== "radio_chatter" ? c.incident_type : "";
+    const audioSrc = c.audio_url || (c.opus_path ? `/audio/${c.opus_path}` : "");
+    card.innerHTML = `
+      <div class="favorite-title">${escapeHtml(tag)}</div>
+      <div class="favorite-body">${escapeHtml(body)}</div>
+      <div class="favorite-meta">
+        <span><span class="sev-dot"></span>${escapeHtml(incType)}</span>
+        <span>${ago}</span>
+      </div>
+      ${audioSrc ? `<audio controls preload="none" class="favorite-audio">
+        <source src="${escapeHtml(audioSrc)}" type="audio/ogg; codecs=opus">
+      </audio>` : ""}
+    `;
+    root.appendChild(card);
+  });
+}
+
 // ---- Stories strip ----
 const STORY_SORT_KEY = "jafo.storySort";
 const storyState = {
@@ -1511,10 +1623,18 @@ function renderTalkgroupItem(tg) {
   const enc = (tg.mode || "").toUpperCase().includes("E");
   const icon = serviceIcon(tg.talkgroup_tag, tg.tag, null);
   const iconPart = icon ? `${icon} ` : "";
+  const fav = isFavorite(tg.talkgroup, tg.talkgroup_tag);
   li.innerHTML = `
-    <span>${iconPart}${escapeHtml(label)}${enc ? '<span class="enc-tag" title="Encrypted">🔒</span>' : ""}</span>
+    <button class="fav-star${fav ? " active" : ""}" title="${fav ? "Unfavorite" : "Add to favorites"}" aria-pressed="${fav}">${fav ? "★" : "☆"}</button>
+    <span class="tg-label">${iconPart}${escapeHtml(label)}${enc ? '<span class="enc-tag" title="Encrypted">🔒</span>' : ""}</span>
     <span class="count">${tg.n}</span>
   `;
+  li.querySelector(".fav-star").onclick = (e) => {
+    e.stopPropagation();
+    toggleFavorite(tg.talkgroup, tg.talkgroup_tag);
+    refreshTalkgroups();
+    refreshFavorites();
+  };
   if (state.filters.talkgroup === tg.talkgroup) li.classList.add("active");
   li.onclick = () => {
     if (state.filters.talkgroup === tg.talkgroup) {
@@ -2034,6 +2154,12 @@ function startPolling() {
     refreshTalkgroups();
     refreshIncidentTypes();
   }, 60000);
+  // Favorites: poll alongside the main calls list — fresh hits on a starred
+  // talkgroup should appear within ~30s without manual refresh.
+  state.pollTimers.favorites = setInterval(() => {
+    const anyPlaying = [...document.querySelectorAll(".favorite-audio")].some(a => !a.paused);
+    if (!anyPlaying) refreshFavorites();
+  }, 30000);
   // Stories refresh from server every 2 min (server itself recomputes every 5 min)
   state.pollTimers.stories = setInterval(() => {
     const wasOnPage0 = storyState.page === 0;
@@ -2094,7 +2220,7 @@ async function boot() {
   bindShareModal();
   bindMobileMenu();
   await initMap();
-  await Promise.all([refreshStats(), refreshTalkgroups(), refreshIncidentTypes(), refreshStories(), refreshHeatmap()]);
+  await Promise.all([refreshStats(), refreshTalkgroups(), refreshIncidentTypes(), refreshStories(), refreshFavorites(), refreshHeatmap()]);
   await loadCalls(false);
   startPolling();
   startStoriesRotation();
