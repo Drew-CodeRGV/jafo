@@ -2418,8 +2418,26 @@ SHARE_SEV = {
     "low":      ( 94, 139,  58),
     "unknown":  (106,  92,  64),
 }
-FONT_SERIF_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
-FONT_SERIF      = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
+def _first_existing(*paths: str) -> str:
+    """Return the first font path that exists, falling back to DejaVu Sans
+    (always present on Debian/Ubuntu). Lets the same code work on the Pi
+    (Liberation Serif installed) and the Lightsail cloud (DejaVu only)."""
+    for p in paths:
+        if Path(p).exists():
+            return p
+    return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+FONT_SERIF_BOLD = _first_existing(
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+)
+FONT_SERIF = _first_existing(
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
 
 
 def render_story_card(out_path: Path, *, fmt: str, title: str, body: str,
