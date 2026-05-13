@@ -1037,10 +1037,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 // CNN-style ticker — latest news, most viewed, most active talkgroups
 // =====================================================================
 const TICKER_SPEEDS = [30, 45, 60, 90, 120, 180, 240];   // seconds, faster → slower
+const TICKER_DEFAULT_IDX = 1;   // 45s — 2 clicks faster than the prior 90s default
 let tickerSpeedIdx = (() => {
   const stored = parseInt(localStorage.getItem("jafo:tickerSpeed") || "", 10);
+  // If the user is still on the old default (90s) and hasn't customized, bump
+  // them to the new default. Anyone who explicitly picked a different speed
+  // keeps their choice.
+  if (stored === 90) return TICKER_DEFAULT_IDX;
   const i = TICKER_SPEEDS.indexOf(stored);
-  return i >= 0 ? i : 3;  // default 90s
+  return i >= 0 ? i : TICKER_DEFAULT_IDX;
 })();
 
 function applyTickerSpeed() {
