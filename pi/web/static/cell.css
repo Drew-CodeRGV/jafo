@@ -2,17 +2,33 @@
    main jafo dashboard. Loaded after style.css, only the cell-* / KPI
    selectors here are scoped to this page. */
 
+/* Override the global html/body lock from style.css (which is built for
+   the scanner dashboard's fixed-viewport grid). This page is a long
+   document that needs to scroll. */
+html, body.cell-page {
+  height: auto !important;
+  overflow: visible !important;
+}
 body.cell-page {
   background: #0a1218;
   color: #e8eef3;
+  display: block;          /* override grid from style.css */
 }
 
 .brand-link { display: inline-block; }
 
+/* Keep the topbar visible while scrolling so the "← Scanner" link is
+   always reachable. */
+body.cell-page > .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
 .cell-main {
-  max-width: 1500px;
+  max-width: 1280px;       /* slightly narrower for better centered feel */
   margin: 0 auto;
-  padding: 16px 18px 80px;
+  padding: 20px 24px 80px;
 }
 
 /* ---------- KPI row ---------- */
