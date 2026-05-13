@@ -2033,6 +2033,51 @@ def stories_list():
         except json.JSONDecodeError:
             d["related_call_ids"] = []
         out.append(d)
+
+    # Aggregate cluster metadata (first/last time, units, address) per story
+    # so the dashboard can show "First reported: HH:MM · Units: 12, 34 ·
+    # Location: ..." without N extra round-trips. One SELECT per story is
+    # cheap — even a busy hub has at most STORY_KEEP_MAX (16) stories.
+    for d in out:
+        ids = d["related_call_ids"]
+        if not ids:
+            d["meta"] = None
+            continue
+        placeholders = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""SELECT start_time, duration_sec, incident_location, incident_units
+                FROM calls WHERE id IN ({placeholders})
+                ORDER BY start_time ASC""",
+            ids,
+        )
+        rows = [dict(r) for r in cur]
+        if not rows:
+            d["meta"] = None
+            continue
+        first = rows[0]
+        last  = rows[-1]
+        last_end = (last.get("start_time") or 0) + (last.get("duration_sec") or 0)
+        dur_sec = max(0, last_end - (first.get("start_time") or 0))
+        unit_set: set[str] = set()
+        for c in rows:
+            for u in (c.get("incident_units") or "").split(","):
+                u = u.strip()
+                if u:
+                    unit_set.add(u)
+        # Address: pick the longest non-empty location across the cluster
+        # (rough proxy for "most specific" — short tags like "scene" lose
+        # to full street strings).
+        locs = [(c.get("incident_location") or "").strip() for c in rows]
+        locs = [x for x in locs if x]
+        address = max(locs, key=len) if locs else ""
+        d["meta"] = {
+            "first_time":  first.get("start_time"),
+            "last_time":   last.get("start_time"),
+            "duration_sec": int(dur_sec),
+            "call_count":  len(rows),
+            "units":       sorted(unit_set),
+            "address":     address,
+        }
     conn.close()
     return jsonify({"stories": out, "now": int(time.time())})
 
@@ -2076,8 +2121,10 @@ def story_detail(story_id: int):
     if ids:
         placeholders = ",".join("?" * len(ids))
         cur = conn.execute(
-            f"""SELECT id, start_time, opus_path, audio_deleted, talkgroup_tag,
-                       transcript, incident_summary
+            f"""SELECT id, start_time, duration_sec, opus_path, audio_deleted,
+                       talkgroup_tag, transcript, incident_summary,
+                       incident_location, incident_units, incident_severity,
+                       incident_type, enriched_at
                 FROM calls WHERE id IN ({placeholders})
                 ORDER BY start_time ASC""",
             ids,

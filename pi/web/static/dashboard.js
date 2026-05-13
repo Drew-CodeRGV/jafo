@@ -171,15 +171,50 @@ async function refreshStories() {
     } else {
       const lead = stories[0];
       titleEl.textContent = lead.title || "Activity in progress";
-      bodyEl.textContent  = lead.body || "";
+      bodyEl.innerHTML    = highlightTenCodes(escapeHtml(lead.body || ""));
       tsEl.textContent    = `Updated ${fmtAgo(lead.last_call_at || lead.created_at)}`;
-      // Wire the Listen button to the primary call if available
-      if (lead.primary_call_id) {
-        ctaEl.classList.remove("hidden");
-        btnEl.onclick = () => playPrimaryCall(lead.primary_call_id);
-      } else {
-        ctaEl.classList.add("hidden");
+      // Inject the hero graphic into the lead block
+      const leadEl = document.querySelector(".paper-lead");
+      let heroSlot = leadEl.querySelector(".story-hero-slot");
+      if (!heroSlot) {
+        heroSlot = document.createElement("div");
+        heroSlot.className = "story-hero-slot";
+        leadEl.insertBefore(heroSlot, leadEl.firstChild);
       }
+      heroSlot.innerHTML = renderStoryHero(lead, "lead");
+      // Metadata strip: first reported / units / location / duration
+      let metaSlot = leadEl.querySelector(".lead-meta-slot");
+      if (!metaSlot) {
+        metaSlot = document.createElement("div");
+        metaSlot.className = "lead-meta-slot";
+        // Insert after the headline so it lives above the body paragraph
+        const headEl = document.getElementById("lead-title");
+        headEl.insertAdjacentElement("afterend", metaSlot);
+      }
+      if (lead.meta) {
+        const m = {
+          firstTime: lead.meta.first_time,
+          lastTime:  lead.meta.last_time,
+          durationSec: lead.meta.duration_sec,
+          callCount: lead.meta.call_count,
+          units:     lead.meta.units || [],
+          address:   lead.meta.address || "",
+        };
+        metaSlot.innerHTML = renderMetadataStrip(m, { maxUnits: 12 });
+      } else {
+        metaSlot.innerHTML = "";
+      }
+      // Wire the action buttons. Both "Listen" + "Source calls (N)"
+      // — the modal renders the cluster's full transcripts + audio.
+      ctaEl.classList.remove("hidden");
+      const sourceN = (lead.related_call_ids || []).length || 1;
+      ctaEl.innerHTML = `
+        ${lead.primary_call_id ? `<button id="lead-listen" class="paper-btn paper-btn-primary">▶ Listen to source call</button>` : ""}
+        <button id="lead-sources" class="paper-btn">Source calls (${sourceN})</button>
+      `;
+      const listenBtn = document.getElementById("lead-listen");
+      if (listenBtn) listenBtn.onclick = () => playPrimaryCall(lead.primary_call_id);
+      document.getElementById("lead-sources").onclick = () => openSourceModal(lead.id, lead.title);
     }
 
     // Secondary stories grid (skip lead)
@@ -190,19 +225,125 @@ async function refreshStories() {
     } else {
       grid.innerHTML = secondary.map(s => {
         const sev = (s.severity || "unknown").toLowerCase();
+        const sourceN = (s.related_call_ids || []).length || 1;
+        // Build compact metadata bits for secondary cards (short, no labels)
+        const m = s.meta;
+        const compactMeta = m ? `
+          <div class="story-card-meta">
+            <span title="First reported">⏱ ${fmtTime(m.first_time)}</span>
+            ${m.duration_sec ? `<span title="Active for">· ${formatDuration(m.duration_sec)}</span>` : ""}
+            ${m.units && m.units.length ? `<span title="Responding units">· ${m.units.length} unit${m.units.length === 1 ? "" : "s"}</span>` : ""}
+            ${m.address ? `<span class="story-card-meta-addr" title="${escapeHtml(m.address)}">· ${escapeHtml(m.address)}</span>` : ""}
+          </div>` : "";
         return `
-          <article class="story-card">
-            <span class="story-card-sev ${escapeHtml(sev)}">${escapeHtml(sev)}</span>
-            <h4 class="story-card-title">${escapeHtml(s.title || "—")}</h4>
-            <p class="story-card-body">${escapeHtml(s.body || "")}</p>
-            <div class="story-card-ts">${fmtAgo(s.last_call_at || s.created_at)}</div>
+          <article class="story-card" data-story-id="${s.id}">
+            ${renderStoryHero(s, "sm")}
+            <div class="story-card-content">
+              <span class="story-card-sev ${escapeHtml(sev)}">${escapeHtml(sev)}</span>
+              <h4 class="story-card-title">${escapeHtml(s.title || "—")}</h4>
+              <p class="story-card-body">${highlightTenCodes(escapeHtml(s.body || ""))}</p>
+              ${compactMeta}
+              <div class="story-card-footer">
+                <span class="story-card-ts">${fmtAgo(s.last_call_at || s.created_at)}</span>
+                <button class="story-card-sources" data-story-id="${s.id}">Source calls (${sourceN}) →</button>
+              </div>
+            </div>
           </article>
         `;
       }).join("");
+      grid.querySelectorAll(".story-card-sources").forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const id = +btn.dataset.storyId;
+          const story = secondary.find(s => s.id === id);
+          openSourceModal(id, story ? story.title : "Source calls");
+        };
+      });
     }
   } catch (e) {
     console.error("stories refresh failed", e);
   }
+}
+
+// ---- Source-calls modal ----
+// Click "Source calls (N)" on any story → fetch /api/stories/{id} and
+// render each related call's transcript + audio in a modal overlay.
+async function openSourceModal(storyId, title) {
+  let modal = document.getElementById("source-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "source-modal";
+    modal.className = "source-modal";
+    modal.innerHTML = `
+      <div class="source-modal-backdrop"></div>
+      <div class="source-modal-card" role="dialog" aria-modal="true">
+        <button class="source-modal-close" aria-label="Close">×</button>
+        <h2 id="source-modal-title">Source calls</h2>
+        <div id="source-modal-body" class="source-modal-body">Loading…</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector(".source-modal-backdrop").onclick = closeSourceModal;
+    modal.querySelector(".source-modal-close").onclick    = closeSourceModal;
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && modal.classList.contains("open")) closeSourceModal();
+    });
+  }
+  document.getElementById("source-modal-title").textContent = title || "Source calls";
+  document.getElementById("source-modal-body").innerHTML    = '<div class="modal-loading">Loading source calls…</div>';
+  modal.classList.add("open");
+  document.body.style.overflow = "hidden";
+  try {
+    const d = await api(`/api/stories/${storyId}`);
+    const calls = (d.calls || []).filter(c => c.id != null);
+    if (!calls.length) {
+      document.getElementById("source-modal-body").innerHTML =
+        '<div class="modal-empty">This story has no source calls available.</div>';
+      return;
+    }
+    const isPrimary = (cid) => cid === d.primary_call_id;
+    const meta = computeClusterMeta(calls);
+    document.getElementById("source-modal-body").innerHTML = `
+      <div class="modal-meta">
+        <span class="modal-meta-tag">${escapeHtml(d.talkgroup_tag || "")}</span>
+        <span class="modal-meta-sev sev-${(d.severity || "unknown").toLowerCase()}">${escapeHtml(d.severity || "unknown")}</span>
+        <span class="modal-meta-count">${calls.length} source call${calls.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="modal-summary">${highlightTenCodes(escapeHtml(d.body || ""))}</div>
+      ${renderMetadataStrip(meta, { maxUnits: 20 })}
+      <div class="modal-calls">
+        ${calls.map(c => `
+          <div class="modal-call${isPrimary(c.id) ? " primary" : ""}">
+            <div class="modal-call-head">
+              ${isPrimary(c.id) ? '<span class="modal-call-badge">PRIMARY</span>' : ""}
+              <span class="modal-call-time">${fmtTime(c.start_time)} · ${fmtAgo(c.start_time)}</span>
+              <span class="modal-call-tag">${escapeHtml(c.talkgroup_tag || `tg-${c.id}`)}</span>
+              ${c.incident_units ? `<span class="modal-call-units">${escapeHtml(Array.isArray(c.incident_units) ? c.incident_units.join(", ") : c.incident_units)}</span>` : ""}
+            </div>
+            ${c.incident_summary ? `<div class="modal-call-summary">${highlightTenCodes(escapeHtml(c.incident_summary))}</div>` : ""}
+            ${c.transcript ? `<div class="modal-call-transcript">${highlightTenCodes(escapeHtml(c.transcript))}</div>` : '<div class="modal-call-pending">no transcript yet</div>'}
+            ${c.audio_available && (c.opus_path || c.audio_url) ? `
+              <audio controls preload="none">
+                <source src="${c.audio_url ? escapeHtml(c.audio_url) : `/audio/${escapeHtml(c.opus_path)}`}" type="audio/ogg; codecs=opus">
+              </audio>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    `;
+  } catch (e) {
+    console.error("source modal load failed", e);
+    document.getElementById("source-modal-body").innerHTML =
+      `<div class="modal-empty">Failed to load source calls: ${escapeHtml(e.message || "")}</div>`;
+  }
+}
+
+function closeSourceModal() {
+  const modal = document.getElementById("source-modal");
+  if (!modal) return;
+  modal.classList.remove("open");
+  document.body.style.overflow = "";
+  // Stop any playing audio when we close
+  modal.querySelectorAll("audio").forEach(a => { try { a.pause(); } catch (_) {} });
 }
 
 async function playPrimaryCall(callId) {
@@ -285,6 +426,194 @@ const AI_STAR_SVG = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden
   <path fill="currentColor" d="M12 3 13.5 9 19.5 10.5 13.5 12 12 18 10.5 12 4.5 10.5 10.5 9z"/>
 </svg>`;
 
+// ---- Ten-codes — common across TX public-safety (varies slightly by
+// agency, this is the McAllen-area canonical set). Used to underline
+// codes in transcripts and show their meaning on hover. ----
+const TEN_CODES = {
+  "10-1":  "Receiving poorly",
+  "10-2":  "Receiving well",
+  "10-3":  "Stop transmitting",
+  "10-4":  "OK / acknowledged",
+  "10-5":  "Relay message",
+  "10-6":  "Busy",
+  "10-7":  "Out of service",
+  "10-8":  "In service",
+  "10-9":  "Repeat",
+  "10-10": "Off duty",
+  "10-12": "Standby / visitors present",
+  "10-13": "Weather / road conditions",
+  "10-15": "Prisoner in custody",
+  "10-16": "Pick up prisoner",
+  "10-18": "Urgent",
+  "10-19": "Return to station",
+  "10-20": "Location?",
+  "10-21": "Call by phone",
+  "10-22": "Disregard",
+  "10-23": "Stand by",
+  "10-24": "Assignment complete",
+  "10-25": "Report in person",
+  "10-26": "Detaining suspect",
+  "10-27": "Driver's license check",
+  "10-28": "Vehicle registration check",
+  "10-29": "Check for wanted / warrants",
+  "10-31": "Crime in progress",
+  "10-32": "Person with gun",
+  "10-33": "EMERGENCY — officer needs help",
+  "10-35": "Major crime alert",
+  "10-36": "Correct time?",
+  "10-37": "Suspicious vehicle",
+  "10-38": "Stopping suspicious vehicle",
+  "10-39": "Urgent — lights & siren",
+  "10-40": "Silent run — no lights/siren",
+  "10-43": "Information",
+  "10-45": "Animal carcass",
+  "10-46": "Assist motorist",
+  "10-49": "Traffic light out",
+  "10-50": "Accident / MVA",
+  "10-51": "Wrecker needed",
+  "10-52": "Ambulance needed",
+  "10-53": "Road blocked",
+  "10-54": "Livestock on highway",
+  "10-55": "Intoxicated driver",
+  "10-57": "Hit and run",
+  "10-58": "Direct traffic",
+  "10-59": "Convoy / escort",
+  "10-66": "Message cancellation",
+  "10-70": "Fire alarm",
+  "10-71": "Advise nature of fire",
+  "10-72": "Report progress on fire",
+  "10-73": "Smoke report",
+  "10-74": "Negative",
+  "10-76": "En route",
+  "10-77": "ETA?",
+  "10-78": "Need assistance",
+  "10-79": "Notify coroner",
+  "10-80": "Chase in progress",
+  "10-85": "Delayed",
+  "10-89": "Bomb threat",
+  "10-90": "Bank alarm",
+  "10-91": "Pick up subject",
+  "10-95": "Subject in custody",
+  "10-96": "Mental health subject",
+  "10-97": "Arrived at scene",
+  "10-98": "Escaped prisoner",
+  "10-99": "Officer down / wanted-and-armed",
+};
+
+// Wrap every "10-XX" token in escaped text with an <abbr> tag that shows
+// the meaning on hover. Operates on already-html-escaped strings — call
+// AFTER escapeHtml(), never before.
+function highlightTenCodes(escapedHtml) {
+  return escapedHtml.replace(/\b(10-\d{1,3})\b/g, (_, code) => {
+    const meaning = TEN_CODES[code];
+    if (meaning) {
+      return `<abbr class="ten-code" title="${escapeHtml(meaning)}">${code}</abbr>`;
+    }
+    return `<abbr class="ten-code ten-code-unknown" title="ten-code (unknown)">${code}</abbr>`;
+  });
+}
+
+// ---- Cluster metadata ----
+// Computes structured facts from a story's source calls. Returns an
+// object with formatted strings ready for display.
+function computeClusterMeta(calls) {
+  if (!calls || !calls.length) return null;
+  const sorted = [...calls].sort((a, b) => (a.start_time || 0) - (b.start_time || 0));
+  const first = sorted[0];
+  const last  = sorted[sorted.length - 1];
+
+  // Duration = last call's start - first call's start + last call's duration
+  const lastEnd = (last.start_time || 0) + (last.duration_sec || 0);
+  const durSec = Math.max(0, lastEnd - (first.start_time || 0));
+
+  // Units: union of incident_units across calls
+  const unitSet = new Set();
+  for (const c of sorted) {
+    if (c.incident_units) {
+      const u = Array.isArray(c.incident_units)
+        ? c.incident_units
+        : String(c.incident_units).split(",");
+      u.forEach(x => { const t = String(x).trim(); if (t) unitSet.add(t); });
+    }
+  }
+  const units = [...unitSet].sort();
+
+  // Address: prefer the primary call's incident_location, fall back to
+  // the most-specific one across the cluster.
+  const locs = sorted.map(c => (c.incident_location || "").trim()).filter(Boolean);
+  const address = locs.sort((a, b) => b.length - a.length)[0] || "";
+
+  return {
+    firstTime: first.start_time,
+    lastTime:  last.start_time,
+    durationSec: Math.round(durSec),
+    callCount: sorted.length,
+    units, address,
+  };
+}
+
+function formatDuration(sec) {
+  if (!sec || sec < 1) return "—";
+  if (sec < 60)  return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function renderMetadataStrip(meta, opts = {}) {
+  if (!meta) return "";
+  const bits = [];
+  bits.push(`<span class="meta-bit"><b>First reported:</b> ${fmtTime(meta.firstTime)}</span>`);
+  bits.push(`<span class="meta-bit"><b>Last activity:</b> ${fmtTime(meta.lastTime)}</span>`);
+  bits.push(`<span class="meta-bit"><b>Duration:</b> ${formatDuration(meta.durationSec)}</span>`);
+  bits.push(`<span class="meta-bit"><b>Calls:</b> ${meta.callCount}</span>`);
+  if (meta.units.length) {
+    const list = meta.units.slice(0, opts.maxUnits || 8).map(escapeHtml).join(", ");
+    const more = meta.units.length > (opts.maxUnits || 8) ? ` +${meta.units.length - (opts.maxUnits || 8)}` : "";
+    bits.push(`<span class="meta-bit"><b>Units:</b> ${list}${more}</span>`);
+  }
+  if (meta.address) {
+    bits.push(`<span class="meta-bit meta-bit-address"><b>Location:</b> ${escapeHtml(meta.address)}</span>`);
+  }
+  return `<div class="meta-strip">${bits.join("")}</div>`;
+}
+
+// ---- Story category inference ----
+// Returns {emoji, key} where key is used for color/CSS class. Inspects the
+// talkgroup tag, severity, and body keywords. Most-specific match wins.
+function storyCategory(s) {
+  const tag = (s.talkgroup_tag || "").toLowerCase();
+  const body = (s.body || "").toLowerCase();
+  const title = (s.title || "").toLowerCase();
+  const blob = `${title} ${body}`;
+  // Tag-first (most reliable signal)
+  if (/\bpd\b|police|sheriff|law|dps|cbp|patrol/.test(tag))     return { key: "police", emoji: "🚓" };
+  if (/\bfd\b|fire|hazmat/.test(tag))                            return { key: "fire",   emoji: "🚒" };
+  if (/ems|medic|paramed|ambulance|med ?evac/.test(tag))         return { key: "ems",    emoji: "🚑" };
+  if (/isd|school|cisd/.test(tag))                               return { key: "school", emoji: "🏫" };
+  if (/transport|metro|bus|valley/.test(tag))                    return { key: "transit", emoji: "🚌" };
+  if (/airport|tower|approach/.test(tag))                        return { key: "air",    emoji: "✈" };
+  if (/pw|public works|water|util/.test(tag))                    return { key: "works",  emoji: "🔧" };
+  // Body keyword fallback
+  if (/pursuit|chase|suspect|arrest|robbery|burglary|shoot|stab/.test(blob)) return { key: "police", emoji: "🚓" };
+  if (/structure fire|vehicle fire|brush fire|smoke|flames/.test(blob))      return { key: "fire",   emoji: "🚒" };
+  if (/medical|cpr|injur|cardiac|stroke|overdose|unconscious|hospital/.test(blob)) return { key: "ems", emoji: "🚑" };
+  if (/aircraft|airplane|helicopter|landing|takeoff/.test(blob))             return { key: "air",    emoji: "✈" };
+  if (/weather|hurricane|tornado|flood|tropical/.test(blob))                 return { key: "weather", emoji: "🌪" };
+  return { key: "generic", emoji: "📡" };
+}
+
+function renderStoryHero(s, size) {
+  const cat = storyCategory(s);
+  const sev = (s.severity || "unknown").toLowerCase();
+  const sizeClass = size === "lead" ? "story-hero-lead" : "story-hero-sm";
+  return `<div class="story-hero ${sizeClass} hero-cat-${cat.key} hero-sev-${sev}">
+    <span class="story-hero-icon">${cat.emoji}</span>
+  </div>`;
+}
+
 function renderCallCard(c) {
   const sev = (c.incident_severity || "unknown").toLowerCase();
   const tag = c.talkgroup_tag || `tg-${c.talkgroup}`;
@@ -296,7 +625,7 @@ function renderCallCard(c) {
   const summary = c.incident_summary
     ? `<span class="summary">${escapeHtml(c.incident_summary)}</span> ` : "";
   const transcript = c.transcript
-    ? escapeHtml(c.transcript)
+    ? highlightTenCodes(escapeHtml(c.transcript))
     : (c.audio_available ? '<span class="pending">Awaiting transcription…</span>' : "");
   const audio = c.audio_available && c.opus_path
     ? `<audio controls preload="none"><source src="/audio/${escapeHtml(c.opus_path)}" type="audio/ogg; codecs=opus"></audio>`
