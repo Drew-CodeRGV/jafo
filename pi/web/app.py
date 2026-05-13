@@ -401,6 +401,13 @@ def dashboard():
                            is_hub=not _is_edge_node())
 
 
+@app.route("/editions")
+def editions():
+    """Regional landing — Texas map with each available edition highlighted.
+    For now only the McAllen / RGV edition is live."""
+    return render_template("editions.html", node_name=NODE_NAME)
+
+
 @app.route("/r/<slug>")
 def region_dashboard(slug: str):
     """Regional dashboard — same UI as root, but scoped to one region."""
@@ -2006,12 +2013,21 @@ def _proxy_stories_from_hub():
     return data
 
 
+STORY_MAX_AGE_SEC = 12 * 3600  # only surface stories with activity in last 12h
+
+
 @app.route("/api/stories")
 def stories_list():
-    """Top stories, ordered by score desc."""
+    """Top stories from the last 12 hours, ordered by score desc."""
+    cutoff = int(time.time()) - STORY_MAX_AGE_SEC
+
     if _is_edge_node():
         data = _proxy_stories_from_hub()
         if data is not None:
+            data["stories"] = [
+                s for s in (data.get("stories") or [])
+                if (s.get("last_call_at") or 0) >= cutoff
+            ]
             return jsonify(data)
         # Hub unreachable — return empty list rather than serving stale May-3
         # rows from the local stories table.
@@ -2022,9 +2038,10 @@ def stories_list():
         SELECT id, title, body, severity, talkgroup, talkgroup_tag,
                primary_call_id, related_call_ids, score, last_call_at, created_at
         FROM stories
+        WHERE last_call_at >= ?
         ORDER BY score DESC, last_call_at DESC
         LIMIT {STORY_KEEP_MAX}
-    """)
+    """, (cutoff,))
     out = []
     for r in cur:
         d = dict(r)

@@ -2,6 +2,8 @@
 Description=jafo — uploader (pushes calls to central hub)
 After=network-online.target jafo-processor.service
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,10 +12,13 @@ WorkingDirectory=/home/pi/jafo-data
 EnvironmentFile=/home/pi/jafo/.env
 Environment=JAFO_DATA_DIR=/home/pi/jafo-data
 ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/uploader.py
-Restart=on-failure
-RestartSec=15
+Restart=always
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
+Nice=5
+OOMScoreAdjust=100
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

@@ -2,6 +2,8 @@
 Description=jafo — web (Flask via gunicorn)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -18,10 +20,13 @@ ExecStart=/home/pi/jafo-data/venv-web/bin/gunicorn \
     --access-logfile - \
     --error-logfile - \
     wsgi:app
-Restart=on-failure
+Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+Nice=10
+OOMScoreAdjust=300
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

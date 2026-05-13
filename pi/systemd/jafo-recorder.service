@@ -2,6 +2,8 @@
 Description=jafo — trunk-recorder P25 capture
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -9,12 +11,17 @@ User=pi
 Group=plugdev
 WorkingDirectory=/home/pi/jafo-data
 ExecStart=/usr/local/bin/trunk-recorder --config=/home/pi/jafo-data/config/config.json
-Restart=on-failure
+Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 Nice=-5
 LimitNOFILE=65536
+LimitMEMLOCK=infinity
+# capture is the highest priority — last to die under memory pressure
+OOMScoreAdjust=-700
+TimeoutStopSec=20
+WatchdogSec=0
 
 [Install]
 WantedBy=multi-user.target

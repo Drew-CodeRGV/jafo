@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" class="dash-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The JAFO Report — Editions</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  html.dash-html, body.dash-body { height: auto !important; overflow: visible !important; }
+  .ed-wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 48px; }
+  .ed-head { display: flex; align-items: center; gap: 18px; padding: 22px 0 14px; border-bottom: 4px double #16110a; margin-bottom: 18px; }
+  .ed-head img { height: 56px; width: 56px; }
+  .ed-head h1 { font-family: 'Old Standard TT', Georgia, serif; font-size: 44px; margin: 0; letter-spacing: 0.5px; }
+  .ed-head .ed-sub { margin-left: auto; font-family: Georgia, serif; font-size: 14px; color: #423929; font-style: italic; }
+  .ed-intro { font-family: Georgia, serif; font-size: 17px; line-height: 1.5; max-width: 720px; margin: 6px 0 20px; color: #16110a; }
+  #ed-map { height: 560px; width: 100%; border: 2px solid #16110a; box-shadow: 4px 4px 0 #16110a; background: #ebe5d4; }
+  .ed-list { margin-top: 22px; display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 16px; }
+  .ed-card { border: 2px solid #16110a; padding: 14px 16px; background: #fff; box-shadow: 3px 3px 0 #16110a; }
+  .ed-card.live { cursor: pointer; transition: transform .08s ease; }
+  .ed-card.live:hover { transform: translate(-2px,-2px); box-shadow: 5px 5px 0 #16110a; }
+  .ed-card.soon { opacity: 0.55; }
+  .ed-card h3 { font-family: 'Old Standard TT', Georgia, serif; margin: 0 0 6px; font-size: 22px; }
+  .ed-card .ed-status { font-family: Georgia, serif; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #b4280b; font-weight: bold; }
+  .ed-card.soon .ed-status { color: #6a5c40; }
+  .ed-card p { font-family: Georgia, serif; font-size: 14px; line-height: 1.45; margin: 8px 0 0; color: #2a2418; }
+  .leaflet-tooltip.ed-tt { background: #16110a; color: #ebe5d4; border: none; font-family: 'Old Standard TT', Georgia, serif; font-size: 15px; padding: 6px 10px; box-shadow: 3px 3px 0 #b4280b; }
+  .leaflet-tooltip.ed-tt::before { display: none; }
+</style>
+</head>
+<body class="dash-body">
+
+<div class="ed-wrap">
+  <header class="ed-head">
+    <img src="/static/logo.png" alt="jafo">
+    <h1>The JAFO Report</h1>
+    <span class="ed-sub">Editions</span>
+  </header>
+
+  <p class="ed-intro">
+    JAFO operates passive radio observers that listen to open public-safety
+    and air-traffic broadcasts and synthesize a plain-English briefing of
+    activity in the region. Click a highlighted area on the map to read
+    that edition.
+  </p>
+
+  <div id="ed-map"></div>
+
+  <div class="ed-list">
+    <div class="ed-card live" onclick="window.location='/dashboard'">
+      <div class="ed-status">● Live</div>
+      <h3>McAllen Edition</h3>
+      <p>Lower Rio Grande Valley — LRGVRRS P25 trunked system, Hidalgo &amp; Cameron counties, plus McAllen-area air traffic.</p>
+    </div>
+    <div class="ed-card soon">
+      <div class="ed-status">Coming Soon</div>
+      <h3>Houston Edition</h3>
+      <p>Harris County public safety. Sensor not yet deployed.</p>
+    </div>
+    <div class="ed-card soon">
+      <div class="ed-status">Coming Soon</div>
+      <h3>Austin Edition</h3>
+      <p>Greater Austin Travis-Williamson Radio System. Sensor not yet deployed.</p>
+    </div>
+    <div class="ed-card soon">
+      <div class="ed-status">Coming Soon</div>
+      <h3>DFW Edition</h3>
+      <p>Dallas-Fort Worth metroplex. Sensor not yet deployed.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Texas-fit map. Center roughly on the geographic center, fit Texas bbox.
+  const map = L.map('ed-map', {
+    zoomControl: true,
+    scrollWheelZoom: false,
+    attributionControl: true,
+  });
+
+  // CartoDB Positron tiles — clean newspaper-like grayscale
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    subdomains: 'abcd',
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap, &copy; CARTO'
+  }).addTo(map);
+
+  // Fit Texas bounds (SW corner, NE corner)
+  const texasBounds = L.latLngBounds([25.5, -106.7], [36.6, -93.5]);
+  map.fitBounds(texasBounds, { padding: [20, 20] });
+
+  // RGV polygon — approximation of the four-county Lower Rio Grande Valley
+  // (Starr, Hidalgo, Willacy, Cameron). Counterclockwise: NW → W → S → E → N.
+  const rgvOutline = [
+    [26.92, -99.20],  // NW Starr
+    [26.93, -98.75],  // N Starr / Hidalgo border
+    [26.95, -98.20],  // N Hidalgo
+    [26.95, -97.85],  // N Hidalgo / Willacy
+    [26.85, -97.50],  // NE Willacy
+    [26.60, -97.30],  // E coast (Padre)
+    [26.07, -97.15],  // SPI
+    [25.85, -97.39],  // Brownsville
+    [25.91, -97.65],  // border, Cameron
+    [26.10, -98.30],  // Hidalgo at border
+    [26.20, -98.60],  // mission/penitas
+    [26.38, -98.95],  // Roma/Rio Grande City
+    [26.55, -99.10],  // Falcon
+    [26.92, -99.20],  // close
+  ];
+
+  const rgv = L.polygon(rgvOutline, {
+    color: '#b4280b',         // newspaper red
+    weight: 2,
+    fillColor: '#b4280b',
+    fillOpacity: 0.30,
+    className: 'rgv-poly',
+  }).addTo(map);
+
+  rgv.bindTooltip('McAllen Edition · click to read', {
+    className: 'ed-tt',
+    direction: 'top',
+    sticky: true,
+    offset: [0, -8],
+  });
+
+  rgv.on('mouseover', () => rgv.setStyle({ fillOpacity: 0.55, weight: 3 }));
+  rgv.on('mouseout',  () => rgv.setStyle({ fillOpacity: 0.30, weight: 2 }));
+  rgv.on('click',     () => { window.location = '/dashboard'; });
+
+  // Texas state outline (light) so the user sees where Texas is.
+  // Just trace a rough simplified TX boundary so we don't have to ship a heavy geojson.
+  // (For now, lean on the tile background — Texas is clearly visible.)
+</script>
+
+</body>
+</html>

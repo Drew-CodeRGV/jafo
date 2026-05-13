@@ -45,6 +45,21 @@ All five services are systemd units (`jafo-recorder`, `jafo-processor`,
 
 ## Common tasks
 
+### Bulletproof a fresh (or existing) Pi node — single command
+
+```bash
+sudo bash ~/jafo/scripts/harden-pi.sh           # disable bloat services
+sudo bash ~/jafo/scripts/harden-pi.sh --purge   # also apt-purge GUI bloat
+sudo bash ~/jafo/scripts/harden-pi.sh --dry-run # show what would change
+```
+
+Idempotent — re-run any time. Masks non-jafo services (lightdm,
+bluetooth, cups, NFS, sdrplay, tar1090, cloud-init, man-db.timer, etc.),
+moves the systemd journal off the SD onto the NVMe with rate-limiting +
+500 MB cap, idle-classes the nightly maintenance timers (logrotate,
+fstrim, dpkg-db-backup), applies sysctl tunings, reinstalls all
+hardened jafo unit files, and verifies every jafo-* service is active.
+
 ### Restart services after editing code
 
 ```bash

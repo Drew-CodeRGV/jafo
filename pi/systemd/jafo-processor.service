@@ -2,6 +2,8 @@
 Description=jafo — processor (VAD filter + Opus + SQLite)
 After=jafo-recorder.service
 Wants=jafo-recorder.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,10 +12,13 @@ WorkingDirectory=/home/pi/jafo-data
 EnvironmentFile=/home/pi/jafo/.env
 Environment=JAFO_DATA_DIR=/home/pi/jafo-data
 ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/processor.py
-Restart=on-failure
-RestartSec=15
+Restart=always
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
+Nice=0
+OOMScoreAdjust=-200
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

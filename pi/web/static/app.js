@@ -1726,11 +1726,13 @@ async function refreshTalkgroups() {
     const root = document.getElementById("talkgroup-groups");
     root.innerHTML = "";
 
-    // GMRS lives in its own pinned section at the bottom of the sidebar.
-    // Pull it out so the main talkgroups area only shows trunked-system TGs.
-    const gmrsGroup = data.groups.find((g) => g.name === "GMRS");
-    renderGmrsSection(gmrsGroup);
-    const groupsForTrunked = data.groups.filter((g) => g.name !== "GMRS");
+    // UHF Business (the conventional system on the second RTL-SDR) lives
+    // in its own pinned section at the bottom of the sidebar. Pull it out
+    // so the main talkgroups area only shows trunked-system TGs.
+    const CONVENTIONAL_GROUP_NAME = "UHF Business";
+    const conventionalGroup = data.groups.find((g) => g.name === CONVENTIONAL_GROUP_NAME);
+    renderConventionalSection(conventionalGroup);
+    const groupsForTrunked = data.groups.filter((g) => g.name !== CONVENTIONAL_GROUP_NAME);
 
     if (!groupsForTrunked.length || groupsForTrunked.every((g) => !g.talkgroups.length)) {
       root.innerHTML = '<div class="empty-tg">No talkgroup activity yet.</div>';
@@ -1821,17 +1823,17 @@ async function refreshTalkgroups() {
   }
 }
 
-// GMRS gets its own pinned section at the bottom of the sidebar (separate
-// from the trunked-system talkgroups). Same per-channel UI as the rest —
-// star to favorite, click to filter, count on the right — just rendered
-// in a separate <ul> with internal scroll.
-function renderGmrsSection(group) {
+// The conventional-system (currently UHF business) gets its own pinned
+// section at the bottom of the sidebar — separate from the trunked LRGVRRS
+// talkgroups. Same per-channel UI as the rest: star to favorite, click to
+// filter, count on the right. Rendered in its own <ul> with internal scroll.
+function renderConventionalSection(group) {
   const ul    = document.getElementById("gmrs-channel-list");
   const count = document.getElementById("gmrs-count");
   if (!ul) return;
   ul.innerHTML = "";
   if (!group || !group.talkgroups.length) {
-    ul.innerHTML = '<li class="gmrs-empty" style="color:var(--text-faint);font-size:12px">no GMRS configured</li>';
+    ul.innerHTML = '<li class="gmrs-empty" style="color:var(--text-faint);font-size:12px">no channels configured</li>';
     if (count) count.textContent = "0";
     return;
   }

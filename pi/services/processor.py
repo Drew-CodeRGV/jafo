@@ -161,7 +161,8 @@ def process_call(conn: sqlite3.Connection, wav_path: Path) -> None:
     try:
         metadata = json.loads(json_path.read_text())
     except json.JSONDecodeError as e:
-        log.warning("Bad JSON for %s: %s", wav_path.name, e)
+        log.warning("Bad JSON for %s: %s — discarding pair", wav_path.name, e)
+        cleanup(wav_path, json_path)
         return
 
     tag = metadata.get("talkgroup_tag", "?")

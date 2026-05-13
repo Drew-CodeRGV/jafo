@@ -2,6 +2,8 @@
 Description=Ollama local LLM server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -16,10 +18,16 @@ Environment=OLLAMA_NUM_PARALLEL=1
 # Stash models in the user's home so they survive reinstalls
 Environment=OLLAMA_MODELS=/home/pi/.ollama/models
 ExecStart=/home/pi/.local/bin/ollama serve
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=15
 StandardOutput=journal
 StandardError=journal
+Nice=15
+# ollama is the FIRST thing the kernel kills under memory pressure —
+# we'd rather lose a transient LLM call than the capture pipeline
+OOMScoreAdjust=800
+MemoryHigh=2G
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target
