@@ -33,6 +33,13 @@ POLL_INTERVAL_SEC = 10
 BATCH_SIZE = 5
 
 GROQ_FALLBACK_ENABLED = os.environ.get("JAFO_TRANSCRIBE_GROQ_FALLBACK", "").strip().lower() in ("1", "true", "yes")
+# Primary backend: "local" (default) tries faster-whisper first; "groq" tries
+# Groq's hosted Whisper first and falls back to local on Groq errors. "groq"
+# is what you want on a cloud node with the Groq paid tier — it's an order of
+# magnitude faster than local CPU inference.
+TRANSCRIBE_BACKEND = os.environ.get("JAFO_TRANSCRIBE_BACKEND", "local").strip().lower()
+if TRANSCRIBE_BACKEND not in ("local", "groq"):
+    TRANSCRIBE_BACKEND = "local"
 
 # Whisper context prompt — primes the model for our domain
 INITIAL_PROMPT = (
@@ -130,8 +137,16 @@ def get_pending_calls(conn, limit: int):
 # Main loop
 # -----------------------------------------------------------------------------
 def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
-    """Local first; only fall back to Groq if explicitly enabled and local
-    actually raises. Returns (text, model_label)."""
+    """Backend-selected primary; falls back to the other on errors.
+    Returns (text, model_label)."""
+    if TRANSCRIBE_BACKEND == "groq" and groq_client is not None:
+        try:
+            return transcribe_via_groq(groq_client, opus_path)
+        except Exception as e:
+            log.warning("Groq transcribe failed (%s: %s) — falling back to local",
+                        type(e).__name__, str(e)[:120])
+            return transcribe_via_local(opus_path)
+    # local primary (default): try faster-whisper, optional Groq fallback on err
     try:
         return transcribe_via_local(opus_path)
     except Exception as e:
@@ -143,11 +158,17 @@ def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
 
 
 def main() -> None:
-    groq_client = make_groq_client() if GROQ_FALLBACK_ENABLED else None
-    if GROQ_FALLBACK_ENABLED and groq_client is None:
+    # Build the Groq client when EITHER mode would use it: primary=groq, or
+    # legacy local-primary with the fallback flag.
+    groq_client = make_groq_client() if (TRANSCRIBE_BACKEND == "groq" or GROQ_FALLBACK_ENABLED) else None
+    if TRANSCRIBE_BACKEND == "groq" and groq_client is None:
+        log.warning("JAFO_TRANSCRIBE_BACKEND=groq but GROQ_API_KEY not set — silently downgrading to local.")
+    if GROQ_FALLBACK_ENABLED and groq_client is None and TRANSCRIBE_BACKEND != "groq":
         log.warning("JAFO_TRANSCRIBE_GROQ_FALLBACK=true but GROQ_API_KEY not set — local-only.")
-    log.info("Starting jafo-transcriber. primary=faster-whisper-%s groq_fallback=%s",
-             LOCAL_MODEL_NAME, "yes" if (GROQ_FALLBACK_ENABLED and groq_client) else "no")
+    log.info("Starting jafo-transcriber. backend=%s primary_model=%s groq_available=%s",
+             TRANSCRIBE_BACKEND,
+             GROQ_MODEL if TRANSCRIBE_BACKEND == "groq" else f"faster-whisper-{LOCAL_MODEL_NAME}",
+             "yes" if groq_client else "no")
 
     conn = db_connect()
 
