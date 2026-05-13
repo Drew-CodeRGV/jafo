@@ -1,65 +1,167 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dash-html">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} — jafo</title>
+<title>{{ title }} — The JAFO Report</title>
 
 <!-- OpenGraph for Facebook + Twitter Card scraping -->
 <meta property="og:type" content="article">
 <meta property="og:title" content="{{ title }}">
 <meta property="og:description" content="{{ description }}">
-<meta property="og:image" content="/api/share/{{ kind }}/{{ id }}/card.png">
+<meta property="og:image" content="{{ share_url }}/api/share/{{ kind }}/{{ id }}/card.png">
 <meta property="og:image:width" content="1080">
 <meta property="og:image:height" content="1080">
-<meta property="og:site_name" content="jafo / {{ node_name }}">
+<meta property="og:url" content="{{ share_url }}/share/{{ kind }}/{{ id }}">
+<meta property="og:site_name" content="The JAFO Report">
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ title }}">
 <meta name="twitter:description" content="{{ description }}">
-<meta name="twitter:image" content="/api/share/{{ kind }}/{{ id }}/card.png">
+<meta name="twitter:image" content="{{ share_url }}/api/share/{{ kind }}/{{ id }}/card.png">
 
 <link rel="icon" href="/static/logo.png" type="image/png">
 <link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
 <style>
-  body { display: block; padding: 0; }
-  .share-page {
-    max-width: 760px;
-    margin: 40px auto;
-    padding: 0 20px;
-    color: var(--text);
-  }
-  .share-page h1 { font-size: 22px; margin-top: 0; }
-  .share-page p  { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
-  .share-page img.card {
-    max-width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin: 16px 0;
-  }
-  .share-page .back {
-    display: inline-block;
-    margin-top: 14px;
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .share-page video {
-    width: 100%;
-    max-width: 540px;
-    margin: 12px 0;
-    border-radius: 8px;
+  html.dash-html, body.dash-body { height: auto !important; overflow: visible !important; }
+  .sh-wrap { max-width: 880px; margin: 0 auto; padding: 0 24px 60px; }
+  .sh-masthead { display: flex; align-items: center; gap: 18px; padding: 22px 0 12px; border-bottom: 4px double #16110a; margin-bottom: 22px; }
+  .sh-masthead img { height: 56px; width: 56px; }
+  .sh-masthead h1 { font-family: 'Old Standard TT', Georgia, serif; font-size: 38px; margin: 0; letter-spacing: 0.4px; }
+  .sh-masthead .sh-back { margin-left: auto; font-family: Georgia, serif; font-size: 14px; }
+  .sh-masthead .sh-back a { color: #423929; text-decoration: none; margin-left: 12px; }
+  .sh-masthead .sh-back a:hover { color: #b4280b; }
+
+  .sh-eyebrow { font-family: Georgia, serif; font-size: 13px; color: #6a5c40; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 8px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .sh-eyebrow .sh-sev { padding: 2px 10px; border: 1.5px solid #16110a; font-weight: bold; letter-spacing: 1.5px; }
+  .sh-eyebrow .sh-sev.critical { background: #b4280b; color: #ebe5d4; border-color: #b4280b; }
+  .sh-eyebrow .sh-sev.high     { background: #d9580f; color: #fff; border-color: #d9580f; }
+  .sh-eyebrow .sh-sev.medium   { background: #c9962a; color: #16110a; border-color: #c9962a; }
+  .sh-eyebrow .sh-sev.low      { background: #5e8b3a; color: #fff; border-color: #5e8b3a; }
+  .sh-eyebrow .sh-sev.unknown  { background: #ebe5d4; color: #16110a; }
+
+  .sh-headline { font-family: 'Old Standard TT', Georgia, serif; font-size: 42px; line-height: 1.1; color: #16110a; margin: 4px 0 18px; }
+
+  .sh-hero { width: 100%; border: 2px solid #16110a; box-shadow: 4px 4px 0 #16110a; background: #16110a; margin-bottom: 22px; display: block; }
+
+  .sh-body { font-family: Georgia, serif; font-size: 19px; line-height: 1.65; color: #16110a; max-width: 720px; }
+  .sh-body::first-letter { font-family: 'Old Standard TT', Georgia, serif; float: left; font-size: 84px; line-height: 0.85; padding: 6px 10px 0 0; color: #16110a; font-weight: bold; }
+
+  .sh-section-h { font-family: 'Old Standard TT', Georgia, serif; font-size: 22px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #16110a; }
+
+  .sh-call { border: 2px solid #16110a; padding: 14px 16px; margin-bottom: 14px; background: #fff; box-shadow: 3px 3px 0 #16110a; }
+  .sh-call-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; font-family: Georgia, serif; font-size: 13px; color: #423929; margin-bottom: 8px; }
+  .sh-call-tag { font-weight: bold; color: #16110a; font-size: 15px; }
+  .sh-call-tx { font-family: Georgia, serif; font-size: 15px; line-height: 1.5; color: #16110a; margin: 8px 0; font-style: italic; }
+  .sh-call audio { width: 100%; height: 36px; margin-top: 6px; }
+
+  .sh-share { margin: 30px 0; padding: 18px 20px; background: #fff; border: 2px solid #16110a; box-shadow: 4px 4px 0 #b4280b; }
+  .sh-share-h { font-family: 'Old Standard TT', Georgia, serif; font-size: 18px; margin: 0 0 12px; }
+  .sh-share-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  .sh-share-btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 2px solid #16110a; background: #ebe5d4; color: #16110a; font-family: Georgia, serif; font-size: 14px; font-weight: bold; text-decoration: none; cursor: pointer; }
+  .sh-share-btn:hover { background: #16110a; color: #ebe5d4; }
+  .sh-share-btn.copied { background: #5e8b3a; color: #fff; border-color: #5e8b3a; }
+
+  .sh-footer { margin-top: 40px; padding-top: 18px; border-top: 4px double #16110a; font-family: Georgia, serif; font-size: 13px; color: #423929; line-height: 1.6; }
+  .sh-footer a { color: #16110a; text-decoration: underline; }
+
+  @media (max-width: 600px) {
+    .sh-headline { font-size: 32px; }
+    .sh-body { font-size: 17px; }
+    .sh-masthead h1 { font-size: 28px; }
   }
 </style>
 </head>
-<body>
-<div class="share-page">
-  <h1>{{ title }}</h1>
-  <p>{{ description }}</p>
-  <img class="card" src="/api/share/{{ kind }}/{{ id }}/card.png" alt="{{ title }}">
-  <video controls preload="metadata">
-    <source src="/api/share/{{ kind }}/{{ id }}/video.mp4" type="video/mp4">
-  </video>
-  <p><a class="back" href="/">← back to jafo</a></p>
+<body class="dash-body">
+
+<div class="sh-wrap">
+  <header class="sh-masthead">
+    <img src="/static/logo.png" alt="jafo">
+    <h1>The JAFO Report</h1>
+    <span class="sh-back">
+      <a href="/dashboard">← McAllen Edition</a>
+      <a href="/editions">All Editions</a>
+    </span>
+  </header>
+
+  <div class="sh-eyebrow">
+    {% if severity %}<span class="sh-sev {{ severity|lower }}">{{ severity|upper }}</span>{% endif %}
+    {% if talkgroup_tag %}<span>{{ talkgroup_tag }}</span>{% endif %}
+    {% if first_time_str %}<span>First reported {{ first_time_str }}</span>{% endif %}
+  </div>
+
+  <h2 class="sh-headline">{{ title }}</h2>
+
+  <img class="sh-hero" src="/api/share/{{ kind }}/{{ id }}/card.png" alt="{{ title }}">
+
+  <article class="sh-body">{{ description }}</article>
+
+  {% if calls %}
+  <h3 class="sh-section-h">Listen to the source calls</h3>
+  {% for c in calls %}
+    <div class="sh-call">
+      <div class="sh-call-head">
+        <span class="sh-call-tag">{{ c.talkgroup_tag or 'Unknown' }}</span>
+        {% if c.start_time_str %}<span>· {{ c.start_time_str }}</span>{% endif %}
+        {% if c.duration_sec %}<span>· {{ c.duration_sec }}s</span>{% endif %}
+        {% if c.incident_units %}<span>· Units: {{ c.incident_units }}</span>{% endif %}
+      </div>
+      {% if c.transcript %}<div class="sh-call-tx">"{{ c.transcript }}"</div>{% endif %}
+      {% if c.audio_url %}
+        <audio controls preload="none">
+          <source src="{{ c.audio_url }}" type="audio/ogg; codecs=opus">
+        </audio>
+      {% endif %}
+    </div>
+  {% endfor %}
+  {% endif %}
+
+  <section class="sh-share">
+    <h4 class="sh-share-h">Share this report</h4>
+    <div class="sh-share-btns">
+      <a class="sh-share-btn" id="sh-x" target="_blank" rel="noopener">𝕏  Post</a>
+      <a class="sh-share-btn" id="sh-fb" target="_blank" rel="noopener">f  Facebook</a>
+      <a class="sh-share-btn" id="sh-ln" target="_blank" rel="noopener">in  LinkedIn</a>
+      <button class="sh-share-btn" id="sh-copy" type="button">⧉  Copy link</button>
+    </div>
+  </section>
+
+  <footer class="sh-footer">
+    JAFO operates passive radio observers that listen to open public-safety and air-traffic broadcasts.
+    All audio above is from publicly broadcast radio traffic in the
+    <a href="/editions">McAllen Edition</a> region.
+    Source calls are kept for 14 days; share links expire after that.
+    <br>
+    Read more at <a href="/dashboard">The JAFO Report</a>.
+  </footer>
 </div>
+
+<script>
+  (function () {
+    const url   = window.location.href;
+    const title = {{ title|tojson }};
+    const xUrl   = `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`;
+    const fbUrl  = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+    const lnUrl  = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
+    document.getElementById('sh-x').href  = xUrl;
+    document.getElementById('sh-fb').href = fbUrl;
+    document.getElementById('sh-ln').href = lnUrl;
+    document.getElementById('sh-copy').addEventListener('click', async (e) => {
+      try {
+        await navigator.clipboard.writeText(url);
+        e.target.textContent = '✓  Link copied';
+        e.target.classList.add('copied');
+        setTimeout(() => {
+          e.target.textContent = '⧉  Copy link';
+          e.target.classList.remove('copied');
+        }, 2200);
+      } catch (err) {
+        prompt('Copy this URL:', url);
+      }
+    });
+  })();
+</script>
+
 </body>
 </html>

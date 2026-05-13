@@ -333,6 +333,18 @@ html.dash-html, body.dash-body {
   text-transform: uppercase;
 }
 .story-card-sources:hover { background: #16110a; color: #f3eddc; }
+.story-card-share {
+  background: transparent;
+  border: 1px solid #16110a;
+  color: #16110a;
+  cursor: pointer;
+  font: 700 11px ui-monospace, monospace;
+  padding: 4px 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.story-card-share:hover { background: #b4280b; color: #ebe5d4; border-color: #b4280b; }
 
 /* ---- Ten-code tooltips ---- */
 .ten-code {

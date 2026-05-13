@@ -211,6 +211,7 @@ async function refreshStories() {
       ctaEl.innerHTML = `
         ${lead.primary_call_id ? `<button id="lead-listen" class="paper-btn paper-btn-primary">▶ Listen to source call</button>` : ""}
         <button id="lead-sources" class="paper-btn">Source calls (${sourceN})</button>
+        <a id="lead-share" class="paper-btn" href="/share/story/${lead.id}" target="_blank" rel="noopener">↗ Share</a>
       `;
       const listenBtn = document.getElementById("lead-listen");
       if (listenBtn) listenBtn.onclick = () => playPrimaryCall(lead.primary_call_id);
@@ -246,6 +247,7 @@ async function refreshStories() {
               <div class="story-card-footer">
                 <span class="story-card-ts">${fmtAgo(s.last_call_at || s.created_at)}</span>
                 <button class="story-card-sources" data-story-id="${s.id}">Source calls (${sourceN}) →</button>
+                <a class="story-card-share" href="/share/story/${s.id}" target="_blank" rel="noopener" title="Open shareable page in new tab">↗ Share</a>
               </div>
             </div>
           </article>

@@ -31,7 +31,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "services"))
 from common import (
@@ -1598,7 +1598,7 @@ STORY_REFRESH_INTERVAL_SEC = 300         # 5 min
 STORY_LOOKBACK_HOURS       = 12
 STORY_BUCKET_SEC           = 15 * 60     # 15-min cluster window
 STORY_MAX_NEW_PER_PASS     = 6           # cap Claude calls per refresh
-STORY_RETENTION_HOURS      = 24
+STORY_RETENTION_HOURS      = 14 * 24    # 14 days — share URLs stay alive this long
 STORY_KEEP_MAX             = 16          # how many top stories to keep + serve
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
@@ -2162,9 +2162,32 @@ def story_detail(story_id: int):
 # source data has changed (cheap mtime check).
 # =============================================================================
 SHARE_CACHE_DIR = DATA_DIR / "share-cache"
+SHARE_CACHE_TTL_SEC = 14 * 24 * 3600   # 14 days — match story DB retention
+_SHARE_SWEEP_STATE = {"last": 0.0}
 LOGO_PATH = Path(__file__).parent / "static" / "logo.png"
 FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _sweep_share_cache() -> None:
+    """Lazy GC: every hour at most, delete files in share-cache/ older than 14d."""
+    now = time.time()
+    if now - _SHARE_SWEEP_STATE["last"] < 3600:
+        return
+    _SHARE_SWEEP_STATE["last"] = now
+    if not SHARE_CACHE_DIR.exists():
+        return
+    cutoff = now - SHARE_CACHE_TTL_SEC
+    removed = 0
+    for p in SHARE_CACHE_DIR.rglob("*"):
+        try:
+            if p.is_file() and p.stat().st_mtime < cutoff:
+                p.unlink()
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f"[share-cache] swept {removed} files older than 14 days", file=sys.stderr)
 
 # Per-platform aspect ratios. Same content, three layouts.
 SHARE_FORMATS = {
@@ -2553,6 +2576,7 @@ def share_call_audio(call_id: int):
 
 @app.route("/api/share/story/<int:story_id>/card.png")
 def share_story_card(story_id: int):
+    _sweep_share_cache()
     res = _build_story_share(story_id, _fmt_arg())
     if not res: abort(404)
     card, _, _ = res
@@ -2600,17 +2624,66 @@ def share_call_page(call_id: int):
 
 @app.route("/share/story/<int:story_id>")
 def share_story_page(story_id: int):
+    # Edge nodes don't own the stories table — redirect viewers to the hub
+    # so the shared URL resolves correctly and Open Graph scrapers see real
+    # data (jafo.live, not jafo.local).
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "https://jafo.live").rstrip("/")
+        return redirect(f"{hub_url}/share/story/{story_id}", code=302)
+
     conn = get_db()
     row = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
-    conn.close()
-    if not row: abort(404)
+    if not row:
+        conn.close()
+        abort(404)
     s = dict(row)
+
+    try:
+        ids = json.loads(s.get("related_call_ids") or "[]")
+    except json.JSONDecodeError:
+        ids = []
+
+    calls = []
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""SELECT id, start_time, duration_sec, opus_path, audio_deleted,
+                       talkgroup_tag, transcript, incident_units
+                FROM calls WHERE id IN ({placeholders})
+                ORDER BY start_time ASC""",
+            ids,
+        )
+        for r in cur:
+            d = dict(r)
+            if d.get("opus_path") and not d.get("audio_deleted"):
+                d["audio_url"] = f"/audio/{d['opus_path']}"
+            else:
+                d["audio_url"] = None
+            d["start_time_str"] = time.strftime("%H:%M", time.localtime(d["start_time"])) if d.get("start_time") else ""
+            d["duration_sec"] = int(d.get("duration_sec") or 0) or None
+            calls.append(d)
+    conn.close()
+
+    first_time_str = ""
+    if calls:
+        first_time_str = time.strftime("%b %-d, %-I:%M %p", time.localtime(calls[0]["start_time"]))
+
+    # Best-effort canonical URL: prefer X-Forwarded-Host (nginx), else Host header.
+    share_url = request.headers.get("X-Forwarded-Host") or request.host
+    scheme = request.headers.get("X-Forwarded-Proto") or ("https" if request.is_secure else "http")
+    share_url = f"{scheme}://{share_url}"
+
     return render_template(
         "share.html",
         kind="story", id=story_id,
         title=s.get("title") or f"Story #{story_id}",
-        description=(s.get("body") or "")[:200],
+        description=s.get("body") or "",
+        severity=s.get("severity") or "unknown",
+        talkgroup_tag=s.get("talkgroup_tag") or "",
+        first_time_str=first_time_str,
+        calls=calls,
         node_name=NODE_NAME,
+        share_url=share_url,
     )
 
 
