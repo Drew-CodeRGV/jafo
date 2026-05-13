@@ -35,6 +35,13 @@
 </header>
 
 <main class="paper-main">
+  <!-- SORT TOGGLE -->
+  <div class="paper-sort">
+    <span class="paper-sort-label">Sort by:</span>
+    <button class="paper-sort-btn active" data-sort="impact">Impact</button>
+    <button class="paper-sort-btn"        data-sort="latest">Latest news</button>
+  </div>
+
   <!-- LEAD STORY -->
   <section class="paper-lead">
     <div class="paper-eyebrow">
@@ -91,6 +98,22 @@
     <div>jafo · captured by {{ node_name }} · all activity from open public-safety + air-traffic broadcasts</div>
   </footer>
 </main>
+
+<!-- ============================================================
+     CNN-style scrolling ticker — fixed at bottom of viewport
+     ============================================================ -->
+<div id="jafo-ticker" class="jafo-ticker" role="region" aria-label="Latest headlines ticker">
+  <!-- Speed control on the left edge: + on top, − on bottom -->
+  <div class="ticker-speed" aria-label="Ticker speed controls">
+    <button class="ticker-speed-btn ticker-speed-up"   aria-label="Speed up ticker">+</button>
+    <button class="ticker-speed-btn ticker-speed-down" aria-label="Slow down ticker">−</button>
+  </div>
+  <div class="ticker-rail">
+    <div id="ticker-track" class="ticker-track">
+      <!-- Filled in by dashboard.js — duplicated content for seamless loop -->
+    </div>
+  </div>
+</div>
 
 <script>
 window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};

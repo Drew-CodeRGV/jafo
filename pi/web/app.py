@@ -1588,11 +1588,25 @@ CREATE TABLE IF NOT EXISTS stories (
     related_call_ids  TEXT,
     score             REAL,
     created_at        INTEGER,
-    last_call_at      INTEGER
+    last_call_at      INTEGER,
+    views             INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_stories_score   ON stories(score DESC, last_call_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stories_created ON stories(created_at);
 """
+
+
+def _ensure_stories_views_col() -> None:
+    """Migrate older DBs that don't have stories.views yet."""
+    try:
+        conn = get_db()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(stories)")}
+        if "views" not in cols:
+            conn.execute("ALTER TABLE stories ADD COLUMN views INTEGER DEFAULT 0")
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[stories] views migration: {e}", file=sys.stderr)
 
 STORY_REFRESH_INTERVAL_SEC = 300         # 5 min
 STORY_LOOKBACK_HOURS       = 12
@@ -2016,6 +2030,82 @@ def _proxy_stories_from_hub():
 STORY_MAX_AGE_SEC = 12 * 3600  # only surface stories with activity in last 12h
 
 
+@app.route("/api/ticker")
+def ticker_feed():
+    """Headlines + stats for the CNN-style ticker at the bottom of /dashboard.
+
+    Returns three slots, each a list of {label, url, sub} so the front-end
+    can render them as scrolling marquee items.
+    """
+    if _is_edge_node():
+        # Proxy from hub so jafo.local shows the same ticker as jafo.live
+        hub_url = os.environ.get("JAFO_HUB_URL", "https://jafo.live").rstrip("/")
+        try:
+            import requests as _r
+            resp = _r.get(f"{hub_url}/api/ticker", timeout=4)
+            if resp.status_code == 200:
+                return jsonify(resp.json())
+        except Exception:
+            pass
+        return jsonify({"latest": [], "most_viewed": [], "active_talkgroups": []})
+
+    now = int(time.time())
+    cutoff = now - STORY_MAX_AGE_SEC
+    conn = get_db()
+
+    latest_rows = conn.execute("""
+        SELECT id, title, talkgroup_tag, last_call_at
+        FROM stories
+        WHERE last_call_at >= ?
+        ORDER BY last_call_at DESC
+        LIMIT 3
+    """, (cutoff,)).fetchall()
+    latest = [{
+        "label": (r["title"] or "—")[:120],
+        "url":   f"/share/story/{r['id']}",
+        "sub":   r["talkgroup_tag"] or "",
+    } for r in latest_rows]
+
+    viewed_rows = conn.execute("""
+        SELECT id, title, talkgroup_tag, COALESCE(views, 0) AS views
+        FROM stories
+        WHERE last_call_at >= ?
+          AND COALESCE(views, 0) > 0
+        ORDER BY views DESC, last_call_at DESC
+        LIMIT 3
+    """, (cutoff,)).fetchall()
+    most_viewed = [{
+        "label": (r["title"] or "—")[:120],
+        "url":   f"/share/story/{r['id']}",
+        "sub":   f"{r['views']} view{'s' if r['views'] != 1 else ''}",
+    } for r in viewed_rows]
+
+    # Most active talkgroups in the last 12h, by call count
+    tg_rows = conn.execute("""
+        SELECT talkgroup, talkgroup_tag, COUNT(*) AS n
+        FROM calls
+        WHERE start_time >= ?
+          AND talkgroup_tag IS NOT NULL
+          AND talkgroup_tag != ''
+        GROUP BY talkgroup, talkgroup_tag
+        ORDER BY n DESC
+        LIMIT 3
+    """, (cutoff,)).fetchall()
+    active_talkgroups = [{
+        "label": r["talkgroup_tag"],
+        "url":   f"/talkgroups#{r['talkgroup']}",
+        "sub":   f"{r['n']} call{'s' if r['n'] != 1 else ''} · 12h",
+    } for r in tg_rows]
+
+    conn.close()
+    return jsonify({
+        "now":               now,
+        "latest":            latest,
+        "most_viewed":       most_viewed,
+        "active_talkgroups": active_talkgroups,
+    })
+
+
 @app.route("/api/stories")
 def stories_list():
     """Top stories from the last 12 hours, ordered by score desc."""
@@ -2036,7 +2126,8 @@ def stories_list():
     conn = get_db()
     cur = conn.execute(f"""
         SELECT id, title, body, severity, talkgroup, talkgroup_tag,
-               primary_call_id, related_call_ids, score, last_call_at, created_at
+               primary_call_id, related_call_ids, score, last_call_at, created_at,
+               COALESCE(views, 0) AS views
         FROM stories
         WHERE last_call_at >= ?
         ORDER BY score DESC, last_call_at DESC
@@ -2800,6 +2891,19 @@ def share_story_page(story_id: int):
     if not row:
         conn.close()
         abort(404)
+    # Skip the increment when the requester is a social-media unfurler
+    # (WhatsApp/Facebook/Twitter etc. — we want human visits, not scrape bots).
+    ua = (request.headers.get("User-Agent") or "").lower()
+    is_bot = any(s in ua for s in ("whatsapp", "facebookexternalhit", "twitterbot",
+                                    "linkedinbot", "slackbot", "telegrambot", "discordbot",
+                                    "googlebot", "bingbot", "preview"))
+    if not is_bot:
+        try:
+            conn.execute("UPDATE stories SET views = COALESCE(views, 0) + 1 WHERE id = ?",
+                         (story_id,))
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # views column not migrated yet — ignore
     s = dict(row)
 
     try:
@@ -2978,6 +3082,7 @@ def _heatmap_loop():
 
 def _start_heatmap_thread():
     ensure_geocode_table()
+    _ensure_stories_views_col()
     t = threading.Thread(target=_heatmap_loop, daemon=True, name="geocode-loop")
     t.start()
 

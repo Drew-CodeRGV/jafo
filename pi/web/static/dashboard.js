@@ -150,10 +150,25 @@ async function refreshAnomaly() {
 }
 
 // ---- Lead story + secondary stories grid ----
+// User-selected sort: "impact" (default, by score) or "latest" (by last_call_at).
+// Persisted to localStorage so it sticks across reloads.
+let STORY_SORT = localStorage.getItem("jafo:storySort") || "impact";
+
+function sortStories(stories) {
+  const a = (stories || []).slice();
+  if (STORY_SORT === "latest") {
+    a.sort((x, y) => (y.last_call_at || 0) - (x.last_call_at || 0));
+  } else {
+    a.sort((x, y) => (y.score || 0) - (x.score || 0)
+                  || (y.last_call_at || 0) - (x.last_call_at || 0));
+  }
+  return a;
+}
+
 async function refreshStories() {
   try {
     const d = await api("/api/stories");
-    const stories = d.stories || [];
+    const stories = sortStories(d.stories || []);
 
     // Lead
     const titleEl = document.getElementById("lead-title");
@@ -999,3 +1014,93 @@ document.addEventListener("DOMContentLoaded", async () => {
   await refreshStats(); // depends on aircraftCache
   startPolling();
 });
+
+// =====================================================================
+// Sort toggle (Impact vs Latest news)
+// =====================================================================
+(function wireSortToggle() {
+  const btns = document.querySelectorAll(".paper-sort-btn");
+  if (!btns.length) return;
+  btns.forEach(b => {
+    if (b.dataset.sort === STORY_SORT) b.classList.add("active");
+    else b.classList.remove("active");
+    b.addEventListener("click", () => {
+      STORY_SORT = b.dataset.sort;
+      localStorage.setItem("jafo:storySort", STORY_SORT);
+      btns.forEach(x => x.classList.toggle("active", x.dataset.sort === STORY_SORT));
+      refreshStories();
+    });
+  });
+})();
+
+// =====================================================================
+// CNN-style ticker — latest news, most viewed, most active talkgroups
+// =====================================================================
+const TICKER_SPEEDS = [30, 45, 60, 90, 120, 180, 240];   // seconds, faster → slower
+let tickerSpeedIdx = (() => {
+  const stored = parseInt(localStorage.getItem("jafo:tickerSpeed") || "", 10);
+  const i = TICKER_SPEEDS.indexOf(stored);
+  return i >= 0 ? i : 3;  // default 90s
+})();
+
+function applyTickerSpeed() {
+  const dur = TICKER_SPEEDS[tickerSpeedIdx];
+  document.documentElement.style.setProperty("--ticker-duration", dur + "s");
+  localStorage.setItem("jafo:tickerSpeed", String(dur));
+}
+
+function renderTicker(data) {
+  const track = document.getElementById("ticker-track");
+  if (!track) return;
+
+  const sections = [
+    { label: "Latest News",          items: data.latest            || [] },
+    { label: "Most Viewed",          items: data.most_viewed       || [] },
+    { label: "Most Active Talkgroups", items: data.active_talkgroups || [] },
+  ].filter(s => s.items.length > 0);
+
+  if (!sections.length) {
+    track.innerHTML = '<span class="ticker-item">Scanning RGV traffic…</span>';
+    return;
+  }
+
+  const renderSection = (s) => {
+    let html = `<span class="ticker-section-label">${escapeHtml(s.label)}</span>`;
+    s.items.forEach((it, i) => {
+      const sub = it.sub ? `<span class="ticker-item-sub">· ${escapeHtml(it.sub)}</span>` : "";
+      html += `<a class="ticker-item" href="${escapeHtml(it.url || "#")}" target="_blank" rel="noopener">${escapeHtml(it.label || "")}${sub}</a>`;
+      if (i < s.items.length - 1) html += '<span class="ticker-sep">•</span>';
+    });
+    return html;
+  };
+
+  // Render the full set TWICE so the keyframes animation can translate
+  // -50% and produce a seamless loop.
+  const oneRun = sections.map(s =>
+    renderSection(s) + '<span class="ticker-sep" style="margin:0 16px">★</span>'
+  ).join("");
+  track.innerHTML = oneRun + oneRun;
+}
+
+async function refreshTicker() {
+  try {
+    const r = await fetch("/api/ticker", { cache: "no-store" });
+    if (!r.ok) return;
+    renderTicker(await r.json());
+  } catch (e) {
+    console.warn("ticker refresh failed", e);
+  }
+}
+
+(function wireSpeedControl() {
+  applyTickerSpeed();
+  const up   = document.querySelector(".ticker-speed-up");
+  const down = document.querySelector(".ticker-speed-down");
+  if (!up || !down) return;
+  up.addEventListener("click",   () => { tickerSpeedIdx = Math.max(0, tickerSpeedIdx - 1); applyTickerSpeed(); });
+  down.addEventListener("click", () => { tickerSpeedIdx = Math.min(TICKER_SPEEDS.length - 1, tickerSpeedIdx + 1); applyTickerSpeed(); });
+})();
+
+// Initial + periodic refresh of the ticker (every 60s — cheap query)
+refreshTicker();
+setInterval(refreshTicker, 60_000);
