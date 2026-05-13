@@ -40,6 +40,13 @@ GROQ_FALLBACK_ENABLED = os.environ.get("JAFO_TRANSCRIBE_GROQ_FALLBACK", "").stri
 TRANSCRIBE_BACKEND = os.environ.get("JAFO_TRANSCRIBE_BACKEND", "local").strip().lower()
 if TRANSCRIBE_BACKEND not in ("local", "groq"):
     TRANSCRIBE_BACKEND = "local"
+# Backlog-driven auto-escalation: when JAFO_TRANSCRIBE_GROQ_THRESHOLD > 0 and
+# the pending-call count rises above it, the transcriber temporarily routes
+# through Groq to catch up — then drops back to the configured primary once
+# the backlog clears. Useful on the Pi where local CPU is fine for steady
+# state but falls behind during burst activity. 0 (default) = disabled.
+TRANSCRIBE_GROQ_THRESHOLD = max(0, int(os.environ.get("JAFO_TRANSCRIBE_GROQ_THRESHOLD", "0")))
+_groq_override_active = False  # mutated by main() before each batch
 
 # Whisper context prompt — primes the model for our domain
 INITIAL_PROMPT = (
@@ -139,7 +146,11 @@ def get_pending_calls(conn, limit: int):
 def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
     """Backend-selected primary; falls back to the other on errors.
     Returns (text, model_label)."""
-    if TRANSCRIBE_BACKEND == "groq" and groq_client is not None:
+    use_groq_primary = (
+        (TRANSCRIBE_BACKEND == "groq" and groq_client is not None)
+        or (_groq_override_active and groq_client is not None)
+    )
+    if use_groq_primary:
         try:
             return transcribe_via_groq(groq_client, opus_path)
         except Exception as e:
@@ -157,22 +168,55 @@ def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
         raise
 
 
+def _pending_count(conn) -> int:
+    """How many kept calls still need a transcript (audio not yet expired)."""
+    cur = conn.execute("""
+        SELECT COUNT(*) FROM calls
+        WHERE status = 'kept' AND audio_deleted = 0 AND transcript IS NULL
+    """)
+    return cur.fetchone()[0]
+
+
 def main() -> None:
-    # Build the Groq client when EITHER mode would use it: primary=groq, or
-    # legacy local-primary with the fallback flag.
-    groq_client = make_groq_client() if (TRANSCRIBE_BACKEND == "groq" or GROQ_FALLBACK_ENABLED) else None
+    global _groq_override_active
+    # Build the Groq client when ANY mode would need it: primary=groq, legacy
+    # local-primary fallback flag, or backlog auto-escalation threshold.
+    needs_groq = (
+        TRANSCRIBE_BACKEND == "groq"
+        or GROQ_FALLBACK_ENABLED
+        or TRANSCRIBE_GROQ_THRESHOLD > 0
+    )
+    groq_client = make_groq_client() if needs_groq else None
     if TRANSCRIBE_BACKEND == "groq" and groq_client is None:
         log.warning("JAFO_TRANSCRIBE_BACKEND=groq but GROQ_API_KEY not set — silently downgrading to local.")
     if GROQ_FALLBACK_ENABLED and groq_client is None and TRANSCRIBE_BACKEND != "groq":
         log.warning("JAFO_TRANSCRIBE_GROQ_FALLBACK=true but GROQ_API_KEY not set — local-only.")
-    log.info("Starting jafo-transcriber. backend=%s primary_model=%s groq_available=%s",
+    if TRANSCRIBE_GROQ_THRESHOLD > 0 and groq_client is None:
+        log.warning("JAFO_TRANSCRIBE_GROQ_THRESHOLD=%d but GROQ_API_KEY not set — escalation disabled.",
+                    TRANSCRIBE_GROQ_THRESHOLD)
+    log.info("Starting jafo-transcriber. backend=%s primary_model=%s groq_available=%s threshold=%d",
              TRANSCRIBE_BACKEND,
              GROQ_MODEL if TRANSCRIBE_BACKEND == "groq" else f"faster-whisper-{LOCAL_MODEL_NAME}",
-             "yes" if groq_client else "no")
+             "yes" if groq_client else "no",
+             TRANSCRIBE_GROQ_THRESHOLD)
 
     conn = db_connect()
 
     while True:
+        # Backlog-driven escalation: check pending count and flip _groq_override_active
+        # so transcribe_one() routes through Groq while we're behind.
+        if TRANSCRIBE_GROQ_THRESHOLD > 0 and groq_client is not None:
+            try:
+                pending = _pending_count(conn)
+            except Exception:
+                pending = 0
+            new_override = pending >= TRANSCRIBE_GROQ_THRESHOLD
+            if new_override != _groq_override_active:
+                log.info("Backlog %d %s threshold %d → switching primary to %s",
+                         pending, ">=" if new_override else "<", TRANSCRIBE_GROQ_THRESHOLD,
+                         "Groq" if new_override else "local")
+                _groq_override_active = new_override
+
         try:
             calls = get_pending_calls(conn, BATCH_SIZE)
         except Exception as e:
