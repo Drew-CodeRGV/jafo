@@ -763,24 +763,38 @@ html.dash-html, body.dash-body {
 .paper-sort-btn.active { background: #16110a; color: #ebe5d4; }
 
 /* =====================================================================
-   CNN-style ticker (fixed bottom)
+   CNN-style ticker (fixed bottom) — mobile-aware
    ===================================================================== */
-:root { --ticker-duration: 90s; }
+:root { --ticker-duration: 45s; }
 
-body.dash-body { padding-bottom: 56px; }   /* room for fixed ticker */
+/* Reserve space at bottom of the page so content isn't hidden under
+   the ticker. env(safe-area-inset-bottom) accounts for the iPhone
+   home indicator. */
+body.dash-body {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+}
 
 .jafo-ticker {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 44px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Account for iPhone home indicator: the bar is offset above it so
+     the actual ticker content sits cleanly without being covered. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  height: calc(44px + env(safe-area-inset-bottom, 0px));
   background: #0a0a0a;
   color: #f3eddc;
-  z-index: 200;
+  z-index: 1000;
   display: flex;
   align-items: stretch;
   box-shadow: 0 -2px 8px rgba(0,0,0,0.4);
   border-top: 3px solid #b4280b;
   font-family: 'Helvetica Neue', Arial, sans-serif;
+  /* nudge GPU layer so iOS Safari runs the animation smoothly */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .ticker-speed {
@@ -815,15 +829,25 @@ body.dash-body { padding-bottom: 56px; }   /* room for fixed ticker */
   align-items: center;
   gap: 28px;
   height: 100%;
-  animation: ticker-scroll var(--ticker-duration) linear infinite;
+  -webkit-animation: ticker-scroll var(--ticker-duration) linear infinite;
+          animation: ticker-scroll var(--ticker-duration) linear infinite;
   padding-left: 16px;
   white-space: nowrap;
+  /* GPU layer — keeps the animation smooth on iOS Safari */
+  -webkit-transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
 }
-.ticker-track:hover { animation-play-state: paused; }
+.ticker-track:hover           { -webkit-animation-play-state: paused; animation-play-state: paused; }
+.jafo-ticker.paused .ticker-track { -webkit-animation-play-state: paused; animation-play-state: paused; }
 
+@-webkit-keyframes ticker-scroll {
+  0%   { -webkit-transform: translate3d(0, 0, 0); }
+  100% { -webkit-transform: translate3d(-50%, 0, 0); }
+}
 @keyframes ticker-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
 }
 
 .ticker-section-label {
@@ -859,8 +883,21 @@ body.dash-body { padding-bottom: 56px; }   /* room for fixed ticker */
 }
 
 @media (max-width: 720px) {
-  .jafo-ticker { height: 38px; }
-  .ticker-speed { width: 32px; }
+  .jafo-ticker {
+    height: calc(38px + env(safe-area-inset-bottom, 0px));
+  }
+  body.dash-body {
+    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+  .ticker-speed { width: 36px; }
+  .ticker-speed-btn { font-size: 16px; }
   .ticker-item { font-size: 13px; }
-  .ticker-section-label { font-size: 10px; padding: 3px 8px; }
+  .ticker-section-label { font-size: 10px; padding: 3px 8px; letter-spacing: 1px; }
+  /* iPhone landscape gets a slimmer reserve */
+}
+
+/* Devices that can't hover (touch) — show a one-line hint that tapping
+   the bar pauses it so the user can read/click an item. */
+@media (hover: none) {
+  .jafo-ticker { cursor: pointer; }
 }

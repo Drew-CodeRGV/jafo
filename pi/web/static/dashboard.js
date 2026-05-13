@@ -1106,6 +1106,21 @@ async function refreshTicker() {
   down.addEventListener("click", () => { tickerSpeedIdx = Math.min(TICKER_SPEEDS.length - 1, tickerSpeedIdx + 1); applyTickerSpeed(); });
 })();
 
+// Tap-to-pause for touch devices: tapping the ticker rail pauses the
+// scroll for 6s so the user can read/tap a headline. Tapping a headline
+// link inside still navigates (links are children of the rail).
+(function wireTickerTouchPause() {
+  const ticker = document.getElementById("jafo-ticker");
+  const rail   = ticker ? ticker.querySelector(".ticker-rail") : null;
+  if (!rail) return;
+  let unpauseTimer = null;
+  rail.addEventListener("touchstart", () => {
+    ticker.classList.add("paused");
+    clearTimeout(unpauseTimer);
+    unpauseTimer = setTimeout(() => ticker.classList.remove("paused"), 6000);
+  }, { passive: true });
+})();
+
 // Initial + periodic refresh of the ticker (every 60s — cheap query)
 refreshTicker();
 setInterval(refreshTicker, 60_000);
