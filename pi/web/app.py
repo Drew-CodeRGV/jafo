@@ -230,7 +230,7 @@ TALKGROUPS_CSV = DATA_DIR / "config" / "talkgroups.csv"
 # sequential TG IDs (trunk-recorder assigns 1..N from channel-array order),
 # which won't collide with real LRGVRRS TGs (those are 60000+).
 EXTRA_TALKGROUPS_CSVS = [
-    DATA_DIR / "config" / "gmrs-talkgroups.csv",
+    DATA_DIR / "config" / "uhf-business-talkgroups.csv",
 ]
 
 
@@ -389,6 +389,16 @@ def index():
                                hub_link=_hub_link_for_this_node(),
                                is_hub=not _is_edge_node())
     return render_template("fleet.html", node_name=NODE_NAME)
+
+
+@app.route("/dashboard")
+def dashboard():
+    """Briefing-first dashboard — designed for ambient awareness vs the
+    enthusiast-density of /. Big map + LLM briefing card + severity-first
+    call list. Uses the same underlying /api/* endpoints."""
+    return render_template("dashboard.html", node_name=NODE_NAME,
+                           hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
 
 
 @app.route("/r/<slug>")
@@ -1689,12 +1699,140 @@ def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
     return rows
 
 
+# RGV-specific facts (cities, streets, hospitals, common Whisper
+# transcription mishears) fed to the refiner LLM. Lazy-loaded + cached.
+_RGV_CONTEXT_PATH = Path(__file__).parent / "rgv-context.txt"
+_rgv_context_cache: str | None = None
+def _load_rgv_context() -> str:
+    global _rgv_context_cache
+    if _rgv_context_cache is None:
+        try:
+            _rgv_context_cache = _RGV_CONTEXT_PATH.read_text(encoding="utf-8")
+        except Exception as e:
+            print(f"rgv-context.txt missing or unreadable: {e}", file=sys.stderr)
+            _rgv_context_cache = ""
+    return _rgv_context_cache
+
+
+def _llm_json_call(system: str, user_msg: str, max_tokens: int = 400) -> dict | None:
+    """One-shot JSON call using whichever story backend is configured.
+    Centralized so the draft + refine passes share the same plumbing."""
+    if _STORY_BACKEND == "anthropic":
+        client = _claude()
+        if not client:
+            return None
+        try:
+            resp = client.messages.create(
+                model=STORY_MODEL, max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            text = resp.content[0].text.strip()
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            return json.loads(text)
+        except Exception as e:
+            print(f"anthropic LLM call failed: {e}", file=sys.stderr)
+            return None
+    elif _STORY_BACKEND == "groq":
+        from common import GROQ_API_KEY
+        if not GROQ_API_KEY:
+            return None
+        try:
+            from groq import Groq
+            gclient = Groq(api_key=GROQ_API_KEY, max_retries=2)
+            groq_chat_model = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
+            resp = gclient.chat.completions.create(
+                model=groq_chat_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user_msg},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=max_tokens,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            return json.loads(text)
+        except Exception as e:
+            print(f"groq LLM call failed: {e}", file=sys.stderr)
+            return None
+    else:  # ollama default
+        return _ollama_chat_json(system, user_msg, _STORY_MODEL_OLLAMA, num_predict=max_tokens)
+
+
+def _refine_story(draft: dict, cluster: list[dict]) -> dict | None:
+    """Second-pass refinement. The draft was written from raw Whisper
+    transcripts, which mis-render proper nouns (street names, agencies,
+    units). The refiner gets the draft + transcripts + an RGV facts
+    block and is asked to correct obvious transcription errors and
+    prefer vague-but-correct over specific-but-wrong.
+
+    Returns the corrected {title, body} dict, or None on failure (caller
+    falls back to the original draft)."""
+    context = _load_rgv_context()
+    if not context:
+        return None  # no context file → skip refine, caller uses draft
+
+    transcripts = "\n".join(
+        f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
+        for c in cluster if c.get("transcript")
+    ) or "(no transcripts)"
+
+    user_msg = (
+        f"RGV CONTEXT (geographic + operational facts):\n{context}\n"
+        f"---\n"
+        f"DRAFT STORY (written from raw transcripts; may contain errors):\n"
+        f"Title: {draft.get('title', '')}\n"
+        f"Body:  {draft.get('body', '')}\n"
+        f"---\n"
+        f"ORIGINAL TRANSCRIPTS:\n{transcripts}\n"
+        f"---\n"
+        f"Task: rewrite the story, correcting likely transcription errors using the\n"
+        f"RGV context above. Specifically:\n"
+        f"  - Replace garbled place names with their plausible RGV equivalent (e.g.\n"
+        f"    'central medical oven' → 'a central medical center' or just 'a hospital').\n"
+        f"  - Fix agency/unit names (e.g. 'VVICE' → 'a vice unit').\n"
+        f"  - Drop or vague-up details you cannot verify against the context.\n"
+        f"  - Never invent specifics that aren't in the transcripts.\n"
+        f"  - Preserve any genuinely-clear facts (street names, agencies, units).\n"
+        f"Output strict JSON only: {{\"title\": \"<6-10 word headline>\", "
+        f"\"body\": \"<3-5 sentence paragraph>\"}}.\n"
+        f"No markdown, no preamble, no commentary."
+    )
+    system = ("You are a copy editor for a small-market RGV news desk. You take "
+              "draft briefs written from automated radio transcripts and correct "
+              "the proper-noun mistakes those transcripts inevitably contain. "
+              "When in doubt, choose vague-but-correct over specific-but-wrong. "
+              "Output JSON only.")
+
+    data = _llm_json_call(system, user_msg, max_tokens=400)
+    if not data:
+        return None
+    title = (data.get("title") or "").strip()
+    body  = (data.get("body")  or "").strip()
+    if not title or not body:
+        return None
+    return {"title": title, "body": body}
+
+
 def _synthesize_story(cluster: list[dict]) -> dict | None:
     """Write a one-paragraph news brief for a cluster of related calls.
+
+    Two-pass:
+      1. Draft from raw transcripts (existing prompt).
+      2. Refine against RGV context to correct transcription errors.
 
     Backend selected by JAFO_LLM_BACKEND env var:
       ollama (default) — local Gemma 2B, $0
       anthropic — Claude Haiku, paid (premium quality)
+      groq — Llama via Groq (paid, fast)
     Returns {"title", "body"} or None on failure.
     """
     primary = cluster[-1]  # most recent in cluster (calls are ASC)
@@ -1723,62 +1861,22 @@ def _synthesize_story(cluster: list[dict]) -> dict | None:
     system = ("You write tight, factual local-news briefs from public-safety radio "
               "transcripts. Output JSON only with 'title' and 'body' keys.")
 
-    if _STORY_BACKEND == "anthropic":
-        client = _claude()
-        if not client:
-            return None
-        try:
-            resp = client.messages.create(
-                model=STORY_MODEL, max_tokens=400,
-                system=system,
-                messages=[{"role": "user", "content": user_msg}],
-            )
-            text = resp.content[0].text.strip()
-            if text.startswith("```"):
-                text = text.strip("`")
-                if text.lower().startswith("json"):
-                    text = text[4:].strip()
-            data = json.loads(text)
-        except Exception as e:
-            print(f"anthropic story synth failed: {e}", file=sys.stderr)
-            return None
-    elif _STORY_BACKEND == "groq":
-        from common import GROQ_API_KEY
-        if not GROQ_API_KEY:
-            return None
-        try:
-            from groq import Groq
-            gclient = Groq(api_key=GROQ_API_KEY, max_retries=2)
-            groq_chat_model = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
-            resp = gclient.chat.completions.create(
-                model=groq_chat_model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": user_msg},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0,
-                max_tokens=400,
-            )
-            text = (resp.choices[0].message.content or "").strip()
-            if text.startswith("```"):
-                text = text.strip("`")
-                if text.lower().startswith("json"):
-                    text = text[4:].strip()
-            data = json.loads(text)
-        except Exception as e:
-            print(f"groq story synth failed: {e}", file=sys.stderr)
-            return None
-    else:  # ollama default
-        data = _ollama_chat_json(system, user_msg, _STORY_MODEL_OLLAMA, num_predict=400)
-        if not data:
-            return None
-
-    title = (data.get("title") or "").strip()
-    body  = (data.get("body")  or "").strip()
-    if not title or not body:
+    data = _llm_json_call(system, user_msg, max_tokens=400)
+    if not data:
         return None
-    return {"title": title, "body": body}
+    draft = {
+        "title": (data.get("title") or "").strip(),
+        "body":  (data.get("body")  or "").strip(),
+    }
+    if not draft["title"] or not draft["body"]:
+        return None
+
+    # Second pass: refine against RGV context to correct transcription
+    # errors and ground in real geography/agencies. Falls back to draft
+    # on failure (e.g. context missing, LLM error) so we still ship
+    # something rather than nothing.
+    refined = _refine_story(draft, cluster)
+    return refined or draft
 
 
 def _refresh_stories_once() -> tuple[int, int]:

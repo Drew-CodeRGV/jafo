@@ -1,0 +1,126 @@
+## Lower Rio Grande Valley (RGV) — Geographic & Operational Context
+
+This file is fed to the story refiner LLM to help it catch transcription
+errors and ground the narrative in RGV-specific facts. Edit freely to
+add neighborhood/landmark knowledge; the file is reloaded on each story
+synthesis pass.
+
+### Region
+The Lower Rio Grande Valley is the southernmost tip of Texas, along the
+US-Mexico border. Two counties dominate radio traffic: Hidalgo County
+(McAllen-Edinburg-Mission metro, pop ~870k) and Cameron County
+(Brownsville-Harlingen metro, pop ~420k). The Rio Grande forms the
+international border with Tamaulipas, Mexico.
+
+### Major Cities (north to south, west to east)
+- Sullivan City, La Joya, Penitas, Palmview, Mission, Alton (NW Hidalgo)
+- McAllen, Edinburg, Pharr, San Juan, Alamo (central Hidalgo)
+- Donna, Weslaco, Mercedes, Hidalgo, Progreso (east Hidalgo)
+- Harlingen, San Benito, La Feria, Combes, Primera (west Cameron)
+- Brownsville, Olmito, Los Fresnos, Port Isabel, South Padre Island (east Cameron)
+- Rio Grande City, Roma (Starr County, west of Hidalgo)
+- Raymondville, San Manuel-Linn (Willacy County, north of Cameron)
+
+### Highways & Major Streets
+- I-2 / US-83 (Expressway 83) — east-west spine through the Valley
+- I-69E / US-281 / US-77 (Expressway 281) — north-south
+- US-83 Business — old highway through downtown McAllen, Mission, etc.
+- FM 1015, FM 494, FM 2557, FM 88 — farm-to-market roads
+
+McAllen major streets: 23rd St, 10th St, 2nd St, Bicentennial Blvd,
+Nolana Ave, Pecan Blvd, Trenton Rd, McColl Rd, Conway Ave, Ware Rd,
+Jackson Ave, 29th St, Tamarack, Auburn, Pecan, Daffodil.
+
+Mission major streets: Conway Ave, Shary Rd, Inspiration Rd, Bryan Rd,
+Glasscock, La Homa, Goodwin, Griffin Pkwy.
+
+Edinburg major streets: Closner Blvd, Sugar Rd, Schunior, McColl,
+University Drive, Russell, Freddy Gonzalez.
+
+### Hospitals
+- **DHR** — Doctors Hospital at Renaissance (Edinburg, S Jackson Rd)
+- **Mission Regional Medical Center** (Mission)
+- **McAllen Medical Center** (McAllen, 301 W Expressway 83)
+- **Rio Grande Regional Hospital** (McAllen, 101 E Ridge Rd)
+- **Valley Baptist Medical Center** (Harlingen + Brownsville)
+- **Knapp Medical Center** (Weslaco)
+- **South Texas Health System** (network)
+- **McAllen Heart Hospital** (McAllen)
+- **Edinburg Regional Medical Center**
+- **South Texas Behavioral Health Center**
+- **Solara Specialty Hospital** (McAllen)
+
+### Agencies on the LRGVRRS Trunked System (P25)
+Police: McAllen PD, Mission PD, Pharr PD, San Juan PD, Edinburg PD,
+Hidalgo PD, Weslaco PD, Mercedes PD, Donna PD, Alamo PD, Palmview PD,
+Sullivan City PD, La Joya PD, Hidalgo County Sheriff (HC SO),
+Cameron County Sheriff, Brownsville PD, Harlingen PD, San Benito PD.
+
+Fire/EMS: McAllen Fire (FD FG1/FG2/Disp), Mission FD, Pharr FD,
+Edinburg FD, San Juan FD, Hidalgo FD, Weslaco FD, Mercedes FD,
+Donna FD, Hidalgo County EMS, Pharr EMS, McAllen EMS, Med-Care EMS.
+
+Other: HC PCT 1/2/3/4 (Constable Precincts), Texas DPS, US Border
+Patrol (CBP), HC Health Department, McAllen Public Works (PW), Valley
+Metro, McAllen Recycle, Hidalgo County Park Rangers.
+
+### Schools
+McAllen ISD (MISD), Mission CISD, Pharr-San Juan-Alamo ISD (PSJA),
+Edinburg CISD (ECISD), Sharyland ISD, Weslaco ISD, Donna ISD, Mercedes
+ISD, Hidalgo ISD, Brownsville ISD (BISD), Harlingen CISD,
+La Joya ISD, Roma ISD. Many ISDs have their own police forces and EMS.
+
+### Key Landmarks
+- McAllen International Airport (MFE) — south of US-83 off Bicentennial
+- Valley International Airport (HRL) — Harlingen
+- Brownsville/SPI Airport (BRO)
+- McAllen Convention Center, Quinta Mazatlán, La Plaza Mall
+- Bert Ogden Arena (Edinburg), State Farm Arena (Hidalgo)
+- McAllen Botanical Gardens, World Birding Center
+- South Padre Island, Boca Chica (SpaceX launch site)
+- International border bridges: Anzalduas, Hidalgo, Pharr, Donna,
+  Progreso, Los Indios, Brownsville (Gateway/B&M/Veterans),
+  Rio Grande City–Camargo, Roma
+
+### Radio Conventions & Common Misheard Phrases
+
+**Phonetic alphabet** (NATO-modified, common in TX): Adam, Boy/Bravo,
+Charles/Charlie, David/Delta, Edward/Echo, Frank/Foxtrot, George/Golf,
+Henry/Hotel, Ida/India, John/Juliet, King/Kilo, Lincoln/Lima,
+Mary/Mike, Nora/November, Ocean/Oscar, Paul/Papa, Queen/Quebec,
+Robert/Romeo, Sam/Sierra, Tom/Tango, Union/Uniform, Victor, William/Whiskey,
+X-ray, Young/Yankee, Zebra/Zulu.
+
+**Ten-codes** widely used: 10-4 (OK / acknowledged), 10-6 (busy),
+10-7 (out of service), 10-8 (in service), 10-9 (repeat), 10-10
+(off-duty), 10-13 (weather/road conditions), 10-15 (prisoner in
+custody), 10-19 (return to station), 10-20 (location), 10-22
+(disregard), 10-33 (emergency / help), 10-50 (accident), 10-51 (wrecker),
+10-54 (livestock), 10-55 (intoxicated driver), 10-79 (notify coroner),
+10-99 (officer down).
+
+**Common transcription confusions** to look for and correct:
+- "central medical oven" → most likely "central medical center" or
+  "central command" (Whisper hallucination of "oven")
+- "DHR" sometimes transcribed as "the air" or "the H R"
+- "MFE" / "McAllen Intl" / "the airport" — all the same place
+- "VVICE" / "VV ICE" → "vice" (VICE squad)
+- "ICE" alone is often US Immigration & Customs Enforcement
+- "El Pez" / "El Paz" → likely a unit or location near La Paz
+- "Code 4" → scene secure / no further assistance needed
+- "Code 3" → lights & sirens, urgent response
+- "Code 2" → urgent, no lights/sirens
+- "Code 1" → routine
+- "Mike X" / "M X" / "MX" → "Medic X" (EMS unit number)
+- "Adam X" → patrol unit number (e.g., "Adam 12" = patrol unit 12)
+- "Charlie X" → command-staff unit
+- "the trauma center" / "the trauma" → typically DHR or Valley Baptist
+- Spanish words (this is a heavily bilingual region): "el otro lado"
+  (the other side, i.e., Mexico), "la línea" (the [border] line),
+  "el río" (the river), "el bordo" (the levee)
+
+**When in doubt**, prefer vague-but-correct over specific-but-wrong:
+say "in McAllen" rather than name a wrong street; say "responding"
+rather than name a wrong unit; say "a medical emergency" rather than
+invent a hospital name. Mark unclear specifics with phrasing like
+"a location described as X" or "what appeared to be a Y."

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" class="dash-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jafo — RGV Briefing</title>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+</head>
+<body class="dash-body">
+
+<!-- Alert bar: red/amber/quiet pulse. Sits above the masthead so it
+     can't be missed. -->
+<div id="anomaly-tape" class="anomaly-tape" data-state="quiet">
+  <span id="anomaly-icon" class="anomaly-icon">●</span>
+  <span id="anomaly-text">Scanning…</span>
+</div>
+
+<header class="paper-masthead">
+  <div class="paper-masthead-left">
+    <h1 class="paper-title">jafo</h1>
+    <div class="paper-tagline">RGV Briefing · McAllen Edition</div>
+  </div>
+  <div class="paper-masthead-right">
+    <div id="paper-date" class="paper-date">—</div>
+    <div id="paper-time" class="paper-time">—</div>
+    <a href="/" class="paper-nav">Classic view →</a>
+  </div>
+</header>
+
+<main class="paper-main">
+  <!-- LEAD STORY -->
+  <section class="paper-lead">
+    <div class="paper-eyebrow">
+      <span class="paper-kicker">Now in the RGV</span>
+      <span id="lead-ts" class="paper-eyebrow-ts">—</span>
+    </div>
+    <h2 id="lead-title" class="paper-headline">Loading the latest activity…</h2>
+    <p id="lead-body" class="paper-lede"></p>
+    <div id="lead-actions" class="paper-actions hidden">
+      <button id="lead-listen" class="paper-btn paper-btn-primary">▶ Listen to source call</button>
+    </div>
+  </section>
+
+  <!-- MORE STORIES — grid of 3-5 secondary briefs -->
+  <section class="paper-section">
+    <h3 class="paper-section-h">More Stories</h3>
+    <div id="paper-stories" class="paper-stories-grid">
+      <div class="paper-empty">No clustered stories yet — check back as activity builds.</div>
+    </div>
+  </section>
+
+  <!-- BY THE NUMBERS -->
+  <section class="paper-section">
+    <h3 class="paper-section-h">By the Numbers</h3>
+    <div id="paper-numbers" class="paper-numbers-grid"></div>
+  </section>
+
+  <!-- LOCAL ACTIVITY: severity-first, recent calls -->
+  <section class="paper-section">
+    <div class="paper-section-head">
+      <h3 class="paper-section-h">Local Activity</h3>
+      <div class="paper-chips">
+        <button class="chip active" data-sev="all">All</button>
+        <button class="chip" data-sev="critical"><span class="sev sev-critical">●</span>Critical</button>
+        <button class="chip" data-sev="high"><span class="sev sev-high">●</span>High</button>
+        <button class="chip" data-sev="medium"><span class="sev sev-medium">●</span>Medium</button>
+      </div>
+    </div>
+    <div id="paper-pinned" class="paper-list paper-list-pinned"></div>
+    <h4 id="paper-recent-h" class="paper-subsection-h hidden">Other recent calls</h4>
+    <div id="paper-recent" class="paper-list paper-list-recent"></div>
+  </section>
+
+  <!-- IN THE SKIES -->
+  <section class="paper-section">
+    <div class="paper-section-head">
+      <h3 class="paper-section-h">In the Skies</h3>
+      <span id="paper-skies-count" class="paper-section-count">—</span>
+    </div>
+    <div id="paper-skies" class="paper-skies-list"></div>
+  </section>
+
+  <footer class="paper-footer">
+    <div>jafo · captured by {{ node_name }} · all activity from open public-safety + air-traffic broadcasts</div>
+  </footer>
+</main>
+
+<script>
+window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};
+</script>
+<script src="{{ static_v('dashboard.js') }}"></script>
+</body>
+</html>
