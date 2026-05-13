@@ -1,243 +1,280 @@
-/* jafo /dashboard — newspaper / briefing layout.
-   Override the index.html body grid that hard-locks viewport height. */
+/* jafo /dashboard — newspaper / broadsheet aesthetic.
+   Cream paper, black ink, hard rules, strong serif typography. */
 
-/* Tighter override of the global body lock from style.css */
-html.dash-html, body.dash-body { height: auto !important; overflow: visible !important; }
-.dash-body {
-  display: block;
-  background: #0e141a;
-  color: #d8dee5;
-  margin: 0;
-  padding: 0;
-  font-family: Georgia, "Times New Roman", "Cambria", serif;
-  line-height: 1.6;
+/* Reset the global body lock from style.css */
+html.dash-html, body.dash-body {
+  height: auto !important;
+  overflow: visible !important;
 }
 
-/* ---- Anomaly tape (kept from MVP — useful) ---- */
+/* --- Paper texture: cream base + subtle crinkle/fiber via two layered
+   gradients. No external images, ~1 KB of CSS. Reads like newsprint. --- */
+.dash-body {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background-color: #ebe5d4;
+  background-image:
+    /* subtle fiber lines */
+    repeating-linear-gradient(91deg,
+      transparent 0, transparent 3px,
+      rgba(60, 40, 20, 0.02) 3px, rgba(60, 40, 20, 0.02) 4px),
+    repeating-linear-gradient(178deg,
+      transparent 0, transparent 5px,
+      rgba(70, 50, 30, 0.022) 5px, rgba(70, 50, 30, 0.022) 6px),
+    /* large crinkle blobs */
+    radial-gradient(ellipse 700px 250px at 20% 30%, rgba(110, 80, 40, 0.06), transparent 60%),
+    radial-gradient(ellipse 600px 300px at 80% 70%, rgba(60, 40, 20, 0.05), transparent 60%),
+    radial-gradient(ellipse 500px 200px at 50% 50%, rgba(120, 90, 50, 0.04), transparent 60%);
+  color: #16110a;
+  font-family: "Georgia", "Old Standard TT", "Times New Roman", serif;
+  line-height: 1.55;
+}
+
+/* Anomaly tape stays — but cleaned to read as a newspaper byline strip */
 .anomaly-tape {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 20px;
-  font: 600 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
-  letter-spacing: 0.06em;
+  padding: 7px 24px;
+  font: 700 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  border-bottom: 1px solid #1f2a35;
+  border-bottom: 2px solid #16110a;
+  background: rgba(0, 0, 0, 0.04);
 }
-.anomaly-tape[data-state="quiet"] { color: #6b7785; background: #11171e; }
-.anomaly-tape[data-state="watch"] { color: #ffd05a; background: rgba(255, 208, 90, 0.08); }
-.anomaly-tape[data-state="alert"] { color: #ff7e7e; background: rgba(255, 60, 60, 0.14);
+.anomaly-tape[data-state="quiet"] { color: #4a4030; }
+.anomaly-tape[data-state="watch"] { color: #7a4c10; background: rgba(255, 200, 80, 0.18); }
+.anomaly-tape[data-state="alert"] { color: #8a0c10; background: rgba(220, 60, 60, 0.22);
                                      animation: anomaly-pulse 1.4s ease-in-out infinite; }
 @keyframes anomaly-pulse {
-  0%, 100% { background: rgba(255, 60, 60, 0.14); }
-  50%      { background: rgba(255, 60, 60, 0.26); }
+  0%, 100% { background: rgba(220, 60, 60, 0.22); }
+  50%      { background: rgba(220, 60, 60, 0.36); }
 }
 
-/* ---- Masthead ---- */
+/* ---- Masthead — proper broadsheet ---- */
 .paper-masthead {
+  padding: 14px 32px 18px;
+  border-bottom: 5px double #16110a;
+  text-align: center;
+  position: relative;
+}
+.paper-mast-edge {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  padding: 28px 32px 18px;
-  border-bottom: 3px double #2a3743;
-  background: #0e141a;
-  position: static;
+  align-items: baseline;
+  font: 500 11px/1 ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #4a4030;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #16110a;
+  margin-bottom: 12px;
+}
+.paper-mast-edge-bit a {
+  color: #16110a;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.paper-mast-main {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  margin: 4px 0 6px 0;
+}
+.paper-mast-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
 }
 .paper-title {
   margin: 0;
   font-family: "Old Standard TT", "Times New Roman", serif;
-  font-size: 56px;
+  font-size: 84px;
   font-weight: 900;
   letter-spacing: -0.02em;
-  color: #f4f6f8;
-  line-height: 1;
+  color: #16110a;
+  line-height: 0.9;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.06);
 }
-.paper-tagline {
-  font-size: 13px;
-  font-style: italic;
-  color: #8a96a3;
-  margin-top: 4px;
-}
-.paper-masthead-right { text-align: right; }
-.paper-date {
-  font: 600 13px ui-monospace, monospace;
-  color: #c2cad3;
-  letter-spacing: 0.02em;
-}
-.paper-time {
-  font: 700 24px ui-monospace, monospace;
-  color: #f4f6f8;
-  letter-spacing: 0.05em;
-}
-.paper-nav {
-  display: inline-block;
+.paper-mast-sub {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 24px;
+  border-top: 1px solid #16110a;
+  border-bottom: 1px solid #16110a;
+  padding: 6px 0;
   margin-top: 6px;
-  font-size: 12px;
-  color: #6e9fc8;
-  text-decoration: none;
+  font-family: Georgia, serif;
+  font-size: 13px;
+  letter-spacing: 0.04em;
 }
-.paper-nav:hover { text-decoration: underline; }
+.paper-tagline { font-style: italic; }
+.paper-edition { font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; font-size: 11px; }
+.paper-time { font: 600 13px ui-monospace, monospace; color: #4a4030; }
 
 /* ---- Main content column ---- */
 .paper-main {
-  max-width: 980px;
+  max-width: 1000px;
   margin: 0 auto;
-  padding: 28px 32px 64px;
+  padding: 24px 32px 56px;
 }
-.paper-section { margin-top: 36px; }
+.paper-section { margin-top: 32px; }
 .paper-section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
-  border-bottom: 1px solid #2a3743;
+  border-bottom: 2px solid #16110a;
   padding-bottom: 6px;
 }
 .paper-section-h {
   margin: 0;
-  font: 700 14px/1 ui-monospace, "SF Mono", monospace;
+  font: 800 14px/1 "Old Standard TT", Georgia, serif;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
-  color: #aeb9c5;
+  letter-spacing: 0.2em;
+  color: #16110a;
 }
 .paper-subsection-h {
-  margin: 24px 0 8px 0;
-  font: 600 12px/1 ui-monospace, monospace;
+  margin: 22px 0 8px 0;
+  font: 700 12px/1 "Old Standard TT", Georgia, serif;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #8a96a3;
+  letter-spacing: 0.16em;
+  color: #16110a;
+  border-bottom: 1px solid #16110a;
+  padding-bottom: 4px;
 }
 .paper-subsection-h.hidden { display: none; }
 .paper-section-count {
   font: 500 12px ui-monospace, monospace;
-  color: #6b7785;
+  color: #4a4030;
 }
 .paper-empty {
   padding: 24px;
   text-align: center;
-  color: #6b7785;
+  color: #4a4030;
   font-style: italic;
-  border: 1px dashed #2a3743;
-  border-radius: 4px;
+  border: 1px dashed #16110a;
+  background: rgba(0, 0, 0, 0.02);
 }
 
-/* ---- Lead story (hero) ---- */
+/* ---- LEAD STORY ---- */
 .paper-lead {
-  margin-top: 14px;
-  padding: 24px 26px;
-  border-left: 4px solid #d4af37;
-  background: linear-gradient(180deg, rgba(212, 175, 55, 0.06), rgba(0, 0, 0, 0));
+  margin-top: 16px;
+  padding: 22px 26px 24px;
+  background: #f3eddc;
+  border: 2px solid #16110a;
+  border-left-width: 8px;
 }
 .paper-eyebrow {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #16110a;
+  padding-bottom: 6px;
 }
 .paper-kicker {
-  font: 700 11px/1 ui-monospace, monospace;
+  font: 800 11px/1 ui-monospace, monospace;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: #d4af37;
+  letter-spacing: 0.22em;
+  color: #16110a;
 }
 .paper-eyebrow-ts {
   font: 500 11px ui-monospace, monospace;
-  color: #6b7785;
+  color: #4a4030;
+  font-style: italic;
 }
 .paper-headline {
   margin: 0 0 12px 0;
-  font: 700 30px/1.25 Georgia, "Times New Roman", serif;
-  color: #f4f6f8;
-  letter-spacing: -0.01em;
+  font: 900 36px/1.15 "Old Standard TT", Georgia, serif;
+  color: #16110a;
+  letter-spacing: -0.015em;
 }
 .paper-lede {
   margin: 0;
-  font: 400 16px/1.65 Georgia, serif;
-  color: #c2cad3;
+  font: 400 17px/1.65 Georgia, serif;
+  color: #16110a;
+}
+/* Drop cap on the lede */
+.paper-lede::first-letter {
+  font-family: "Old Standard TT", Georgia, serif;
+  font-weight: 900;
+  font-size: 56px;
+  float: left;
+  line-height: 0.9;
+  margin: 4px 6px 0 0;
+  color: #16110a;
 }
 .paper-actions { margin-top: 14px; display: flex; gap: 8px; }
 .paper-actions.hidden { display: none; }
 .paper-btn {
-  background: transparent;
-  border: 1px solid #2a3743;
-  color: #aeb9c5;
-  padding: 6px 14px;
-  font: 500 12px/1 ui-monospace, monospace;
+  background: #f3eddc;
+  border: 2px solid #16110a;
+  color: #16110a;
+  padding: 7px 16px;
+  font: 700 12px/1 ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 0;
 }
-.paper-btn:hover { background: #11171e; color: #f4f6f8; }
+.paper-btn:hover { background: #16110a; color: #f3eddc; }
 .paper-btn-primary {
-  border-color: #d4af37;
-  color: #d4af37;
+  background: #16110a;
+  color: #f3eddc;
 }
+.paper-btn-primary:hover { background: #4a4030; color: #f3eddc; }
 
-/* ---- Story hero graphic — colored block with category emoji.
-   Lead variant is the big square above the lead headline; sm variant
-   is the strip at the top of each secondary card.  Background color
-   keys off severity, foreground emoji keys off category. ---- */
+/* ---- Story hero illustration ---- */
 .story-hero {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
+  border: 2px solid #16110a;
   position: relative;
   overflow: hidden;
-  flex-shrink: 0;
 }
+.story-hero svg { display: block; width: 100%; height: 100%; }
 .story-hero-lead {
-  width: 84px;
-  height: 84px;
-  margin-right: 18px;
+  width: 168px;
+  height: 100px;
   float: left;
+  margin: 0 18px 8px 0;
 }
 .story-hero-sm {
   width: 100%;
-  height: 64px;
+  height: 86px;
   margin-bottom: 10px;
 }
-.story-hero-icon {
-  font-size: 40px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-}
-.story-hero-lead .story-hero-icon { font-size: 44px; }
-.story-hero-sm   .story-hero-icon { font-size: 36px; }
-
-/* Severity-tinted backgrounds */
-.story-hero.hero-sev-critical { background: linear-gradient(135deg, #c93d3d, #6d1a1a); }
-.story-hero.hero-sev-high     { background: linear-gradient(135deg, #d18130, #6e3e10); }
-.story-hero.hero-sev-medium   { background: linear-gradient(135deg, #c3a830, #5f4f10); }
-.story-hero.hero-sev-low      { background: linear-gradient(135deg, #4a9e5c, #1e4528); }
-.story-hero.hero-sev-unknown  { background: linear-gradient(135deg, #3e4a5a, #1a2230); }
-/* Slight category accent on top of the severity gradient — subtle */
-.story-hero.hero-cat-police   { box-shadow: inset 0 0 0 1px rgba(80, 140, 220, 0.25); }
-.story-hero.hero-cat-fire     { box-shadow: inset 0 0 0 1px rgba(255, 100, 60, 0.25); }
-.story-hero.hero-cat-ems      { box-shadow: inset 0 0 0 1px rgba(100, 200, 130, 0.25); }
-.story-hero.hero-cat-air      { box-shadow: inset 0 0 0 1px rgba(150, 180, 230, 0.25); }
-.story-hero.hero-cat-school   { box-shadow: inset 0 0 0 1px rgba(180, 140, 220, 0.25); }
-.story-hero.hero-cat-weather  { box-shadow: inset 0 0 0 1px rgba(180, 220, 240, 0.25); }
-
-/* The lead block uses a slot we insert via JS; clearfix so the body
-   text wraps cleanly to the right of the hero. */
 .story-hero-slot { display: block; }
 .story-hero-slot::after { content: ""; display: block; clear: both; }
-.paper-lead .paper-headline,
-.paper-lead .paper-lede {
-  overflow: hidden;  /* form block formatting context next to the float */
+
+/* Severity sash band — a 1-line ribbon at the bottom of the hero */
+.story-hero.hero-sev-critical::after { content: "CRITICAL"; background: #b30c10; color: #fff; }
+.story-hero.hero-sev-high::after     { content: "HIGH";     background: #a04a00; color: #fff; }
+.story-hero.hero-sev-medium::after   { content: "MEDIUM";   background: #8a6a00; color: #fff; }
+.story-hero.hero-sev-low::after      { content: "LOW";      background: #2a5a30; color: #fff; }
+.story-hero.hero-sev-unknown::after  { content: "REPORTED"; background: #1a1a1a; color: #fff; }
+.story-hero::after {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 3px 6px;
+  font: 700 9px/1 ui-monospace, monospace;
+  letter-spacing: 0.14em;
+  text-align: center;
 }
 
 /* ---- Stories grid (secondary) ---- */
 .paper-stories-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 18px;
 }
 .story-card {
-  background: #11171e;
-  border: 1px solid #1f2a35;
-  border-radius: 4px;
+  background: #f3eddc;
+  border: 2px solid #16110a;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -247,6 +284,30 @@ html.dash-html, body.dash-body { height: auto !important; overflow: visible !imp
   flex-direction: column;
   flex: 1;
 }
+.story-card-sev {
+  display: inline-block;
+  font: 800 9px/1 ui-monospace, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  margin-bottom: 6px;
+  align-self: flex-start;
+}
+.story-card-sev.critical { background: #b30c10; color: #fff; }
+.story-card-sev.high     { background: #a04a00; color: #fff; }
+.story-card-sev.medium   { background: #8a6a00; color: #fff; }
+.story-card-sev.low      { background: #2a5a30; color: #fff; }
+.story-card-sev.unknown  { background: #16110a; color: #f3eddc; }
+.story-card-title {
+  margin: 0 0 6px 0;
+  font: 800 18px/1.25 "Old Standard TT", Georgia, serif;
+  color: #16110a;
+}
+.story-card-body {
+  margin: 0 0 8px 0;
+  font: 400 13px/1.55 Georgia, serif;
+  color: #16110a;
+}
 .story-card-footer {
   display: flex;
   justify-content: space-between;
@@ -254,226 +315,74 @@ html.dash-html, body.dash-body { height: auto !important; overflow: visible !imp
   gap: 8px;
   margin-top: auto;
   padding-top: 8px;
-}
-.story-card-sources {
-  background: transparent;
-  border: 0;
-  color: #6e9fc8;
-  cursor: pointer;
-  font: 500 11px ui-monospace, monospace;
-  padding: 2px 0;
-}
-.story-card-sources:hover { color: #d4af37; text-decoration: underline; }
-.story-card-sev {
-  display: inline-block;
-  font: 700 9px/1 ui-monospace, monospace;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 2px;
-  margin-bottom: 6px;
-}
-.story-card-sev.critical { background: #ff3d3d; color: #fff; }
-.story-card-sev.high     { background: #ff9a3c; color: #2a1500; }
-.story-card-sev.medium   { background: #ffd05a; color: #3a2a00; }
-.story-card-sev.low      { background: #6bc97c; color: #0d2a13; }
-.story-card-sev.unknown  { background: #485768; color: #c2cad3; }
-.story-card-title {
-  margin: 0 0 6px 0;
-  font: 700 16px/1.3 Georgia, serif;
-  color: #f4f6f8;
-}
-.story-card-body {
-  margin: 0 0 8px 0;
-  font: 400 13px/1.55 Georgia, serif;
-  color: #aeb9c5;
+  border-top: 1px solid #16110a;
 }
 .story-card-ts {
   font: 500 11px ui-monospace, monospace;
-  color: #6b7785;
+  color: #4a4030;
+  font-style: italic;
 }
-
-/* ---- By the Numbers ---- */
-.paper-numbers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 14px;
-}
-.number-tile {
-  padding: 12px 14px;
-  background: #11171e;
-  border: 1px solid #1f2a35;
-  border-radius: 4px;
-  text-align: center;
-}
-.number-tile .num {
-  font: 700 28px/1 Georgia, serif;
-  color: #f4f6f8;
-  letter-spacing: -0.02em;
-}
-.number-tile .lbl {
-  font: 500 11px/1.2 ui-monospace, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #8a96a3;
-  margin-top: 4px;
-}
-.number-tile .sub {
-  font: 400 11px ui-monospace, monospace;
-  color: #6b7785;
-  margin-top: 2px;
-}
-
-/* ---- Local activity chips ---- */
-.paper-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.paper-chips .chip {
+.story-card-sources {
   background: transparent;
-  border: 1px solid #2a3743;
-  color: #aeb9c5;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font: 500 11px/1 ui-monospace, monospace;
+  border: 1px solid #16110a;
+  color: #16110a;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.paper-chips .chip:hover { background: #11171e; color: #f4f6f8; }
-.paper-chips .chip.active {
-  background: rgba(212, 175, 55, 0.14);
-  border-color: #d4af37;
-  color: #d4af37;
-}
-
-/* ---- Call cards (newspaper style) ---- */
-.paper-list { display: flex; flex-direction: column; gap: 0; }
-.paper-call {
-  display: grid;
-  grid-template-columns: 78px 1fr;
-  gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid #1f2a35;
-}
-.paper-call:last-child { border-bottom: 0; }
-.paper-call.sev-critical .paper-call-time { color: #ff7e7e; }
-.paper-call.sev-high     .paper-call-time { color: #ffb47a; }
-.paper-call-time {
-  font: 600 13px/1.4 ui-monospace, monospace;
-  color: #8a96a3;
-  text-align: right;
-  white-space: nowrap;
-}
-.paper-call-time .ago {
-  display: block;
-  font-size: 11px;
-  color: #6b7785;
-  font-weight: 500;
-  margin-top: 2px;
-}
-.paper-call-body { min-width: 0; }
-.paper-call-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
-  margin-bottom: 4px;
-}
-.paper-call-tag {
-  font: 700 13px/1 ui-monospace, monospace;
-  color: #f4f6f8;
-}
-.paper-call-type {
-  font: 500 11px/1 ui-monospace, monospace;
+  font: 700 11px ui-monospace, monospace;
+  padding: 4px 8px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #d4af37;
 }
-.paper-call-sev {
-  font: 700 9px/1 ui-monospace, monospace;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 2px 5px;
-  border-radius: 2px;
-}
-.paper-call-sev.critical { background: #ff3d3d; color: #fff; }
-.paper-call-sev.high     { background: #ff9a3c; color: #2a1500; }
-.paper-call-sev.medium   { background: #ffd05a; color: #3a2a00; }
-.paper-call-ai { color: #a78bfa; display: inline-flex; align-items: center; }
-.paper-call-ai svg { width: 12px; height: 12px; }
-.paper-call-text {
-  margin: 0 0 8px 0;
-  font: 400 14px/1.55 Georgia, serif;
-  color: #c2cad3;
-}
-.paper-call-text .summary { color: #e3e8ed; }
-.paper-call-text .pending { color: #6b7785; font-style: italic; }
-.paper-call audio { height: 28px; max-width: 360px; width: 100%; }
-
-/* ---- Skies (aircraft list, no map) ---- */
-.paper-skies-list { display: flex; flex-direction: column; gap: 4px; }
-.paper-sky-row {
-  display: grid;
-  grid-template-columns: 24px 1fr 90px 70px 80px;
-  gap: 10px;
-  align-items: center;
-  padding: 6px 0;
-  font: 500 13px/1.3 ui-monospace, monospace;
-  border-bottom: 1px solid #11171e;
-}
-.paper-sky-row:last-child { border-bottom: 0; }
-.paper-sky-row.emerg { background: rgba(255, 60, 60, 0.08); padding: 6px 8px; border-radius: 3px; }
-.paper-sky-kind { font-size: 16px; }
-.paper-sky-name { color: #f4f6f8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.paper-sky-name .type-code { color: #8a96a3; font-size: 11px; margin-left: 6px; }
-.paper-sky-alt, .paper-sky-spd, .paper-sky-status { color: #aeb9c5; font-size: 12px; text-align: right; }
+.story-card-sources:hover { background: #16110a; color: #f3eddc; }
 
 /* ---- Ten-code tooltips ---- */
 .ten-code {
-  text-decoration: underline dotted #d4af37;
+  text-decoration: underline dotted #b30c10;
   text-underline-offset: 3px;
   cursor: help;
-  color: #e6d18a;
-  font-weight: 600;
+  color: #8a0c10;
+  font-weight: 700;
   font-variant: small-caps;
 }
 .ten-code-unknown {
-  text-decoration-color: #6b7785;
-  color: #aeb9c5;
+  text-decoration-color: #4a4030;
+  color: #4a4030;
 }
 
-/* ---- Metadata strip (lead story + modal) ---- */
+/* ---- Metadata strip ---- */
 .meta-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  padding: 10px 14px;
-  margin: 8px 0 12px 0;
-  background: rgba(212, 175, 55, 0.05);
-  border-top: 1px solid rgba(212, 175, 55, 0.25);
-  border-bottom: 1px solid rgba(212, 175, 55, 0.25);
-  font: 400 12px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
-  color: #c2cad3;
+  gap: 6px 18px;
+  padding: 8px 14px;
+  margin: 12px 0 12px 0;
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 2px solid #16110a;
+  border-bottom: 1px solid #16110a;
+  font: 500 12px/1.6 ui-monospace, monospace;
+  color: #16110a;
 }
 .meta-strip .meta-bit { white-space: nowrap; }
 .meta-strip .meta-bit b {
-  color: #d4af37;
-  font-weight: 600;
+  color: #8a0c10;
+  font-weight: 800;
   letter-spacing: 0.04em;
   margin-right: 4px;
+  text-transform: uppercase;
+  font-size: 11px;
 }
 .meta-strip .meta-bit-address {
   white-space: normal;
   flex-basis: 100%;
 }
 
-/* Secondary story card metadata — tighter, no labels */
+/* Secondary card meta */
 .story-card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin: 8px 0;
+  gap: 6px;
+  margin: 4px 0 8px;
   font: 500 11px/1.4 ui-monospace, monospace;
-  color: #8a96a3;
+  color: #4a4030;
 }
 .story-card-meta-addr {
   overflow: hidden;
@@ -482,16 +391,142 @@ html.dash-html, body.dash-body { height: auto !important; overflow: visible !imp
   max-width: 100%;
 }
 
-/* Modal: per-call unit list */
-.modal-call-units {
-  font: 500 11px/1 ui-monospace, monospace;
-  color: #6e9fc8;
-  padding: 2px 6px;
-  background: rgba(110, 159, 200, 0.1);
-  border-radius: 2px;
+/* ---- By the Numbers ---- */
+.paper-numbers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0;
+  border: 2px solid #16110a;
+}
+.number-tile {
+  padding: 14px 16px;
+  background: #f3eddc;
+  text-align: center;
+  border-right: 1px solid #16110a;
+  border-bottom: 1px solid #16110a;
+}
+.number-tile:last-child { border-right: 0; }
+.number-tile .num {
+  font: 900 32px/1 "Old Standard TT", Georgia, serif;
+  color: #16110a;
+  letter-spacing: -0.02em;
+}
+.number-tile .lbl {
+  font: 700 10px/1.2 ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #16110a;
+  margin-top: 4px;
+}
+.number-tile .sub {
+  font: 400 11px ui-monospace, monospace;
+  color: #4a4030;
+  margin-top: 2px;
+  font-style: italic;
 }
 
-/* ---- Source-calls modal ---- */
+/* ---- Filter chips ---- */
+.paper-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.paper-chips .chip {
+  background: transparent;
+  border: 1px solid #16110a;
+  color: #16110a;
+  padding: 4px 10px;
+  font: 600 11px/1 ui-monospace, monospace;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.paper-chips .chip:hover { background: rgba(0,0,0,0.06); }
+.paper-chips .chip.active { background: #16110a; color: #f3eddc; }
+
+/* ---- Call cards (Local Activity list) ---- */
+.paper-list { display: flex; flex-direction: column; gap: 0; }
+.paper-call {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid #16110a;
+}
+.paper-call:last-child { border-bottom: 0; }
+.paper-call.sev-critical .paper-call-time { color: #b30c10; font-weight: 700; }
+.paper-call.sev-high     .paper-call-time { color: #a04a00; font-weight: 700; }
+.paper-call-time {
+  font: 600 14px/1.4 ui-monospace, monospace;
+  color: #16110a;
+  text-align: right;
+  white-space: nowrap;
+}
+.paper-call-time .ago {
+  display: block;
+  font-size: 11px;
+  color: #4a4030;
+  font-weight: 500;
+  font-style: italic;
+  margin-top: 2px;
+}
+.paper-call-body { min-width: 0; }
+.paper-call-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.paper-call-tag {
+  font: 800 14px/1 "Old Standard TT", Georgia, serif;
+  color: #16110a;
+}
+.paper-call-type {
+  font: 700 11px/1 ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8a0c10;
+}
+.paper-call-sev {
+  font: 700 9px/1 ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+}
+.paper-call-sev.critical { background: #b30c10; color: #fff; }
+.paper-call-sev.high     { background: #a04a00; color: #fff; }
+.paper-call-sev.medium   { background: #8a6a00; color: #fff; }
+.paper-call-ai { color: #5a3a8a; display: inline-flex; align-items: center; }
+.paper-call-ai svg { width: 12px; height: 12px; }
+.paper-call-text {
+  margin: 0 0 8px 0;
+  font: 400 14px/1.55 Georgia, serif;
+  color: #16110a;
+}
+.paper-call-text .summary { font-weight: 700; }
+.paper-call-text .pending { color: #4a4030; font-style: italic; }
+.paper-call audio { height: 32px; max-width: 380px; width: 100%; }
+
+/* ---- Skies (no map, list-only) ---- */
+.paper-skies-list { display: flex; flex-direction: column; gap: 0; border-top: 1px solid #16110a; }
+.paper-sky-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 90px 70px 90px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 4px;
+  font: 500 13px/1.3 ui-monospace, monospace;
+  border-bottom: 1px solid rgba(0,0,0,0.15);
+  color: #16110a;
+}
+.paper-sky-row.emerg { background: rgba(220, 60, 60, 0.15); padding: 7px 8px; }
+.paper-sky-kind { font-size: 18px; }
+.paper-sky-name { color: #16110a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.paper-sky-name .type-code { color: #4a4030; font-size: 11px; margin-left: 6px; font-weight: 500; font-style: italic; }
+.paper-sky-alt, .paper-sky-spd, .paper-sky-status { color: #4a4030; font-size: 12px; text-align: right; }
+.paper-sky-row.emerg .paper-sky-status { color: #b30c10; font-weight: 800; }
+
+/* ---- Source-calls modal (newspaper themed) ---- */
 .source-modal {
   position: fixed;
   inset: 0;
@@ -502,134 +537,161 @@ html.dash-html, body.dash-body { height: auto !important; overflow: visible !imp
 .source-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: blur(2px);
+  background: rgba(22, 17, 10, 0.78);
 }
 .source-modal-card {
   position: relative;
-  max-width: 760px;
-  margin: 5vh auto;
-  max-height: 90vh;
-  background: #0e141a;
-  border: 1px solid #2a3743;
-  border-radius: 6px;
-  padding: 24px 28px;
+  max-width: 820px;
+  margin: 4vh auto;
+  max-height: 92vh;
+  background: #ebe5d4;
+  border: 4px solid #16110a;
+  border-radius: 0;
+  padding: 22px 28px 28px;
   overflow-y: auto;
   font-family: Georgia, serif;
+  color: #16110a;
 }
 .source-modal-close {
   position: absolute;
-  top: 12px;
-  right: 16px;
+  top: 8px;
+  right: 14px;
   background: transparent;
   border: 0;
-  color: #aeb9c5;
-  font-size: 28px;
+  color: #16110a;
+  font-size: 32px;
   cursor: pointer;
   line-height: 1;
 }
-.source-modal-close:hover { color: #f4f6f8; }
+.source-modal-close:hover { color: #8a0c10; }
 .source-modal-card h2 {
   margin: 0 0 14px 0;
-  font: 700 22px/1.3 Georgia, serif;
-  color: #f4f6f8;
+  font: 900 26px/1.2 "Old Standard TT", Georgia, serif;
+  color: #16110a;
   padding-right: 30px;
+  border-bottom: 2px solid #16110a;
+  padding-bottom: 8px;
 }
 .modal-loading, .modal-empty {
   padding: 30px;
   text-align: center;
-  color: #6b7785;
+  color: #4a4030;
   font-style: italic;
 }
 .modal-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 8px 16px;
   align-items: center;
   margin-bottom: 12px;
   font-family: ui-monospace, monospace;
   font-size: 12px;
 }
-.modal-meta-tag    { color: #d4af37; font-weight: 600; }
-.modal-meta-count  { color: #6b7785; }
+.modal-meta-tag    { color: #8a0c10; font-weight: 800; letter-spacing: 0.04em; }
+.modal-meta-count  { color: #4a4030; font-style: italic; }
 .modal-meta-sev {
-  font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
-  padding: 2px 6px; border-radius: 2px;
+  font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 3px 7px;
+  font-size: 11px;
 }
-.modal-meta-sev.sev-critical { background: #ff3d3d; color: #fff; }
-.modal-meta-sev.sev-high     { background: #ff9a3c; color: #2a1500; }
-.modal-meta-sev.sev-medium   { background: #ffd05a; color: #3a2a00; }
-.modal-meta-sev.sev-low      { background: #6bc97c; color: #0d2a13; }
-.modal-meta-sev.sev-unknown  { background: #485768; color: #c2cad3; }
+.modal-meta-sev.sev-critical { background: #b30c10; color: #fff; }
+.modal-meta-sev.sev-high     { background: #a04a00; color: #fff; }
+.modal-meta-sev.sev-medium   { background: #8a6a00; color: #fff; }
+.modal-meta-sev.sev-low      { background: #2a5a30; color: #fff; }
+.modal-meta-sev.sev-unknown  { background: #16110a; color: #f3eddc; }
 
 .modal-summary {
-  padding: 12px 14px;
-  background: #11171e;
-  border-left: 3px solid #d4af37;
-  margin-bottom: 18px;
-  font: 400 14px/1.55 Georgia, serif;
-  color: #c2cad3;
+  padding: 12px 16px;
+  background: #f3eddc;
+  border-left: 6px solid #16110a;
+  margin-bottom: 16px;
+  font: 400 15px/1.6 Georgia, serif;
+  color: #16110a;
 }
-.modal-calls { display: flex; flex-direction: column; gap: 12px; }
+
+.modal-calls { display: flex; flex-direction: column; gap: 14px; }
 .modal-call {
-  background: #11171e;
-  border: 1px solid #1f2a35;
-  border-radius: 4px;
+  background: #f3eddc;
+  border: 2px solid #16110a;
   padding: 12px 14px;
 }
-.modal-call.primary { border-color: #d4af37; }
+.modal-call.primary { border-width: 3px; box-shadow: 4px 4px 0 #16110a; }
 .modal-call-head {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: 8px 14px;
   margin-bottom: 6px;
+  border-bottom: 1px solid #16110a;
+  padding-bottom: 6px;
 }
 .modal-call-badge {
-  background: #d4af37; color: #1a1400;
-  font: 700 9px/1 ui-monospace, monospace;
-  letter-spacing: 0.12em;
-  padding: 3px 6px; border-radius: 2px;
+  background: #16110a; color: #f3eddc;
+  font: 800 10px/1 ui-monospace, monospace;
+  letter-spacing: 0.18em;
+  padding: 3px 7px;
 }
-.modal-call-time { font: 500 11px ui-monospace, monospace; color: #6b7785; }
-.modal-call-tag { font: 700 12px ui-monospace, monospace; color: #aeb9c5; }
-.modal-call-summary { color: #e3e8ed; font-size: 13px; margin-bottom: 4px; }
+.modal-call-time { font: 600 12px ui-monospace, monospace; color: #4a4030; }
+.modal-call-tag { font: 800 13px "Old Standard TT", Georgia, serif; color: #16110a; }
+.modal-call-units {
+  font: 600 11px ui-monospace, monospace;
+  color: #8a0c10;
+  padding: 2px 6px;
+  border: 1px solid #8a0c10;
+}
+.modal-call-summary { color: #16110a; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .modal-call-transcript {
-  font: 400 13px/1.55 Georgia, serif;
-  color: #c2cad3;
+  font: 400 14px/1.6 Georgia, serif;
+  color: #16110a;
+  margin-bottom: 8px;
+}
+.modal-call-pending { font-style: italic; color: #4a4030; font-size: 12px; }
+/* Audio block with explicit "Listen to this call" label */
+.modal-call-audio-wrap {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #ebe5d4;
+  border: 1px solid #16110a;
+}
+.modal-call-audio-label {
+  display: block;
+  font: 700 11px/1 ui-monospace, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a0c10;
   margin-bottom: 6px;
 }
-.modal-call-pending { font-style: italic; color: #6b7785; font-size: 12px; }
-.modal-call audio { height: 28px; width: 100%; max-width: 480px; margin-top: 4px; }
+.modal-call audio {
+  height: 36px;
+  width: 100%;
+  max-width: 100%;
+}
 
 /* ---- Footer ---- */
 .paper-footer {
-  margin-top: 56px;
-  padding-top: 18px;
-  border-top: 1px solid #1f2a35;
+  margin-top: 48px;
+  padding-top: 14px;
+  border-top: 3px double #16110a;
   font: 400 11px/1.5 Georgia, serif;
-  color: #6b7785;
+  color: #4a4030;
   text-align: center;
   font-style: italic;
 }
 
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
-  .paper-masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 18px 16px 12px;
-  }
-  .paper-masthead-right { text-align: left; }
-  .paper-title { font-size: 36px; }
+  .paper-mast-edge { flex-direction: column; gap: 4px; padding-bottom: 6px; }
+  .paper-title { font-size: 56px; }
+  .paper-mast-logo { width: 48px; height: 48px; }
   .paper-main { padding: 16px; }
-  .paper-headline { font-size: 22px; }
+  .paper-headline { font-size: 26px; }
   .paper-lede { font-size: 15px; }
-  .paper-call { grid-template-columns: 64px 1fr; gap: 10px; }
+  .paper-lede::first-letter { font-size: 44px; }
+  .paper-call { grid-template-columns: 76px 1fr; gap: 12px; }
   .paper-sky-row {
-    grid-template-columns: 22px 1fr 70px;
+    grid-template-columns: 24px 1fr 70px;
     font-size: 12px;
   }
   .paper-sky-spd, .paper-sky-status { display: none; }
+  .story-hero-lead { width: 130px; height: 80px; margin-right: 12px; }
 }
