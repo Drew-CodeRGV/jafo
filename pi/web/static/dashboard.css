@@ -646,25 +646,45 @@ html.dash-html, body.dash-body {
   margin-bottom: 8px;
 }
 .modal-call-pending { font-style: italic; color: #4a4030; font-size: 12px; }
-/* Audio block with explicit "Listen to this call" label */
+/* Audio block — "Listen to this call" is a real button now */
 .modal-call-audio-wrap {
   margin-top: 8px;
-  padding: 8px 10px;
-  background: #ebe5d4;
-  border: 1px solid #16110a;
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
-.modal-call-audio-label {
-  display: block;
-  font: 700 11px/1 ui-monospace, monospace;
-  letter-spacing: 0.1em;
+.modal-call-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #16110a;
+  color: #f3eddc;
+  border: 2px solid #16110a;
+  padding: 8px 16px;
+  font: 800 12px/1 ui-monospace, monospace;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #8a0c10;
-  margin-bottom: 6px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.modal-call-play-btn:hover {
+  background: #8a0c10;
+  border-color: #8a0c10;
+}
+.modal-call-play-btn[data-state="playing"] {
+  background: #8a0c10;
+  border-color: #8a0c10;
+}
+.modal-call-play-btn .play-icon {
+  font-size: 14px;
+  line-height: 1;
 }
 .modal-call audio {
-  height: 36px;
+  display: block;
+  height: 34px;
   width: 100%;
   max-width: 100%;
+  margin-top: 8px;
 }
 
 /* ---- Footer ---- */

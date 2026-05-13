@@ -324,8 +324,11 @@ async function openSourceModal(storyId, title) {
             ${c.transcript ? `<div class="modal-call-transcript">${highlightTenCodes(escapeHtml(c.transcript))}</div>` : '<div class="modal-call-pending">no transcript yet</div>'}
             ${c.audio_available && (c.opus_path || c.audio_url) ? `
               <div class="modal-call-audio-wrap">
-                <label class="modal-call-audio-label">▶ Listen to this call</label>
-                <audio controls preload="metadata">
+                <button type="button" class="modal-call-play-btn" data-state="paused">
+                  <span class="play-icon">▶</span>
+                  <span class="play-label">Listen to this call</span>
+                </button>
+                <audio preload="metadata" class="modal-call-audio">
                   <source src="${c.audio_url ? escapeHtml(c.audio_url) : `/audio/${escapeHtml(c.opus_path)}`}" type="audio/ogg; codecs=opus">
                 </audio>
               </div>` : ""}
@@ -333,6 +336,42 @@ async function openSourceModal(storyId, title) {
         `).join("")}
       </div>
     `;
+    // Wire each "Listen to this call" button to toggle the sibling
+    // <audio> element. We use a custom play button + hidden controls
+    // so the label IS the play affordance (it was just text before).
+    // Only one call can play at a time across the modal.
+    document.querySelectorAll(".modal-call-audio-wrap").forEach(wrap => {
+      const btn   = wrap.querySelector(".modal-call-play-btn");
+      const audio = wrap.querySelector("audio");
+      if (!btn || !audio) return;
+      audio.controls = true;  // keep timeline visible after first interaction
+      btn.addEventListener("click", () => {
+        if (audio.paused) {
+          // Pause any other playing audio in the modal
+          document.querySelectorAll("#source-modal audio").forEach(a => {
+            if (a !== audio && !a.paused) a.pause();
+          });
+          audio.play().catch(err => console.error("audio play failed:", err));
+        } else {
+          audio.pause();
+        }
+      });
+      audio.addEventListener("play",  () => {
+        btn.dataset.state = "playing";
+        btn.querySelector(".play-icon").textContent  = "❚❚";
+        btn.querySelector(".play-label").textContent = "Pause";
+      });
+      audio.addEventListener("pause", () => {
+        btn.dataset.state = "paused";
+        btn.querySelector(".play-icon").textContent  = "▶";
+        btn.querySelector(".play-label").textContent = "Listen to this call";
+      });
+      audio.addEventListener("ended", () => {
+        btn.dataset.state = "paused";
+        btn.querySelector(".play-icon").textContent  = "▶";
+        btn.querySelector(".play-label").textContent = "Replay this call";
+      });
+    });
   } catch (e) {
     console.error("source modal load failed", e);
     document.getElementById("source-modal-body").innerHTML =
