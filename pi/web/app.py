@@ -2406,6 +2406,131 @@ def _share_paths(kind: str, id_: int, fmt: str) -> tuple[Path, Path, Path]:
     )
 
 
+# Newspaper palette — mirrors dashboard.css
+SHARE_BG     = (235, 229, 212)   # #ebe5d4 cream paper
+SHARE_INK    = ( 22,  17,  10)   # #16110a black ink
+SHARE_INK_LT = ( 66,  57,  41)   # #423929 secondary ink
+SHARE_RED    = (180,  40,  11)   # #b4280b accent
+SHARE_SEV = {
+    "critical": (180,  40,  11),
+    "high":     (217,  88,  15),
+    "medium":   (201, 150,  42),
+    "low":      ( 94, 139,  58),
+    "unknown":  (106,  92,  64),
+}
+FONT_SERIF_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
+FONT_SERIF      = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
+
+
+def render_story_card(out_path: Path, *, fmt: str, title: str, body: str,
+                      severity: str, ts_str: str, talkgroup_tag: str = "") -> None:
+    """Render a newspaper-style mini-poster — looks like a JAFO Report
+    masthead clipping: chopper logo, "THE JAFO REPORT" banner, severity sash,
+    headline, dek (short body teaser), date footer. Aims to be instantly
+    recognizable when a link is unfurled in WhatsApp / iMessage / X."""
+    from PIL import Image, ImageDraw, ImageFont
+    spec = SHARE_FORMATS.get(fmt, SHARE_FORMATS["square"])
+    W, H = spec["w"], spec["h"]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    img = Image.new("RGB", (W, H), SHARE_BG)
+    draw = ImageDraw.Draw(img)
+
+    # Per-format scales
+    if fmt == "story":              # 1080x1920 portrait (IG Story / Reels)
+        margin   = 60
+        logo_h   = 110
+        f_brand  = ImageFont.truetype(FONT_SERIF_BOLD, 78)
+        f_eyebrow= ImageFont.truetype(FONT_SERIF_BOLD, 30)
+        f_title  = ImageFont.truetype(FONT_SERIF_BOLD, 90)
+        f_body   = ImageFont.truetype(FONT_SERIF, 42)
+        f_foot   = ImageFont.truetype(FONT_SERIF_BOLD, 30)
+        title_lines_max = 6
+        body_lines_max  = 12
+    elif fmt == "landscape":        # 1200x675 (Twitter/X, FB link card)
+        margin   = 56
+        logo_h   = 72
+        f_brand  = ImageFont.truetype(FONT_SERIF_BOLD, 48)
+        f_eyebrow= ImageFont.truetype(FONT_SERIF_BOLD, 20)
+        f_title  = ImageFont.truetype(FONT_SERIF_BOLD, 56)
+        f_body   = ImageFont.truetype(FONT_SERIF, 26)
+        f_foot   = ImageFont.truetype(FONT_SERIF_BOLD, 20)
+        title_lines_max = 3
+        body_lines_max  = 4
+    else:                            # 1080x1080 square (IG/FB feed, WhatsApp)
+        margin   = 60
+        logo_h   = 96
+        f_brand  = ImageFont.truetype(FONT_SERIF_BOLD, 64)
+        f_eyebrow= ImageFont.truetype(FONT_SERIF_BOLD, 26)
+        f_title  = ImageFont.truetype(FONT_SERIF_BOLD, 72)
+        f_body   = ImageFont.truetype(FONT_SERIF, 34)
+        f_foot   = ImageFont.truetype(FONT_SERIF_BOLD, 24)
+        title_lines_max = 4
+        body_lines_max  = 7
+
+    # ─── Masthead: logo + "THE JAFO REPORT" ───
+    if LOGO_PATH.exists():
+        logo = Image.open(LOGO_PATH).convert("RGBA")
+        ratio = logo_h / logo.height
+        logo = logo.resize((int(logo.width * ratio), logo_h), Image.LANCZOS)
+        img.paste(logo, (margin, margin), logo)
+        title_x = margin + logo.width + 24
+    else:
+        title_x = margin
+
+    draw.text((title_x, margin + 6), "THE JAFO REPORT", font=f_brand, fill=SHARE_INK)
+    # Double rule under masthead — signature newspaper move
+    rule_y = margin + max(logo_h, int(f_brand.size * 1.1)) + 10
+    draw.line((margin, rule_y, W - margin, rule_y), fill=SHARE_INK, width=3)
+    draw.line((margin, rule_y + 6, W - margin, rule_y + 6), fill=SHARE_INK, width=1)
+
+    # ─── Severity sash + talkgroup eyebrow ───
+    y = rule_y + 26
+    sev = (severity or "unknown").lower()
+    sev_rgb = SHARE_SEV.get(sev, SHARE_SEV["unknown"])
+    sev_text = sev.upper()
+    sev_pad_x, sev_pad_y = 14, 6
+    sev_w = int(draw.textlength(sev_text, font=f_eyebrow)) + sev_pad_x * 2
+    sev_h = int(f_eyebrow.size * 1.4)
+    draw.rectangle((margin, y, margin + sev_w, y + sev_h), fill=sev_rgb)
+    draw.text((margin + sev_pad_x, y + sev_pad_y), sev_text, font=f_eyebrow, fill=(255, 255, 255))
+    if talkgroup_tag:
+        draw.text((margin + sev_w + 14, y + sev_pad_y + 2),
+                  f"·  {talkgroup_tag}", font=f_eyebrow, fill=SHARE_INK_LT)
+    y += sev_h + 24
+
+    # ─── Headline ───
+    title_lines = _wrap_text(draw, title or "(untitled)", f_title, W - 2 * margin)
+    for line in title_lines[:title_lines_max]:
+        draw.text((margin, y), line, font=f_title, fill=SHARE_INK)
+        y += int(f_title.size * 1.05)
+    y += 18
+
+    # ─── Dek (body teaser) ───
+    body_lines = _wrap_text(draw, body or "", f_body, W - 2 * margin)
+    body_show  = body_lines[:body_lines_max]
+    for line in body_show:
+        draw.text((margin, y), line, font=f_body, fill=SHARE_INK)
+        y += int(f_body.size * 1.4)
+    if len(body_lines) > body_lines_max:
+        # Ellipsis on the last shown line
+        last_y = y - int(f_body.size * 1.4)
+        last_line = body_show[-1].rstrip(" .,;:")
+        draw.rectangle((margin, last_y, W - margin, last_y + int(f_body.size * 1.4)), fill=SHARE_BG)
+        draw.text((margin, last_y), last_line + " …", font=f_body, fill=SHARE_INK)
+
+    # ─── Footer: domain + date ───
+    foot_y = H - margin - int(f_foot.size * 1.4)
+    draw.line((margin, foot_y - 14, W - margin, foot_y - 14), fill=SHARE_INK, width=2)
+    domain = "jafo.live"
+    draw.text((margin, foot_y), domain, font=f_foot, fill=SHARE_INK)
+    if ts_str:
+        tw = draw.textlength(ts_str, font=f_foot)
+        draw.text((W - margin - tw, foot_y), ts_str, font=f_foot, fill=SHARE_INK_LT)
+
+    img.save(out_path, "PNG", optimize=True)
+
+
 def _make_audio_mp3(opus_files: list[Path], out_mp3: Path) -> None:
     """Concatenate one-or-more opus calls into a single MP3 for share download."""
     import subprocess
@@ -2476,7 +2601,17 @@ def _build_call_share(call_id: int, fmt: str = "square") -> tuple[Path, Path | N
     )
 
 
-def _build_story_share(story_id: int, fmt: str = "square") -> tuple[Path, Path | None, Path | None] | None:
+def _build_story_share(story_id: int, fmt: str = "square",
+                       card_only: bool = False) -> tuple[Path, Path | None, Path | None] | None:
+    """Build the share artifacts for a story.
+
+    card_only=True skips the slow ffmpeg video render — critical for
+    /api/share/story/<id>/card.png which is hit by WhatsApp / Facebook /
+    Twitter scrapers with tight (~5s) timeouts.
+
+    All artifacts are cached on disk in SHARE_CACHE_DIR; if the cached
+    PNG already exists and is newer than the story row, it's reused.
+    """
     if fmt not in SHARE_FORMATS:
         fmt = "square"
     conn = get_db()
@@ -2485,23 +2620,28 @@ def _build_story_share(story_id: int, fmt: str = "square") -> tuple[Path, Path |
         conn.close()
         return None
     s = dict(s)
+    story_mtime = float(s.get("last_call_at") or s.get("created_at") or 0)
+
+    card_png, video_mp4, audio_mp3 = _share_paths("stories", story_id, fmt)
+
+    # Fast path: card already cached and newer than the underlying story
+    if card_only and card_png.exists() and card_png.stat().st_mtime >= story_mtime:
+        conn.close()
+        return card_png, None, None
+
     try:
         ids = json.loads(s.get("related_call_ids") or "[]")
     except json.JSONDecodeError:
         ids = []
 
     audios: list[Path] = []
-    cd_for_meta = None
-    if ids:
+    if ids and not card_only:
         placeholders = ",".join("?" * len(ids))
         cur = conn.execute(
             f"SELECT * FROM calls WHERE id IN ({placeholders}) ORDER BY start_time ASC",
             ids,
         )
-        rows = list(cur)
-        if rows:
-            cd_for_meta = call_row_to_dict(rows[0], load_talkgroup_metadata(), load_overrides())
-        for r in rows:
+        for r in cur:
             d = dict(r)
             if d.get("opus_path") and not d.get("audio_deleted"):
                 ap = CALLS_DIR / d["opus_path"]
@@ -2509,18 +2649,19 @@ def _build_story_share(story_id: int, fmt: str = "square") -> tuple[Path, Path |
                     audios.append(ap)
     conn.close()
 
-    card_png, video_mp4, audio_mp3 = _share_paths("stories", story_id, fmt)
-    ts_str = time.strftime("%b %d, %Y · %I:%M %p", time.localtime(s.get("last_call_at") or s.get("created_at") or time.time()))
-    render_card(
-        card_png, fmt=fmt,
-        agency=s.get("title") or "(untitled)",
-        city=(cd_for_meta or {}).get("city") or "",
-        service=(cd_for_meta or {}).get("service_type") or "",
-        blurb=s.get("body") or "",
-        severity=s.get("severity") or "unknown",
-        ts_str=ts_str,
-        icon_emoji=_emoji_for_call(cd_for_meta or {}),
-    )
+    ts_str = time.strftime("%b %d, %Y", time.localtime(story_mtime or time.time()))
+    if not card_png.exists() or card_png.stat().st_mtime < story_mtime:
+        render_story_card(
+            card_png, fmt=fmt,
+            title=s.get("title") or "(untitled)",
+            body=s.get("body") or "",
+            severity=s.get("severity") or "unknown",
+            ts_str=ts_str,
+            talkgroup_tag=s.get("talkgroup_tag") or "",
+        )
+
+    if card_only:
+        return card_png, None, None
     if audios:
         if not video_mp4.exists() or video_mp4.stat().st_mtime < card_png.stat().st_mtime:
             try:
@@ -2577,10 +2718,15 @@ def share_call_audio(call_id: int):
 @app.route("/api/share/story/<int:story_id>/card.png")
 def share_story_card(story_id: int):
     _sweep_share_cache()
-    res = _build_story_share(story_id, _fmt_arg())
+    # card_only=True is critical: it skips the 30s ffmpeg video render that
+    # would otherwise time out WhatsApp's link-preview scraper.
+    res = _build_story_share(story_id, _fmt_arg(), card_only=True)
     if not res: abort(404)
     card, _, _ = res
-    return send_file(card, mimetype="image/png")
+    resp = send_file(card, mimetype="image/png")
+    # 24h cache so social scrapers re-fetch happily and CDNs do their thing
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @app.route("/api/share/story/<int:story_id>/video.mp4")

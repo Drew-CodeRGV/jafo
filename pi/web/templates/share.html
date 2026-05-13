@@ -5,20 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} — The JAFO Report</title>
 
-<!-- OpenGraph for Facebook + Twitter Card scraping -->
+<!-- OpenGraph for Facebook / WhatsApp / Twitter scraping.
+     WhatsApp specifically requires og:image:secure_url + og:image:type
+     and is unforgiving of slow image responses. -->
 <meta property="og:type" content="article">
 <meta property="og:title" content="{{ title }}">
-<meta property="og:description" content="{{ description }}">
+<meta property="og:description" content="{{ description[:300] }}">
 <meta property="og:image" content="{{ share_url }}/api/share/{{ kind }}/{{ id }}/card.png">
+<meta property="og:image:secure_url" content="{{ share_url }}/api/share/{{ kind }}/{{ id }}/card.png">
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1080">
 <meta property="og:image:height" content="1080">
+<meta property="og:image:alt" content="{{ title }} — The JAFO Report">
 <meta property="og:url" content="{{ share_url }}/share/{{ kind }}/{{ id }}">
 <meta property="og:site_name" content="The JAFO Report">
+<meta property="og:locale" content="en_US">
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ title }}">
-<meta name="twitter:description" content="{{ description }}">
+<meta name="twitter:description" content="{{ description[:300] }}">
 <meta name="twitter:image" content="{{ share_url }}/api/share/{{ kind }}/{{ id }}/card.png">
+<meta name="twitter:image:alt" content="{{ title }} — The JAFO Report">
+
+<!-- Article metadata used by some unfurlers (LinkedIn, Slack) -->
+<meta name="description" content="{{ description[:300] }}">
+<link rel="canonical" href="{{ share_url }}/share/{{ kind }}/{{ id }}">
 
 <link rel="icon" href="/static/logo.png" type="image/png">
 <link rel="stylesheet" href="{{ static_v('style.css') }}">
