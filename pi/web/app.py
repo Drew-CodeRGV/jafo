@@ -1961,7 +1961,10 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         return None
     client = _claude()
     if not client:
-        print("[news] ANTHROPIC_API_KEY not set — cannot write news scripts", file=sys.stderr)
+        # _claude() returns None if ANTHROPIC_API_KEY is unset OR the anthropic
+        # package isn't installed in this venv — distinguish so deploys are debuggable.
+        why = "ANTHROPIC_API_KEY not set" if not ANTHROPIC_API_KEY else "anthropic package not importable"
+        print(f"[news] cannot write news scripts: {why}", file=sys.stderr)
         return None
 
     primary = cluster[-1]
