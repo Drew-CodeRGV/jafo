@@ -27,7 +27,18 @@ Nice=15
 # we'd rather lose a transient LLM call than the capture pipeline
 OOMScoreAdjust=800
 MemoryHigh=2G
+MemoryMax=2.5G
 TimeoutStopSec=20
+# Strict CPU subordination: when trunk-recorder, faster-whisper, or the
+# processor want CPU, they get it. ollama only runs when there's slack.
+# CPUWeight default is 100; 20 makes ollama lowest-priority among jafo.
+CPUWeight=20
+CPUSchedulingPolicy=batch
+IOWeight=50
+# Keep the model resident in RAM so inference latency is consistent
+# (re-loading on every request would compound the slowness). 30 min is
+# longer than any reasonable lull between calls during active hours.
+Environment=OLLAMA_KEEP_ALIVE=30m
 
 [Install]
 WantedBy=multi-user.target

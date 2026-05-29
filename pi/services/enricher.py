@@ -47,8 +47,20 @@ DUAL_RUN = os.environ.get("JAFO_LLM_DUAL_RUN", "").strip().lower() in ("1", "tru
 SHADOW_BATCH_SIZE = 2  # don't starve primary; small bites between primary cycles
 
 POLL_INTERVAL_SEC = 10
-BATCH_SIZE = 10
+BATCH_SIZE = 3            # was 10 — smaller bites prevent pile-up when ollama is slow under load
 MAX_TOKENS = 400
+
+# Ollama inference on a Pi 5, CPU-contested by trunk-recorder + faster-whisper,
+# can take 60-180s for a small prompt. A short timeout causes cascading failures
+# while ollama is still working — the next request hits a busy server and also
+# times out. 300s gives ollama room to finish.
+OLLAMA_REQUEST_TIMEOUT_SEC = 300
+
+# When the system is already under heavy load, don't pile more enrichment on top.
+# 1-minute load avg above this threshold = back off and let the queue drain.
+# Pi 5 has 4 cores, so loadavg > 6 means ~50%+ over-subscribed.
+LOAD_AVG_BACKOFF_THRESHOLD = 6.0
+LOAD_AVG_BACKOFF_SLEEP_SEC = 30
 
 SYSTEM_PROMPT = f"""You are an analyst extracting structured incident information from short \
 public-safety radio dispatch transcripts. The region is {REGION}.
@@ -236,7 +248,7 @@ def enrich_via_ollama(transcript: str, talkgroup_tag: str) -> dict:
             "num_predict": MAX_TOKENS,
         },
     }
-    r = requests.post(f"{LLM_HOST}/api/chat", json=payload, timeout=120)
+    r = requests.post(f"{LLM_HOST}/api/chat", json=payload, timeout=OLLAMA_REQUEST_TIMEOUT_SEC)
     r.raise_for_status()
     body = r.json()
     text = body.get("message", {}).get("content", "")
@@ -283,6 +295,18 @@ def main() -> None:
                  BACKEND, LLM_MODEL)
 
     while True:
+        # System-load backpressure: if the Pi is already over-subscribed
+        # (trunk-recorder + faster-whisper + processor all churning), an
+        # ollama inference will hang for minutes and queue up more requests
+        # behind it. Wait for headroom before grabbing more work.
+        if BACKEND == "ollama":
+            load1 = os.getloadavg()[0]
+            if load1 > LOAD_AVG_BACKOFF_THRESHOLD:
+                log.info("BACKOFF load=%.2f > %.1f — sleeping %ds",
+                         load1, LOAD_AVG_BACKOFF_THRESHOLD, LOAD_AVG_BACKOFF_SLEEP_SEC)
+                time.sleep(LOAD_AVG_BACKOFF_SLEEP_SEC)
+                continue
+
         try:
             calls = get_pending_calls(conn, BATCH_SIZE)
         except Exception as e:

@@ -1958,14 +1958,10 @@ def _refresh_stories_once() -> tuple[int, int]:
         except sqlite3.Error as e:
             print(f"story insert failed: {e}", file=sys.stderr)
 
-    # Trim to top STORY_KEEP_MAX
-    conn.execute(f"""
-        DELETE FROM stories
-        WHERE id NOT IN (
-            SELECT id FROM stories ORDER BY score DESC, last_call_at DESC LIMIT {STORY_KEEP_MAX}
-        )
-    """)
-    conn.commit()
+    # No row-count trim: the `score` column is frozen at insert time, so a
+    # top-N-by-score cap kept old high-severity stories forever and culled
+    # freshly-synthesized ones. The 14-day retention prune above is the only
+    # row eviction now; /api/stories applies the LIMIT at query time.
     conn.close()
     return (new_count, skipped)
 
