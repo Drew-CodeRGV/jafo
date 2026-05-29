@@ -24,6 +24,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -1642,7 +1643,7 @@ NEWS_MAX_TOKENS            = 1200
 # segment avg_logprob (closer to 0 = more confident); transcript_no_speech is
 # the max no_speech_prob. A cluster must contain at least one substantive
 # (non-boring) transmission that clears BOTH bars before we write a script.
-NEWS_MIN_CONFIDENCE        = float(os.environ.get("JAFO_NEWS_MIN_CONFIDENCE", "-1.0"))
+NEWS_MIN_CONFIDENCE        = float(os.environ.get("JAFO_NEWS_MIN_CONFIDENCE", "-1.5"))
 NEWS_MAX_NO_SPEECH         = float(os.environ.get("JAFO_NEWS_MAX_NO_SPEECH", "0.6"))
 
 SEVERITY_WEIGHT = {"critical": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0, "unknown": 0.5}
@@ -1735,7 +1736,8 @@ def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
         SELECT id, talkgroup, talkgroup_tag, start_time, transcript,
                incident_type, incident_summary, incident_location,
                incident_units, incident_severity, opus_path,
-               transcript_confidence, transcript_no_speech, transcript_model
+               transcript_confidence, transcript_no_speech, transcript_model,
+               incident_json
         FROM calls
         WHERE status = 'kept'
           AND audio_deleted = 0
@@ -1949,6 +1951,83 @@ def _cluster_passes_news_gate(cluster: list[dict]) -> bool:
     return False
 
 
+# Curated, sourced color/stats facts — the ONLY source the writer may draw
+# statistics or background from (besides rgv-context.txt + live weather).
+_NEWS_CONTEXT_PATH = Path(__file__).parent / "news-context.txt"
+_news_context_cache: str | None = None
+def _load_news_context() -> str:
+    global _news_context_cache
+    if _news_context_cache is None:
+        try:
+            _news_context_cache = _NEWS_CONTEXT_PATH.read_text(encoding="utf-8")
+        except Exception as e:
+            print(f"news-context.txt missing: {e}", file=sys.stderr)
+            _news_context_cache = ""
+    return _news_context_cache
+
+
+# Live weather for ambient color. Best-effort NWS fetch (no key required),
+# cached 30 min including failures so we never hammer the API or block script
+# generation. McAllen point: 26.20, -98.23.
+_WEATHER_CACHE = {"at": 0, "text": None}
+def _current_weather() -> str | None:
+    now = int(time.time())
+    if now - _WEATHER_CACHE["at"] < 1800:
+        return _WEATHER_CACHE["text"]
+    _WEATHER_CACHE["at"] = now
+    txt = None
+    try:
+        import requests as _r
+        hdr = {"User-Agent": "jafo-news (https://jafo.live)"}
+        pts = _r.get("https://api.weather.gov/points/26.2034,-98.2300", headers=hdr, timeout=5).json()
+        fc_url = pts["properties"]["forecastHourly"]
+        per = _r.get(fc_url, headers=hdr, timeout=5).json()["properties"]["periods"][0]
+        txt = f'{per["temperature"]}°{per["temperatureUnit"]}, {per["shortForecast"]}'
+    except Exception as e:
+        print(f"[news] weather fetch failed: {e}", file=sys.stderr)
+    _WEATHER_CACHE["text"] = txt
+    return txt
+
+
+# Deterministic PII backstop. The prompt forbids names + plates, but this is a
+# hard requirement, so we also strip known person names (from the enricher's
+# persons_mentioned) and license-plate patterns after generation.
+# A plate/tag mentioned by context word, followed (through optional connector
+# words) by a DIGIT-BEARING token. Requiring a digit avoids eating plain words
+# ("plate check on a Camry" stays intact) while still catching "plate number
+# was 6-0-0-5" or "tag ABC1234".
+_PLATE_CTX_RE = re.compile(
+    r'(?i)\b(license plate|plate|tag|registration)\b'
+    r'((?:\s+(?:number|no\.?|#|is|was|reads?|relayed|of|as|the))*[:\s#]*)'
+    r'(?=[A-Z0-9-]*\d)([A-Z0-9][A-Z0-9-]{2,8})\b')
+# Spelled-out digit runs like "6-0-0-5" (3+ single digits) — plate-specific;
+# does not match unit IDs like "2-2108" (mixed multi-digit groups).
+_PLATE_DIGITS_RE = re.compile(r'\b\d(?:[-\s]\d){2,}\b')
+def _redact_pii(text: str, names: list[str]) -> str:
+    if not text:
+        return text
+    out = text
+    for nm in sorted({n.strip() for n in names if n and len(n.strip()) > 1}, key=len, reverse=True):
+        out = re.sub(r'\b' + re.escape(nm) + r'\b', "an individual", out, flags=re.IGNORECASE)
+    out = _PLATE_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[redacted]", out)
+    out = _PLATE_DIGITS_RE.sub("[redacted]", out)
+    return re.sub(r'[ \t]{2,}', ' ', out).strip()
+
+
+def _cluster_persons(cluster: list[dict]) -> list[str]:
+    """Names the enricher flagged across the cluster — fed to the PII scrubber."""
+    names: list[str] = []
+    for c in cluster:
+        try:
+            j = json.loads(c.get("incident_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for n in (j.get("persons_mentioned") or []):
+            if isinstance(n, str):
+                names.append(n)
+    return names
+
+
 def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     """Write a broadcast-ready anchor script for a story cluster using Claude
     Sonnet, under a strict no-guessing contract.
@@ -1976,6 +2055,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     first_t = time.strftime("%-I:%M %p", time.localtime(min(c["start_time"] for c in cluster)))
     last_t  = time.strftime("%-I:%M %p", time.localtime(max(c["start_time"] for c in cluster)))
     context = _load_rgv_context()
+    news_facts = _load_news_context()
+    weather = _current_weather()
 
     system = (
         "You are a senior broadcast writer for a local TV news desk in the Rio "
@@ -1983,20 +2064,30 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "short, accurate script a news anchor reads on air. You are bound by a "
         "strict no-guessing rule:\n"
         "- State ONLY facts that appear in the radio transcripts provided. If a "
-        "detail (cause, injuries, names, exact address) is not in the "
-        "transcripts, say it is 'not yet known' or omit it — NEVER invent it.\n"
-        "- You MAY add standing background about the agency or area, but ONLY "
-        "from the AREA CONTEXT block. Do not invent populations, station counts, "
-        "or geography.\n"
+        "detail (cause, injuries, exact address) is not in the transcripts, say "
+        "it is 'not yet known' or omit it — NEVER invent it.\n"
         "- Write for the ear: short sentences, present tense, plain words, "
         "attribute to 'emergency radio traffic' or 'dispatch'.\n"
-        "- These are unconfirmed scanner reports. Never name suspects or assert "
-        "guilt. Treat everything as preliminary.\n"
+        "- These are unconfirmed scanner reports. Never assert guilt. Treat "
+        "everything as preliminary.\n"
+        "PRIVACY (hard rule): NEVER include any person's name or any license-"
+        "plate / tag / registration number, even if it appears in the "
+        "transcripts. Refer to people generically (a driver, a man, a woman, a "
+        "resident). Do not read plate or tag numbers on air.\n"
+        "COLOR (exactly one sentence): end with ONE short sentence of context or "
+        "color, drawn ONLY from the NEWS FACTS block, the WEATHER line, or the "
+        "AREA CONTEXT. It must MATCH THE TONE of the incident — somber and "
+        "restrained for crashes, injuries, fires, or death; never upbeat or "
+        "flip about a tragedy. If no listed fact is genuinely relevant, add NO "
+        "color sentence rather than inventing one. Never invent a statistic.\n"
         "Output STRICT JSON only, no markdown."
     )
     user_msg = (
         f"REGION: {REGION}\n"
-        f"AREA CONTEXT (the only background you may use):\n{context}\n"
+        f"WEATHER (live McAllen conditions, for ambient color): {weather or 'unavailable'}\n"
+        f"AREA CONTEXT (background you may use):\n{context}\n"
+        f"---\n"
+        f"NEWS FACTS (the ONLY source for statistics/color — never invent numbers):\n{news_facts}\n"
         f"---\n"
         f"STORY HEADLINE (already written): {story.get('title','')}\n"
         f"INCIDENT TYPE: {primary.get('incident_type')}\n"
@@ -2008,9 +2099,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"RADIO TRANSCRIPTS (chronological — your ONLY source of incident facts):\n{transcripts}\n"
         f"---\n"
         f"Write the anchor script. Output strict JSON with these keys:\n"
-        f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE"\n'
+        f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE" '
+        f'(no names or plate numbers)\n'
         f'  "anchor_body": the words the anchor reads (2-5 short paragraphs, '
-        f'ear-friendly, no stage directions inside it)\n'
+        f'ear-friendly, no stage directions inside it, ending with the single '
+        f'tone-matched color sentence if a relevant fact exists)\n'
         f'  "sources_line": e.g. "{primary.get("talkgroup_tag") or "Dispatch"} · '
         f'{len(cluster)} transmissions · {first_t}–{last_t}"\n'
         f'  "confidence": "high" if the core facts are corroborated across '
@@ -2036,6 +2129,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     body = (data.get("anchor_body") or "").strip()
     if not body:
         return None
+    # Deterministic PII backstop — strip known names + plate numbers even if the
+    # model slipped them in despite the prompt.
+    persons = _cluster_persons(cluster)
+    body = _redact_pii(body, persons)
+    slug = _redact_pii((data.get("slug") or story.get("title") or "").strip(), persons)
     conf = (data.get("confidence") or "medium").strip().lower()
     if conf not in ("high", "medium"):
         conf = "medium"
@@ -2044,7 +2142,7 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     except (TypeError, ValueError):
         runtime = max(8, len(body.split()) // 3)
     return {
-        "slug":         (data.get("slug") or story.get("title") or "").strip()[:120],
+        "slug":         slug[:120],
         "anchor_body":  body,
         "sources_line": (data.get("sources_line") or "").strip()[:200],
         "confidence":   conf,

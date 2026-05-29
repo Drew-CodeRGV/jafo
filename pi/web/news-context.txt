@@ -1,0 +1,45 @@
+## JAFO News Desk — Verified Color/Context Facts
+##
+## This file is the ONLY source the news writer may use for statistics or
+## background "color." Every line here must be TRUE and SOURCED. The writer is
+## instructed never to invent numbers — if a relevant fact isn't in this file
+## (or the live weather feed), it adds no statistic. Edit freely to add verified
+## local facts; keep the source on each line so it can be checked.
+##
+## Format: short fact + (source, year). Group by incident category so the
+## writer can pick the one matching the story's type. Keep facts GENERAL and
+## standing (true regardless of the specific incident) — never anything that
+## asserts something about the particular call.
+
+### Traffic / MVA / Crashes / Pursuits
+- Texas recorded 4,150 traffic deaths in 2024, about 11 per day — roughly one
+  every two hours and seven minutes. (TxDOT Motor Vehicle Traffic Crash Facts, 2024)
+- A reportable traffic crash occurred somewhere in Texas every 57 seconds in
+  2024, and there was not a single deathless day on Texas roads. (TxDOT, 2024)
+- Hidalgo County is one of the most populous and highest-traffic counties in
+  South Texas; Expressway 83 (I-2) and Expressway 281 (I-69C/E) are its busiest
+  corridors. (general RGV geography)
+
+### Weather / Heat (also useful as ambient color any time of year)
+- McAllen summers are sweltering: July and August average highs sit in the
+  mid-90s to near 99°F. (NWS / climate normals)
+- The Rio Grande Valley is semi-arid, averaging roughly 20 inches of rain a
+  year, with September typically the wettest month. (climate normals)
+- Heat is a year-round factor in the Valley; first responders routinely work
+  calls in high heat and humidity from spring through fall. (climate normals)
+
+### Fire
+- (Add verified local/state fire statistics here — e.g., USFA/NFPA residential
+  fire figures or McAllen FD call volume — with a source. Until then, fire
+  stories should use weather/city context only, no invented numbers.)
+
+### Medical / EMS
+- (Add verified EMS facts here — e.g., Hidalgo County EMS call volume or heat-
+  illness figures — with a source. Until then, use weather/city context only.)
+
+### Standing area color (always true — safe for any tone)
+- McAllen anchors the Hidalgo County metro of roughly 870,000 residents; the
+  greater Rio Grande Valley is home to well over a million people along the
+  Texas–Mexico border. (US Census / regional estimates — see rgv-context.txt)
+- The Valley is a heavily bilingual border region; English and Spanish are both
+  common on the air and in the community. (general)
