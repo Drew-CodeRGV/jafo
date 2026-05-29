@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" class="dash-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anchor Script — JAFO News Desk</title>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  .script-wrap { max-width: 740px; margin: 0 auto; }
+  .script-head { display: flex; flex-wrap: wrap; align-items: baseline;
+                 gap: .5rem 1rem; border-bottom: 2px solid #16110a; padding-bottom: .6rem; }
+  .script-slug { font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+                 font-size: 1rem; letter-spacing: .04em; }
+  .script-meta { font-size: .78rem; color: var(--ink-2, #423929);
+                 display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .5rem 0 1rem; }
+  .news-badge { font-size: .66rem; font-weight: 700; padding: .12rem .4rem; border-radius: 3px;
+                text-transform: uppercase; letter-spacing: .03em; }
+  .news-badge.high { background: #1f6b2e; color: #fff; }
+  .news-badge.medium { background: #c9962a; color: #16110a; }
+  /* Teleprompter block — large, high-contrast, easy to read aloud */
+  .teleprompter { font-family: Georgia, "Times New Roman", serif;
+                  font-size: 1.5rem; line-height: 1.7; white-space: pre-wrap;
+                  background: #16110a; color: #f4eede; padding: 1.4rem 1.6rem;
+                  border-radius: 6px; margin: 0 0 1rem; }
+  .script-cue { font-family: ui-monospace, Menlo, monospace; font-size: .8rem;
+                color: #b4280b; font-weight: 700; }
+  .script-sources { font-family: ui-monospace, Menlo, monospace; font-size: .82rem;
+                    color: var(--ink-2, #423929); border-top: 1px dashed rgba(22,17,10,.3);
+                    padding-top: .6rem; }
+  .script-actions { display: flex; gap: .6rem; margin: 1rem 0; flex-wrap: wrap; }
+  .src-call { border: 1px solid rgba(22,17,10,.2); border-radius: 4px;
+              padding: .6rem .8rem; margin-bottom: .5rem; }
+  .src-call-top { font-size: .76rem; color: var(--ink-2, #423929); margin-bottom: .3rem; }
+  .src-call-tx { font-size: .9rem; }
+  .src-call audio { width: 100%; margin-top: .4rem; }
+  .disclaim { font-size: .72rem; color: var(--ink-2, #423929); font-style: italic;
+              margin-top: 1.5rem; }
+</style>
+</head>
+<body class="dash-body">
+
+<header class="paper-masthead">
+  <div class="paper-mast-edge">
+    <span class="paper-mast-edge-bit"><a href="/news" class="paper-nav">← News Desk</a></span>
+    <span class="paper-mast-edge-bit">Anchor Script</span>
+  </div>
+</header>
+
+<main class="paper-main">
+  <div class="script-wrap">
+    <div id="script-loading" class="news-empty">Loading script…</div>
+    <article id="script-article" style="display:none">
+      <div class="script-head">
+        <span id="s-slug" class="script-slug"></span>
+        <span id="s-badge"></span>
+      </div>
+      <div class="script-meta">
+        <span id="s-runtime"></span>
+        <span id="s-asof"></span>
+        <span id="s-tg"></span>
+      </div>
+
+      <div class="script-actions">
+        <button id="s-copy" class="paper-btn paper-btn-primary">⧉ Copy script</button>
+        <a id="s-share" class="paper-btn" href="#" target="_blank">Open share page →</a>
+      </div>
+
+      <div class="script-cue">[ANCHOR]</div>
+      <div id="s-body" class="teleprompter"></div>
+      <div id="s-sources" class="script-sources"></div>
+
+      <h3 class="paper-section-h" style="margin-top:2rem">Source transmissions</h3>
+      <div id="s-calls"></div>
+
+      <p class="disclaim">
+        This script was AI-drafted from automated transcripts of open
+        public-safety radio traffic. Details are preliminary and unconfirmed.
+        Verify before broadcast. No suspect is named or implied guilty.
+      </p>
+    </article>
+  </div>
+</main>
+
+<script>
+const STORY_ID = {{ story_id }};
+
+function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+function fmtClock(ts){ if(!ts) return '—'; return new Date(ts*1000).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
+
+async function load(){
+  let data;
+  try {
+    const r = await fetch(`/api/news/${STORY_ID}`, {cache:'no-store'});
+    if(!r.ok) throw new Error('http '+r.status);
+    data = await r.json();
+  } catch(e){
+    document.getElementById('script-loading').textContent = 'Could not load this script.';
+    return;
+  }
+  if(!data.news_script){
+    document.getElementById('script-loading').textContent = 'No anchor script for this story yet.';
+    return;
+  }
+
+  document.getElementById('s-slug').textContent = data.news_slug || data.title || 'STORY';
+  const conf = (data.news_confidence || 'medium').toLowerCase();
+  const badge = document.getElementById('s-badge');
+  badge.className = 'news-badge ' + (conf === 'high' ? 'high' : 'medium');
+  badge.textContent = conf === 'high' ? 'Confidence: High' : 'Confidence: Medium';
+
+  document.getElementById('s-runtime').textContent = data.news_runtime_sec ? `Runtime ~${data.news_runtime_sec}s` : '';
+  document.getElementById('s-asof').textContent = 'As of ' + fmtClock(data.last_call_at);
+  document.getElementById('s-tg').textContent = data.talkgroup_tag ? ('Channel: ' + data.talkgroup_tag) : '';
+
+  document.getElementById('s-body').textContent = data.news_script;
+  document.getElementById('s-sources').textContent = '[SOURCES] ' + (data.news_sources || '');
+  document.getElementById('s-share').href = `/share/story/${STORY_ID}`;
+
+  // Source transmissions with audio
+  const wrap = document.getElementById('s-calls');
+  wrap.innerHTML = '';
+  (data.calls || []).forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'src-call';
+    const when = fmtClock(c.start_time);
+    const audio = (c.audio_available)
+      ? `<audio controls preload="none"><source src="${esc(c.audio_url || ('/audio/'+c.opus_path))}" type="audio/ogg; codecs=opus"></audio>`
+      : '<span style="font-size:.72rem;color:#888">audio expired</span>';
+    div.innerHTML = `<div class="src-call-top">${esc(when)} · ${esc(c.talkgroup_tag||'')} · ${esc(c.incident_type||'')}</div>`
+                  + `<div class="src-call-tx">${esc(c.transcript||'(no transcript)')}</div>${audio}`;
+    wrap.appendChild(div);
+  });
+
+  document.getElementById('script-loading').style.display = 'none';
+  document.getElementById('script-article').style.display = 'block';
+
+  // Copy button copies the readable script (slug + body + sources)
+  document.getElementById('s-copy').addEventListener('click', () => {
+    const txt = `${data.news_slug || data.title}\n\n${data.news_script}\n\n[SOURCES] ${data.news_sources || ''}`;
+    navigator.clipboard.writeText(txt).then(() => {
+      const b = document.getElementById('s-copy');
+      const old = b.textContent; b.textContent = '✓ Copied';
+      setTimeout(() => b.textContent = old, 1500);
+    });
+  });
+}
+load();
+</script>
+</body>
+</html>

@@ -1596,17 +1596,33 @@ CREATE INDEX IF NOT EXISTS idx_stories_created ON stories(created_at);
 """
 
 
+_STORY_EXTRA_COLS = [
+    ("views",             "INTEGER DEFAULT 0"),
+    # News anchor script (Claude Sonnet) — see _synthesize_news_script.
+    ("news_script",       "TEXT"),     # ready-to-read broadcast body
+    ("news_slug",         "TEXT"),     # short slug line
+    ("news_sources",      "TEXT"),     # "Talkgroup · N transmissions · HH:MM–HH:MM"
+    ("news_confidence",   "TEXT"),     # high | medium  (strict gate omits low)
+    ("news_runtime_sec",  "INTEGER"),  # estimated read time
+    ("news_model",        "TEXT"),     # model that wrote it
+    ("news_generated_at", "INTEGER"),
+]
+
+
 def _ensure_stories_views_col() -> None:
-    """Migrate older DBs that don't have stories.views yet."""
+    """Idempotently add the stories columns introduced after the table's
+    original DDL (views + the news-script fields). Named for back-compat with
+    its original single-column purpose."""
     try:
         conn = get_db()
         cols = {r[1] for r in conn.execute("PRAGMA table_info(stories)")}
-        if "views" not in cols:
-            conn.execute("ALTER TABLE stories ADD COLUMN views INTEGER DEFAULT 0")
-            conn.commit()
+        for name, defn in _STORY_EXTRA_COLS:
+            if name not in cols:
+                conn.execute(f"ALTER TABLE stories ADD COLUMN {name} {defn}")
+        conn.commit()
         conn.close()
     except Exception as e:
-        print(f"[stories] views migration: {e}", file=sys.stderr)
+        print(f"[stories] column migration: {e}", file=sys.stderr)
 
 STORY_REFRESH_INTERVAL_SEC = 300         # 5 min
 STORY_LOOKBACK_HOURS       = 12
@@ -1616,6 +1632,18 @@ STORY_RETENTION_HOURS      = 14 * 24    # 14 days — share URLs stay alive this
 STORY_KEEP_MAX             = 16          # how many top stories to keep + serve
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
+
+# News anchor script generation (Claude Sonnet — see _synthesize_news_script).
+# Always Anthropic regardless of the story-synth backend: this is the news
+# deliverable and accuracy matters more than the per-call enrichment cost.
+NEWS_MODEL                 = os.environ.get("JAFO_NEWS_MODEL", "claude-sonnet-4-6").strip()
+NEWS_MAX_TOKENS            = 1200
+# Strict "no guessing" confidence gate. transcript_confidence is the mean
+# segment avg_logprob (closer to 0 = more confident); transcript_no_speech is
+# the max no_speech_prob. A cluster must contain at least one substantive
+# (non-boring) transmission that clears BOTH bars before we write a script.
+NEWS_MIN_CONFIDENCE        = float(os.environ.get("JAFO_NEWS_MIN_CONFIDENCE", "-1.0"))
+NEWS_MAX_NO_SPEECH         = float(os.environ.get("JAFO_NEWS_MAX_NO_SPEECH", "0.6"))
 
 SEVERITY_WEIGHT = {"critical": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0, "unknown": 0.5}
 BORING_INCIDENT_TYPES = {
@@ -1629,6 +1657,7 @@ def ensure_stories_table() -> None:
     conn.executescript(STORIES_DDL)
     conn.commit()
     conn.close()
+    _ensure_stories_views_col()   # add views + news-script columns on older DBs
 
 
 # Story-synth backend: same env vars as the enricher. Default 'ollama'.
@@ -1705,7 +1734,8 @@ def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
     cur = conn.execute("""
         SELECT id, talkgroup, talkgroup_tag, start_time, transcript,
                incident_type, incident_summary, incident_location,
-               incident_units, incident_severity, opus_path
+               incident_units, incident_severity, opus_path,
+               transcript_confidence, transcript_no_speech, transcript_model
         FROM calls
         WHERE status = 'kept'
           AND audio_deleted = 0
@@ -1900,6 +1930,125 @@ def _synthesize_story(cluster: list[dict]) -> dict | None:
     return refined or draft
 
 
+def _cluster_passes_news_gate(cluster: list[dict]) -> bool:
+    """Strict 'no guessing' gate: the cluster must contain at least one
+    substantive (non-boring) transmission whose transcript cleared both the
+    confidence and no-speech bars. Calls predating the confidence-capture
+    migration have NULL metrics — those are treated as un-gated (pass) so we
+    don't blank the news feed during the transition; once re-transcription has
+    run, every story-eligible call has real metrics."""
+    for c in cluster:
+        if (c.get("incident_type") or "") in BORING_INCIDENT_TYPES:
+            continue
+        conf = c.get("transcript_confidence")
+        nosp = c.get("transcript_no_speech")
+        conf_ok = (conf is None) or (conf >= NEWS_MIN_CONFIDENCE)
+        nosp_ok = (nosp is None) or (nosp <= NEWS_MAX_NO_SPEECH)
+        if conf_ok and nosp_ok:
+            return True
+    return False
+
+
+def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
+    """Write a broadcast-ready anchor script for a story cluster using Claude
+    Sonnet, under a strict no-guessing contract.
+
+    Returns {slug, anchor_body, sources_line, confidence, runtime_sec} or None
+    if the cluster fails the confidence gate or the model errors. Requires the
+    Anthropic backend — this is the news deliverable, so it always uses Claude
+    regardless of JAFO_LLM_BACKEND."""
+    if not _cluster_passes_news_gate(cluster):
+        return None
+    client = _claude()
+    if not client:
+        print("[news] ANTHROPIC_API_KEY not set — cannot write news scripts", file=sys.stderr)
+        return None
+
+    primary = cluster[-1]
+    transcripts = "\n".join(
+        f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
+        for c in cluster if c.get("transcript")
+    ) or "(no transcripts)"
+    units = sorted({u.strip() for c in cluster for u in (c.get("incident_units") or "").split(",") if u.strip()})
+    first_t = time.strftime("%-I:%M %p", time.localtime(min(c["start_time"] for c in cluster)))
+    last_t  = time.strftime("%-I:%M %p", time.localtime(max(c["start_time"] for c in cluster)))
+    context = _load_rgv_context()
+
+    system = (
+        "You are a senior broadcast writer for a local TV news desk in the Rio "
+        "Grande Valley. You turn verified public-safety radio traffic into a "
+        "short, accurate script a news anchor reads on air. You are bound by a "
+        "strict no-guessing rule:\n"
+        "- State ONLY facts that appear in the radio transcripts provided. If a "
+        "detail (cause, injuries, names, exact address) is not in the "
+        "transcripts, say it is 'not yet known' or omit it — NEVER invent it.\n"
+        "- You MAY add standing background about the agency or area, but ONLY "
+        "from the AREA CONTEXT block. Do not invent populations, station counts, "
+        "or geography.\n"
+        "- Write for the ear: short sentences, present tense, plain words, "
+        "attribute to 'emergency radio traffic' or 'dispatch'.\n"
+        "- These are unconfirmed scanner reports. Never name suspects or assert "
+        "guilt. Treat everything as preliminary.\n"
+        "Output STRICT JSON only, no markdown."
+    )
+    user_msg = (
+        f"REGION: {REGION}\n"
+        f"AREA CONTEXT (the only background you may use):\n{context}\n"
+        f"---\n"
+        f"STORY HEADLINE (already written): {story.get('title','')}\n"
+        f"INCIDENT TYPE: {primary.get('incident_type')}\n"
+        f"SEVERITY: {primary.get('incident_severity') or 'unknown'}\n"
+        f"TALKGROUP (source channel): {primary.get('talkgroup_tag') or primary.get('talkgroup')}\n"
+        f"UNITS HEARD: {', '.join(units) if units else 'unknown'}\n"
+        f"WINDOW: {first_t} to {last_t}, {len(cluster)} transmission(s)\n"
+        f"---\n"
+        f"RADIO TRANSCRIPTS (chronological — your ONLY source of incident facts):\n{transcripts}\n"
+        f"---\n"
+        f"Write the anchor script. Output strict JSON with these keys:\n"
+        f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE"\n'
+        f'  "anchor_body": the words the anchor reads (2-5 short paragraphs, '
+        f'ear-friendly, no stage directions inside it)\n'
+        f'  "sources_line": e.g. "{primary.get("talkgroup_tag") or "Dispatch"} · '
+        f'{len(cluster)} transmissions · {first_t}–{last_t}"\n'
+        f'  "confidence": "high" if the core facts are corroborated across '
+        f'multiple transmissions or stated clearly, otherwise "medium"\n'
+        f'  "runtime_sec": integer estimate of read time in seconds\n'
+        f"No preamble, no commentary, JSON only."
+    )
+    try:
+        resp = client.messages.create(
+            model=NEWS_MODEL, max_tokens=NEWS_MAX_TOKENS,
+            system=system, messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        data = json.loads(text)
+    except Exception as e:
+        print(f"[news] script synth failed: {e}", file=sys.stderr)
+        return None
+
+    body = (data.get("anchor_body") or "").strip()
+    if not body:
+        return None
+    conf = (data.get("confidence") or "medium").strip().lower()
+    if conf not in ("high", "medium"):
+        conf = "medium"
+    try:
+        runtime = int(data.get("runtime_sec") or 0) or max(8, len(body.split()) // 3)
+    except (TypeError, ValueError):
+        runtime = max(8, len(body.split()) // 3)
+    return {
+        "slug":         (data.get("slug") or story.get("title") or "").strip()[:120],
+        "anchor_body":  body,
+        "sources_line": (data.get("sources_line") or "").strip()[:200],
+        "confidence":   conf,
+        "runtime_sec":  runtime,
+    }
+
+
 def _refresh_stories_once() -> tuple[int, int]:
     """One pass. Returns (new_stories, skipped)."""
     calls = _fetch_recent_enriched_calls(STORY_LOOKBACK_HOURS)
@@ -1940,18 +2089,29 @@ def _refresh_stories_once() -> tuple[int, int]:
             continue
 
         related_ids = [c["id"] for c in lst]
+        # Anchor script (Sonnet, strict no-guessing). Returns None when the
+        # cluster fails the confidence gate — story still saves, just without a
+        # script, so it appears on /dashboard but not /news.
+        news = _synthesize_news_script(lst, synthesized)
         try:
             conn.execute("""
                 INSERT OR IGNORE INTO stories
                   (cluster_key, title, body, severity, talkgroup, talkgroup_tag,
-                   primary_call_id, related_call_ids, score, created_at, last_call_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   primary_call_id, related_call_ids, score, created_at, last_call_at,
+                   news_script, news_slug, news_sources, news_confidence,
+                   news_runtime_sec, news_model, news_generated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 key, synthesized["title"], synthesized["body"],
                 (primary.get("incident_severity") or "unknown").lower(),
                 primary.get("talkgroup"), primary.get("talkgroup_tag"),
                 primary["id"], json.dumps(related_ids),
                 score, int(time.time()), primary["start_time"],
+                (news or {}).get("anchor_body"), (news or {}).get("slug"),
+                (news or {}).get("sources_line"), (news or {}).get("confidence"),
+                (news or {}).get("runtime_sec"),
+                NEWS_MODEL if news else None,
+                int(time.time()) if news else None,
             ))
             conn.commit()
             new_count += 1
@@ -2240,6 +2400,139 @@ def story_detail(story_id: int):
     conn.close()
     s["calls"] = audio
     return jsonify(s)
+
+
+# =============================================================================
+# News desk — broadcast-ready anchor scripts (subset of stories that have a
+# Sonnet-written, confidence-gated script). Edge proxies the hub like /stories.
+# =============================================================================
+_NEWS_PROXY_CACHE: dict = {"at": 0, "data": None}
+
+
+def _proxy_news_from_hub():
+    """Edge-only: fetch the hub's /api/news, cache 30s (mirrors _proxy_stories_from_hub)."""
+    now = int(time.time())
+    cache = _NEWS_PROXY_CACHE
+    if cache["data"] is not None and (now - cache["at"]) < _STORIES_PROXY_TTL_SEC:
+        return cache["data"]
+    hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+    if not hub_url:
+        return None
+    try:
+        import requests as _r
+        resp = _r.get(f"{hub_url}/api/news", timeout=8)
+        if resp.status_code != 200:
+            return cache["data"]
+        data = resp.json()
+    except Exception as e:
+        print(f"[news-proxy] hub fetch failed: {e}", file=sys.stderr)
+        return cache["data"]
+    cache["at"] = now
+    cache["data"] = data
+    return data
+
+
+@app.route("/api/news")
+def news_list():
+    """Top stories that have a finished anchor script, newest activity first."""
+    cutoff = int(time.time()) - STORY_MAX_AGE_SEC
+
+    if _is_edge_node():
+        data = _proxy_news_from_hub()
+        if data is not None:
+            data["stories"] = [
+                s for s in (data.get("stories") or [])
+                if (s.get("last_call_at") or 0) >= cutoff
+            ]
+            return jsonify(data)
+        return jsonify({"stories": [], "now": int(time.time())})
+
+    conn = get_db()
+    cur = conn.execute(f"""
+        SELECT id, title, news_slug, severity, talkgroup_tag,
+               news_confidence, news_runtime_sec, news_sources,
+               score, last_call_at, created_at, COALESCE(views, 0) AS views
+        FROM stories
+        WHERE last_call_at >= ?
+          AND news_script IS NOT NULL
+        ORDER BY score DESC, last_call_at DESC
+        LIMIT {STORY_KEEP_MAX}
+    """, (cutoff,))
+    out = [dict(r) for r in cur]
+    conn.close()
+    return jsonify({"stories": out, "now": int(time.time())})
+
+
+@app.route("/api/news/<int:story_id>")
+def news_detail(story_id: int):
+    """Full anchor script + source calls for one story."""
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if not hub_url:
+            abort(503)
+        try:
+            import requests as _r
+            resp = _r.get(f"{hub_url}/api/news/{story_id}", timeout=8)
+        except Exception as e:
+            print(f"[news-proxy] hub detail fetch failed: {e}", file=sys.stderr)
+            abort(502)
+        if resp.status_code != 200:
+            return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
+        data = resp.json()
+        for c in data.get("calls") or []:
+            if c.get("opus_path") and c.get("audio_available"):
+                c["audio_url"] = f"{hub_url}/audio/{c['opus_path']}"
+        return jsonify(data)
+
+    conn = get_db()
+    s = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not s:
+        conn.close()
+        abort(404)
+    s = dict(s)
+    try:
+        ids = json.loads(s.get("related_call_ids") or "[]")
+    except json.JSONDecodeError:
+        ids = []
+    audio = []
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""SELECT id, start_time, duration_sec, opus_path, audio_deleted,
+                       talkgroup_tag, transcript, incident_summary,
+                       incident_location, incident_units, incident_severity,
+                       incident_type, enriched_at
+                FROM calls WHERE id IN ({placeholders})
+                ORDER BY start_time ASC""",
+            ids,
+        )
+        for r in cur:
+            d = dict(r)
+            d["audio_available"] = bool(d["opus_path"]) and not d["audio_deleted"]
+            audio.append(d)
+    conn.close()
+    s["calls"] = audio
+    return jsonify(s)
+
+
+@app.route("/news")
+def news_page():
+    """News desk — cards of top stories that have anchor scripts."""
+    return render_template("news.html", node_name=NODE_NAME,
+                           hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
+
+
+@app.route("/news/<int:story_id>")
+def news_script_page(story_id: int):
+    """Full broadcast script for one story. On the edge, redirect to the hub
+    (audio + canonical copy live there), mirroring /share/story/<id>."""
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if hub_url:
+            return redirect(f"{hub_url}/news/{story_id}", code=302)
+    return render_template("news_script.html", node_name=NODE_NAME,
+                           story_id=story_id, is_hub=not _is_edge_node())
 
 
 # =============================================================================

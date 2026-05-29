@@ -276,6 +276,13 @@ _NEW_CALL_COLS = [
     # Enhance Call (premium re-transcribe) — original transcript preserved
     ("transcript_original",       "TEXT"),
     ("transcript_original_model", "TEXT"),
+    # Transcription confidence (anti-hallucination gate for news stories).
+    # transcript_confidence = mean segment avg_logprob (higher = more confident,
+    # typically -1.0..0.0); transcript_no_speech = max no_speech_prob across
+    # segments (higher = more likely silence/noise); transcript_lang = detected.
+    ("transcript_confidence", "REAL"),
+    ("transcript_no_speech",  "REAL"),
+    ("transcript_lang",       "TEXT"),
     # Dual-run (shadow Ollama enrichment for evaluation / corpus building)
     ("incident_json_ollama",       "TEXT"),
     ("incident_type_ollama",       "TEXT"),

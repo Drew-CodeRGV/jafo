@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" class="dash-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JAFO News Desk — Anchor Scripts</title>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  /* News-desk specifics layered on the newspaper palette in dashboard.css */
+  .news-intro { max-width: 70ch; margin: 0 auto 1.5rem; text-align: center;
+                color: var(--ink-2, #423929); font-style: italic; }
+  .news-grid { display: grid; gap: 1rem;
+               grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .news-card { border: 1px solid rgba(22,17,10,.25); border-radius: 4px;
+               padding: 1rem 1.1rem; background: rgba(255,255,255,.35);
+               display: flex; flex-direction: column; gap: .55rem;
+               text-decoration: none; color: inherit; transition: transform .08s, box-shadow .08s; }
+  .news-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(22,17,10,.16); }
+  .news-card-top { display: flex; align-items: center; gap: .5rem;
+                   font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+                   color: var(--ink-2, #423929); }
+  .news-card-slug { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  .news-card-title { font-family: Georgia, "Times New Roman", serif;
+                     font-size: 1.18rem; line-height: 1.2; margin: 0; }
+  .news-card-meta { font-size: .76rem; color: var(--ink-2, #423929); margin-top: auto; }
+  .news-badge { font-size: .66rem; font-weight: 700; padding: .12rem .4rem;
+                border-radius: 3px; text-transform: uppercase; letter-spacing: .03em; }
+  .news-badge.high { background: #1f6b2e; color: #fff; }
+  .news-badge.medium { background: #c9962a; color: #16110a; }
+  .news-readlink { font-size: .8rem; font-weight: 700; color: #b4280b; }
+  .news-empty { text-align: center; color: var(--ink-2, #423929); padding: 3rem 1rem; }
+</style>
+</head>
+<body class="dash-body">
+
+<header class="paper-masthead">
+  <div class="paper-mast-edge">
+    <span class="paper-mast-edge-bit">News Desk</span>
+    <span id="paper-date" class="paper-mast-edge-bit">—</span>
+    <span class="paper-mast-edge-bit"><a href="/dashboard" class="paper-nav">← The JAFO Report</a></span>
+  </div>
+  <div class="paper-mast-main">
+    <img class="paper-mast-logo" src="/static/logo.png" alt="jafo">
+    <h1 class="paper-title">JAFO News Desk</h1>
+  </div>
+  <div class="paper-mast-sub">
+    <span class="paper-tagline">Broadcast-ready scripts</span>
+    <span class="paper-edition">McAllen Edition</span>
+    <span id="paper-time" class="paper-time">—</span>
+  </div>
+</header>
+
+<main class="paper-main">
+  <p class="news-intro">
+    Anchor-ready scripts written from verified public-safety radio traffic.
+    Every line is sourced from live transmissions — nothing is invented.
+    Click a story to open the full read.
+  </p>
+  <section class="paper-section">
+    <div id="news-grid" class="news-grid">
+      <div class="news-empty">Loading the latest scripts…</div>
+    </div>
+  </section>
+  <footer class="paper-footer">
+    <div>jafo · captured by {{ node_name }} · scripts are AI-drafted from open public-safety broadcasts and should be verified before air</div>
+  </footer>
+</main>
+
+<script>
+window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};
+</script>
+<script src="{{ static_v('news.js') }}"></script>
+</body>
+</html>

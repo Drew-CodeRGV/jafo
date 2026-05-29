@@ -48,6 +48,20 @@ if TRANSCRIBE_BACKEND not in ("local", "groq"):
 TRANSCRIBE_GROQ_THRESHOLD = max(0, int(os.environ.get("JAFO_TRANSCRIBE_GROQ_THRESHOLD", "0")))
 _groq_override_active = False  # mutated by main() before each batch
 
+# News-grade re-transcription (HUB ONLY). When JAFO_NEWS_RETRANSCRIBE=true, kept
+# calls that arrived with a weak edge-model transcript get re-run through Groq
+# large-v3-turbo so the news pipeline is built on the best possible text. The
+# original (edge) transcript is preserved in transcript_original. Runs at low
+# priority — only when the primary pending queue is empty — and re-nulls
+# incident_json so the enricher re-extracts from the upgraded transcript.
+NEWS_RETRANSCRIBE = os.environ.get("JAFO_NEWS_RETRANSCRIBE", "").strip().lower() in ("1", "true", "yes")
+NEWS_RETRANSCRIBE_BATCH = 3
+NEWS_RETRANSCRIBE_MIN_SPEECH = 1.0   # seconds of detected speech to bother upgrading
+# Hard age bound — only upgrade RECENT calls. Without this the candidate query
+# would eventually walk the entire historical corpus during idle periods,
+# blowing up Groq cost and re-enriching everything. News only needs ~last day.
+NEWS_RETRANSCRIBE_MAX_AGE_SEC = int(os.environ.get("JAFO_NEWS_RETRANSCRIBE_MAX_AGE_SEC", str(24 * 3600)))
+
 # Whisper context prompt — primes the model for our domain
 INITIAL_PROMPT = (
     "Police, fire, and EMS radio dispatch in McAllen and Hidalgo County, Texas. "
@@ -81,8 +95,14 @@ def get_local_model():
     return _local_model
 
 
-def transcribe_via_local(opus_path: Path) -> tuple[str, str]:
-    """Returns (text, model_label). Auto-detects language."""
+def transcribe_via_local(opus_path: Path) -> tuple[str, str, dict]:
+    """Returns (text, model_label, meta). Auto-detects language.
+
+    meta = {confidence: mean segment avg_logprob, no_speech: max segment
+    no_speech_prob, lang: detected language}. The threshold params below drop
+    hallucinated segments (the "25-25-25..." repeat loops and confident-nonsense
+    Whisper invents from noise) rather than emitting them as fake text.
+    """
     model = get_local_model()
     segments, info = model.transcribe(
         str(opus_path),
@@ -91,10 +111,22 @@ def transcribe_via_local(opus_path: Path) -> tuple[str, str]:
         initial_prompt=INITIAL_PROMPT,
         vad_filter=False,           # processor.py already VAD-filtered
         temperature=0.0,
+        condition_on_previous_text=False,   # stops repeat-loop hallucinations
+        compression_ratio_threshold=2.4,    # drop gibberish-dense segments
+        log_prob_threshold=-1.0,             # drop low-confidence segments
+        no_speech_threshold=0.6,             # drop silence/noise segments
     )
-    text = " ".join(seg.text.strip() for seg in segments).strip()
+    seg_list = list(segments)
+    text = " ".join(seg.text.strip() for seg in seg_list).strip()
+    logprobs = [s.avg_logprob for s in seg_list if s.avg_logprob is not None]
+    nospeech = [s.no_speech_prob for s in seg_list if s.no_speech_prob is not None]
+    meta = {
+        "confidence": (sum(logprobs) / len(logprobs)) if logprobs else None,
+        "no_speech":  max(nospeech) if nospeech else None,
+        "lang":       info.language,
+    }
     label = f"faster-whisper-{LOCAL_MODEL_NAME}/{info.language}"
-    return text, label
+    return text, label, meta
 
 
 # -----------------------------------------------------------------------------
@@ -110,7 +142,10 @@ def make_groq_client():
     return Groq(api_key=GROQ_API_KEY, max_retries=0)
 
 
-def transcribe_via_groq(client, opus_path: Path) -> tuple[str, str]:
+def transcribe_via_groq(client, opus_path: Path) -> tuple[str, str, dict]:
+    """Returns (text, model_label, meta). verbose_json carries per-segment
+    avg_logprob / no_speech_prob — we parse it for the confidence gate instead
+    of discarding it."""
     with open(opus_path, "rb") as f:
         result = client.audio.transcriptions.create(
             file=(opus_path.name, f.read()),
@@ -119,7 +154,18 @@ def transcribe_via_groq(client, opus_path: Path) -> tuple[str, str]:
             response_format="verbose_json",
             temperature=0.0,
         )
-    return (result.text or "").strip(), GROQ_MODEL
+    # Groq returns a pydantic-ish object; segments may be dicts or attr objects.
+    segs = getattr(result, "segments", None) or []
+    def _g(s, k):
+        return s.get(k) if isinstance(s, dict) else getattr(s, k, None)
+    logprobs = [_g(s, "avg_logprob") for s in segs if _g(s, "avg_logprob") is not None]
+    nospeech = [_g(s, "no_speech_prob") for s in segs if _g(s, "no_speech_prob") is not None]
+    meta = {
+        "confidence": (sum(logprobs) / len(logprobs)) if logprobs else None,
+        "no_speech":  max(nospeech) if nospeech else None,
+        "lang":       getattr(result, "language", None),
+    }
+    return (result.text or "").strip(), GROQ_MODEL, meta
 
 
 # -----------------------------------------------------------------------------
@@ -140,12 +186,33 @@ def get_pending_calls(conn, limit: int):
     return cur.fetchall()
 
 
+def get_news_retranscribe_candidates(conn, limit: int):
+    """HUB-only: kept calls with a weak (non-large-v3) transcript and enough
+    speech to be worth upgrading, that haven't already been upgraded. Newest
+    first — recent calls are the ones that feed live news."""
+    cur = conn.execute("""
+        SELECT id, opus_path, talkgroup_tag, duration_sec
+        FROM calls
+        WHERE status = 'kept'
+          AND audio_deleted = 0
+          AND opus_path IS NOT NULL
+          AND transcript IS NOT NULL
+          AND transcript_original IS NULL
+          AND (transcript_model IS NULL OR transcript_model NOT LIKE 'whisper-large-v3%')
+          AND COALESCE(speech_sec, duration_sec, 0) >= ?
+          AND start_time >= ?
+        ORDER BY start_time DESC
+        LIMIT ?
+    """, (NEWS_RETRANSCRIBE_MIN_SPEECH, int(time.time()) - NEWS_RETRANSCRIBE_MAX_AGE_SEC, limit))
+    return cur.fetchall()
+
+
 # -----------------------------------------------------------------------------
 # Main loop
 # -----------------------------------------------------------------------------
-def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
+def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str, dict]:
     """Backend-selected primary; falls back to the other on errors.
-    Returns (text, model_label)."""
+    Returns (text, model_label, meta)."""
     use_groq_primary = (
         (TRANSCRIBE_BACKEND == "groq" and groq_client is not None)
         or (_groq_override_active and groq_client is not None)
@@ -166,6 +233,53 @@ def transcribe_one(groq_client, opus_path: Path) -> tuple[str, str]:
             log.info("falling back to Groq")
             return transcribe_via_groq(groq_client, opus_path)
         raise
+
+
+def retranscribe_news_batch(conn, groq_client) -> int:
+    """HUB-only news upgrade. Re-run weak transcripts through Groq large-v3,
+    preserving the original and re-queuing the call for enrichment. Returns the
+    number upgraded this batch. Best-effort: any single failure is logged and
+    skipped without disturbing the call's existing transcript."""
+    if not (NEWS_RETRANSCRIBE and groq_client is not None):
+        return 0
+    try:
+        cands = get_news_retranscribe_candidates(conn, NEWS_RETRANSCRIBE_BATCH)
+    except Exception as e:
+        log.warning("news-retranscribe query failed: %s", e)
+        return 0
+    n = 0
+    for call in cands:
+        opus_full = CALLS_DIR / call["opus_path"]
+        if not opus_full.exists():
+            continue
+        try:
+            text, model_used, meta = transcribe_via_groq(groq_client, opus_full)
+            if not text:
+                continue
+            # Preserve the edge transcript, install the upgrade, and re-null the
+            # enrichment so the enricher re-extracts from the better text.
+            conn.execute("""
+                UPDATE calls
+                SET transcript_original       = COALESCE(transcript_original, transcript),
+                    transcript_original_model = COALESCE(transcript_original_model, transcript_model),
+                    transcript = ?, transcript_model = ?, transcript_at = ?,
+                    transcript_confidence = ?, transcript_no_speech = ?, transcript_lang = ?,
+                    incident_json = NULL, incident_type = NULL, incident_summary = NULL,
+                    incident_location = NULL, incident_units = NULL, incident_severity = NULL,
+                    enriched_at = NULL, enrich_error = NULL
+                WHERE id = ?
+            """, (text, model_used, int(time.time()),
+                  meta.get("confidence"), meta.get("no_speech"), meta.get("lang"),
+                  call["id"]))
+            conn.commit()
+            n += 1
+            log.info("UPGRADE id=%s tag=%s → %s: %s",
+                     call["id"], call["talkgroup_tag"], model_used,
+                     text[:60] + ("..." if len(text) > 60 else ""))
+        except Exception as e:
+            log.warning("news-retranscribe id=%s failed (%s) — keeping original",
+                        call["id"], str(e)[:100])
+    return n
 
 
 def _pending_count(conn) -> int:
@@ -225,7 +339,10 @@ def main() -> None:
             continue
 
         if not calls:
-            time.sleep(POLL_INTERVAL_SEC)
+            # Primary queue is empty — spend idle cycles upgrading weak
+            # transcripts to large-v3 for the news pipeline (hub only).
+            upgraded = retranscribe_news_batch(conn, groq_client)
+            time.sleep(1 if upgraded else POLL_INTERVAL_SEC)
             continue
 
         for call in calls:
@@ -242,7 +359,7 @@ def main() -> None:
 
             try:
                 t0 = time.time()
-                text, model_used = transcribe_one(groq_client, opus_full)
+                text, model_used, meta = transcribe_one(groq_client, opus_full)
                 elapsed = time.time() - t0
 
                 if not text:
@@ -259,9 +376,13 @@ def main() -> None:
                 conn.execute("""
                     UPDATE calls
                     SET transcript = ?, transcript_model = ?,
-                        transcript_at = ?, transcript_error = NULL
+                        transcript_at = ?, transcript_error = NULL,
+                        transcript_confidence = ?, transcript_no_speech = ?,
+                        transcript_lang = ?
                     WHERE id = ?
-                """, (text, model_used, int(time.time()), call["id"]))
+                """, (text, model_used, int(time.time()),
+                      meta.get("confidence"), meta.get("no_speech"), meta.get("lang"),
+                      call["id"]))
                 conn.commit()
 
             except Exception as e:
