@@ -1598,6 +1598,37 @@ CREATE INDEX IF NOT EXISTS idx_stories_score   ON stories(score DESC, last_call_
 CREATE INDEX IF NOT EXISTS idx_stories_created ON stories(created_at);
 """
 
+# Aggregate digests — one synthesized roundup per closed time block (the IG
+# "Story" feed). Independent of the per-incident stories table.
+DIGESTS_DDL = """
+CREATE TABLE IF NOT EXISTS digests (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_key     TEXT UNIQUE,          -- "<block_sec>-<block_start>"
+    block_sec     INTEGER,
+    block_start   INTEGER,
+    block_end     INTEGER,
+    title         TEXT,                 -- social headline (may include emoji)
+    script        TEXT,                 -- TTS-ready roundup body
+    caption       TEXT,                 -- social caption: emoji + hashtags
+    caption_tts   TEXT,                 -- caption sans emoji/hashtags
+    sources       TEXT,
+    story_ids     TEXT,                 -- json list of included story ids
+    story_count   INTEGER,
+    confidence    TEXT,
+    runtime_sec   INTEGER,
+    model         TEXT,
+    generated_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_digests_block ON digests(block_sec, block_start);
+"""
+
+
+def ensure_digests_table() -> None:
+    conn = get_db()
+    conn.executescript(DIGESTS_DDL)
+    conn.commit()
+    conn.close()
+
 
 _STORY_EXTRA_COLS = [
     ("views",             "INTEGER DEFAULT 0"),
@@ -1644,6 +1675,14 @@ FUN_STORY_INTERVAL_SEC     = int(os.environ.get("JAFO_FUN_STORY_INTERVAL_SEC", s
 FUN_STORY_MAX_ATTEMPTS     = 3           # candidate clusters to try before giving up (bounds LLM cost)
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
+# Aggregate digest ("IG Story"): one synthesized roundup of all newsworthy
+# activity in a closed time block. Generated forward-only (last few closed
+# blocks) so there's no historical backfill cost spike on deploy.
+DIGEST_BLOCK_SEC           = int(os.environ.get("JAFO_DIGEST_BLOCK_SEC", str(20 * 60)))
+DIGEST_ENABLED             = os.environ.get("JAFO_DIGEST_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+DIGEST_MAX_NEW_PER_PASS    = 2           # bound Sonnet calls per leader pass
+DIGEST_LOOKBACK_BLOCKS     = 2           # only digest the last N closed blocks lacking one
+DIGEST_MAX_WORDS           = int(os.environ.get("JAFO_DIGEST_MAX_WORDS", "110"))   # ~44s read
 
 # News anchor script generation (Claude Sonnet — see _synthesize_news_script).
 # Always Anthropic regardless of the story-synth backend: this is the news
@@ -2443,6 +2482,162 @@ def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Aggregate digest ("IG Story"): summarize a closed block's verified stories
+# into one short roundup. The per-story scripts are already grounded + PII-
+# scrubbed, so the digest only summarizes them — it introduces no new facts.
+# ---------------------------------------------------------------------------
+def _synthesize_digest(stories: list[dict], block_start: int, block_end: int) -> dict | None:
+    client = _claude()
+    if not client:
+        return None
+    mins = max(1, round((block_end - block_start) / 60))
+    win = f"{_fmt_local(block_start, '%-I:%M %p')} to {_fmt_local(block_end, '%-I:%M %p')}"
+    # Feed the already-aired, verified per-story scripts as the only source.
+    items = []
+    for s in stories[:8]:
+        sev = (s.get("severity") or "unknown")
+        items.append(
+            f"- [{sev}] {s.get('news_title') or s.get('news_slug') or ''}\n"
+            f"  {(s.get('news_script') or '').strip()}"
+        )
+    source = "\n".join(items)
+    any_serious = any((s.get("severity") or "").lower() in ("critical", "high") for s in stories)
+
+    system = (
+        "You are OTTER, a charming river-otter news anchor for a Rio Grande "
+        "Valley TV station, writing a short Instagram-Story ROUNDUP that sums up "
+        f"the public-safety activity from the last {mins} minutes.\n"
+        "SOURCE: you are given the individual verified story scripts that already "
+        "aired this block. Summarize them into ONE cohesive read. Use ONLY facts "
+        "present in those scripts — add NO new details, numbers, names, or "
+        "specifics. These are unconfirmed scanner reports; never assert guilt.\n"
+        "SHAPE: open with a quick 'here's what's moving across the Valley' style "
+        "line, then hit the 2 to 4 most notable items, one tight sentence each, "
+        f"then a brief otter sign-off. UNDER {DIGEST_MAX_WORDS} words total so it "
+        "reads in well under a minute.\n"
+        "TONE GUARD: match the heaviest item in the mix. If anything involves a "
+        "crash, fire, injury, or death, keep the WHOLE read measured and warm — "
+        "no jokes. Save playful river/otter wordplay for blocks that are entirely "
+        "light. " + ("This block contains serious incidents — stay measured.\n"
+                     if any_serious else "This block is light — a little otter fun is welcome.\n") +
+        "TEXT-TO-SPEECH: the script is read by a TTS voice. Use ONLY plain words "
+        "and simple punctuation, periods and commas. No dashes, ellipses, slashes, "
+        "ampersands, emojis, hashtags, asterisks, or symbols in the script. When "
+        "you directly quote words actually said on the radio, wrap them in straight "
+        "double quotes; quote verbatim only. (Emojis/hashtags go ONLY in the "
+        "social_caption.)\n"
+        "PRIVACY: never include a person's name or any plate/tag number.\n"
+        "Output STRICT JSON only, no markdown."
+    )
+    user_msg = (
+        f"REGION: {REGION}\n"
+        f"WINDOW: {win} ({len(stories)} stories this block)\n"
+        f"---\nVERIFIED STORY SCRIPTS (your ONLY source):\n{source}\n---\n"
+        "Write the roundup. Strict JSON keys:\n"
+        '  "anchor_body": the roundup the anchor reads (plain text, TTS-safe)\n'
+        '  "social_title": a short scroll-stopping headline, may start with ONE emoji\n'
+        '  "social_caption": 1-2 punchy lines with tone-matched emojis and 2-4 hashtags\n'
+        '  "confidence": "high" or "medium"\n'
+        "JSON only."
+    )
+    try:
+        resp = client.messages.create(
+            model=NEWS_MODEL, max_tokens=NEWS_MAX_TOKENS,
+            system=system, messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        data = json.loads(text)
+    except Exception as e:
+        print(f"[digest] synth failed: {e}", file=sys.stderr)
+        return None
+
+    body = (data.get("anchor_body") or "").strip()
+    if not body:
+        return None
+    body = _redact_pii(body, [])           # plate backstop; names already scrubbed upstream
+    body = _fit_to_word_budget(body, DIGEST_MAX_WORDS)
+    body = _tts_sanitize(body)
+    social_title = (data.get("social_title") or (stories[0].get("news_title") if stories else "") or "Valley roundup").strip()
+    social_caption = _redact_pii((data.get("social_caption") or "").strip(), [])
+    conf = (data.get("confidence") or "medium").strip().lower()
+    if conf not in ("high", "medium"):
+        conf = "medium"
+    runtime = max(4, round(len(body.split()) / NEWS_WORDS_PER_SEC))
+    tags = sorted({s.get("talkgroup_tag") for s in stories if s.get("talkgroup_tag")})
+    sources = f"{len(stories)} stories · {win}" + (f" · {', '.join(list(tags)[:3])}" if tags else "")
+    return {
+        "title":       social_title[:160],
+        "script":      body,
+        "caption":     social_caption[:400],
+        "caption_tts": _caption_for_tts(social_caption)[:400],
+        "sources":     sources[:240],
+        "confidence":  conf,
+        "runtime_sec": runtime,
+    }
+
+
+def _insert_digest(conn, block_key, blk, bs, be, stories, dg) -> bool:
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO digests
+               (block_key, block_sec, block_start, block_end, title, script,
+                caption, caption_tts, sources, story_ids, story_count, confidence,
+                runtime_sec, model, generated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (block_key, blk, bs, be, dg["title"], dg["script"], dg["caption"],
+             dg["caption_tts"], dg["sources"], json.dumps([s["id"] for s in stories]),
+             len(stories), dg["confidence"], dg["runtime_sec"], NEWS_MODEL, int(time.time())))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"digest insert failed: {e}", file=sys.stderr)
+        return False
+
+
+def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC) -> int:
+    """Generate aggregate digests for recently-CLOSED blocks that lack one.
+    Forward-only (last DIGEST_LOOKBACK_BLOCKS blocks) so there's no historical
+    backfill. Returns the number of digests created."""
+    if not DIGEST_ENABLED:
+        return 0
+    now = int(time.time())
+    cur_block = (now // blk) * blk           # still-open block — never digest it
+    earliest = cur_block - DIGEST_LOOKBACK_BLOCKS * blk
+    conn = get_db()
+    # Retention prune (matches stories).
+    conn.execute("DELETE FROM digests WHERE block_end < ?",
+                 (now - STORY_RETENTION_HOURS * 3600,))
+    conn.commit()
+    made = 0
+    bs = earliest
+    while bs < cur_block and made < DIGEST_MAX_NEW_PER_PASS:
+        be = bs + blk
+        block_key = f"{blk}-{bs}"
+        if conn.execute("SELECT 1 FROM digests WHERE block_key = ?", (block_key,)).fetchone():
+            bs += blk
+            continue
+        stories = [dict(r) for r in conn.execute(
+            "SELECT id, news_title, news_slug, news_script, severity, talkgroup_tag, score "
+            "FROM stories WHERE news_script IS NOT NULL "
+            "AND last_call_at >= ? AND last_call_at < ? ORDER BY score DESC",
+            (bs, be))]
+        if not stories:
+            bs += blk
+            continue                          # nothing newsworthy — no digest for this block
+        dg = _synthesize_digest(stories, bs, be)
+        if dg and _insert_digest(conn, block_key, blk, bs, be, stories, dg):
+            print(f"[digest] block {_fmt_local(bs, '%H:%M')} roundup of {len(stories)} stories", file=sys.stderr)
+            made += 1
+        bs += blk
+    conn.close()
+    return made
+
+
 def _stories_leader_loop():
     """Run only in the worker that holds the leader lock."""
     try:
@@ -2461,11 +2656,18 @@ def _stories_leader_loop():
                       file=sys.stderr)
         except Exception as e:
             print(f"[stories] refresh failed: {e}", file=sys.stderr)
+        try:
+            made = _refresh_digests_once()
+            if made:
+                print(f"[digest] generated {made} block roundup(s)", file=sys.stderr)
+        except Exception as e:
+            print(f"[digest] refresh failed: {e}", file=sys.stderr)
         time.sleep(STORY_REFRESH_INTERVAL_SEC)
 
 
 def _start_stories_thread():
     ensure_stories_table()
+    ensure_digests_table()
     t = threading.Thread(target=_stories_leader_loop, daemon=True, name="stories-leader")
     t.start()
 
@@ -2936,6 +3138,66 @@ def news_best():
     conn.close()
     for s in out:
         s["block_end"] = (s.get("block_start") or 0) + blk
+    return jsonify({"blocks": out, "now": now, "block_sec": blk})
+
+
+@app.route("/api/news/digest")
+def news_digest():
+    """Aggregate roundups — one synthesized script per closed block (the IG
+    'Story' feed). Each block summarizes all the verified stories in that window.
+
+    Generated forward-only by the leader loop at JAFO_DIGEST_BLOCK_SEC (default
+    20 min). Poll this for Instagram Stories:
+      ?block=20m&full=1&since=<cursor>  -> ~72/day, one roundup per 20-min block.
+
+    Params (all optional):
+      block=<dur>    block size to serve (default 20m). Must match what the
+                     generator produces, else the result is empty.
+      since=<epoch>  only blocks whose start is AFTER this (cursor). Oldest-first.
+      full=1         include the full `script` (+ model).
+      limit=<n>      max blocks (default 100, hard cap 100).
+    """
+    now = int(time.time())
+    full = request.args.get("full", "").strip().lower() in ("1", "true", "yes")
+    try:
+        since = int(request.args.get("since") or 0)
+    except ValueError:
+        since = 0
+    try:
+        limit = int(request.args.get("limit") or 100)
+    except ValueError:
+        limit = 100
+    limit = max(1, min(limit, 100))
+    blk = _parse_block_sec(request.args.get("block", ""), DIGEST_BLOCK_SEC)
+
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if not hub_url:
+            return jsonify({"blocks": [], "now": now, "block_sec": blk})
+        try:
+            import requests as _r
+            qs = request.query_string.decode()
+            resp = _r.get(f"{hub_url}/api/news/digest{('?' + qs) if qs else ''}", timeout=8)
+            if resp.status_code == 200:
+                return jsonify(resp.json())
+        except Exception as e:
+            print(f"[news-digest-proxy] hub fetch failed: {e}", file=sys.stderr)
+        return jsonify({"blocks": [], "now": now, "block_sec": blk})
+
+    cols = ("id, block_start, block_end, block_sec, title, caption, caption_tts, "
+            "sources, story_count, confidence, runtime_sec, generated_at")
+    if full:
+        cols += ", script, model"
+    conn = get_db()
+    cur = conn.execute(
+        f"SELECT {cols} FROM digests "
+        f"WHERE block_sec = ? AND block_start > ? AND block_start >= ? "
+        f"ORDER BY block_start ASC LIMIT ?",
+        (blk, since, now - NEWS_BEST_WINDOW_SEC, limit))
+    out = [dict(r) for r in cur]
+    conn.close()
+    for s in out:
+        s["type"] = "story"
     return jsonify({"blocks": out, "now": now, "block_sec": blk})
 
 
