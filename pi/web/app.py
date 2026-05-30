@@ -1638,7 +1638,12 @@ STORY_MODEL                = "claude-haiku-4-5-20251001"
 # Always Anthropic regardless of the story-synth backend: this is the news
 # deliverable and accuracy matters more than the per-call enrichment cost.
 NEWS_MODEL                 = os.environ.get("JAFO_NEWS_MODEL", "claude-sonnet-4-6").strip()
-NEWS_MAX_TOKENS            = 1200
+NEWS_MAX_TOKENS            = 700
+# Every script must read in UNDER 30 seconds. At an anchor pace of ~2.5 words/sec
+# (≈150 wpm) that's ~75 words; we target a bit under and HARD-trim to the budget
+# so a long generation can't slip a >30s read into the feed.
+NEWS_MAX_WORDS             = int(os.environ.get("JAFO_NEWS_MAX_WORDS", "70"))
+NEWS_WORDS_PER_SEC         = 2.5
 # Strict "no guessing" confidence gate. transcript_confidence is the mean
 # segment avg_logprob (closer to 0 = more confident); transcript_no_speech is
 # the max no_speech_prob. A cluster must contain at least one substantive
@@ -2014,6 +2019,29 @@ def _redact_pii(text: str, names: list[str]) -> str:
     return re.sub(r'[ \t]{2,}', ' ', out).strip()
 
 
+_SENT_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
+def _fit_to_word_budget(text: str, max_words: int) -> str:
+    """Trim to <= max_words at a sentence boundary so the read stays under the
+    time budget. Keeps whole sentences; if even the first sentence is over
+    budget, hard-truncates it with an ellipsis. No-op when already within budget."""
+    if not text or len(text.split()) <= max_words:
+        return text
+    sents = _SENT_SPLIT_RE.split(text.strip())
+    kept, used = [], 0
+    for s in sents:
+        n = len(s.split())
+        if kept and used + n > max_words:
+            break
+        kept.append(s)
+        used += n
+        if used >= max_words:
+            break
+    out = " ".join(kept).strip()
+    if len(out.split()) > max_words:  # single over-long sentence
+        out = " ".join(out.split()[:max_words]).rstrip(",;:") + "…"
+    return out
+
+
 def _cluster_persons(cluster: list[dict]) -> list[str]:
     """Names the enricher flagged across the cluster — fed to the PII scrubber."""
     names: list[str] = []
@@ -2073,6 +2101,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "attribute to 'emergency radio traffic' or 'dispatch'.\n"
         "- These are unconfirmed scanner reports. Never assert guilt. Treat "
         "everything as preliminary.\n"
+        f"LENGTH (hard limit): the ENTIRE anchor_body MUST read aloud in UNDER "
+        f"30 seconds. That means NO MORE THAN ABOUT {NEWS_MAX_WORDS} WORDS total "
+        "— including your otter line and the color sentence. Be tight: one short "
+        "paragraph, 2–4 sentences. Lead with what happened; cut everything "
+        "non-essential. A short, punchy read beats a complete one.\n"
         "OTTER VOICE (ad-lib): sprinkle in light, natural otter/river/water "
         "wordplay as if you're improvising — e.g. 'otterly', 'paws for a "
         "second', 'let's dive in', 'go with the flow', 'making a splash', "
@@ -2115,9 +2148,10 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"Write the anchor script. Output strict JSON with these keys:\n"
         f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE" '
         f'(no names or plate numbers)\n'
-        f'  "anchor_body": the words the anchor reads (2-5 short paragraphs, '
-        f'ear-friendly, no stage directions inside it, ending with the single '
-        f'tone-matched color sentence if a relevant fact exists)\n'
+        f'  "anchor_body": the words the anchor reads — ONE tight paragraph, '
+        f'2-4 short sentences, UNDER ~{NEWS_MAX_WORDS} words so it reads in less '
+        f'than 30 seconds; ear-friendly, no stage directions, ending with the '
+        f'single tone-matched color sentence only if a relevant fact exists\n'
         f'  "sources_line": e.g. "{primary.get("talkgroup_tag") or "Dispatch"} · '
         f'{len(cluster)} transmissions · {first_t}–{last_t}"\n'
         f'  "confidence": "high" if the core facts are corroborated across '
@@ -2147,14 +2181,16 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     # model slipped them in despite the prompt.
     persons = _cluster_persons(cluster)
     body = _redact_pii(body, persons)
+    # Hard length guarantee: trim to the word budget at a sentence boundary so
+    # every script reads in under 30 seconds, no matter how long the model went.
+    body = _fit_to_word_budget(body, NEWS_MAX_WORDS)
     slug = _redact_pii((data.get("slug") or story.get("title") or "").strip(), persons)
     conf = (data.get("confidence") or "medium").strip().lower()
     if conf not in ("high", "medium"):
         conf = "medium"
-    try:
-        runtime = int(data.get("runtime_sec") or 0) or max(8, len(body.split()) // 3)
-    except (TypeError, ValueError):
-        runtime = max(8, len(body.split()) // 3)
+    # Runtime is derived from the final word count, not the model's guess.
+    words = len(body.split())
+    runtime = max(4, round(words / NEWS_WORDS_PER_SEC))
     return {
         "slug":         slug[:120],
         "anchor_body":  body,
