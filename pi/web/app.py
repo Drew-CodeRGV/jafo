@@ -3057,12 +3057,11 @@ def _parse_block_sec(raw: str, default: int) -> int:
     return max(60, min(secs, 24 * 3600))
 
 
-@app.route("/api/news/best")
+@app.route("/api/news/posts")    # primary name: the IG "Posts" feed
+@app.route("/api/news/best")     # legacy alias
 def news_best():
-    """One best (highest-impact) story per CLOSED time block — built for
-    rate-limited social posting. Run two pollers off the same endpoint:
-      Instagram Stories (100/day): ?block=15m  -> ~96 winners/day
-      Instagram Posts   (50/day):  ?block=60m  -> 24 winners/day (more selective)
+    """One best (highest-impact) story per CLOSED time block — the IG "Posts"
+    feed. Built for rate-limited social posting (default ?block=30m -> 48/day).
 
     A block is only emitted once its window has fully elapsed, so a poller posts
     exactly one winner per block and never double-posts when a bigger story lands
@@ -3097,7 +3096,7 @@ def news_best():
         try:
             import requests as _r
             qs = request.query_string.decode()
-            resp = _r.get(f"{hub_url}/api/news/best{('?' + qs) if qs else ''}", timeout=8)
+            resp = _r.get(f"{hub_url}{request.path}{('?' + qs) if qs else ''}", timeout=8)
             if resp.status_code == 200:
                 return jsonify(resp.json())
         except Exception as e:
@@ -3141,10 +3140,11 @@ def news_best():
     return jsonify({"blocks": out, "now": now, "block_sec": blk})
 
 
-@app.route("/api/news/digest")
+@app.route("/api/news/stories")   # primary name: the IG "Stories" feed
+@app.route("/api/news/digest")    # legacy alias
 def news_digest():
     """Aggregate roundups — one synthesized script per closed block (the IG
-    'Story' feed). Each block summarizes all the verified stories in that window.
+    'Stories' feed). Each block summarizes all the verified stories in that window.
 
     Generated forward-only by the leader loop at JAFO_DIGEST_BLOCK_SEC (default
     20 min). Poll this for Instagram Stories:
@@ -3177,7 +3177,7 @@ def news_digest():
         try:
             import requests as _r
             qs = request.query_string.decode()
-            resp = _r.get(f"{hub_url}/api/news/digest{('?' + qs) if qs else ''}", timeout=8)
+            resp = _r.get(f"{hub_url}{request.path}{('?' + qs) if qs else ''}", timeout=8)
             if resp.status_code == 200:
                 return jsonify(resp.json())
         except Exception as e:
