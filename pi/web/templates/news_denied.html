@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en" class="dash-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JAFO News Desk — Denied Archive</title>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('dashboard.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  .den-intro { max-width: 70ch; margin: 0 auto 1.5rem; text-align: center;
+               color: var(--ink-2, #423929); font-style: italic; }
+  .den-list { display: flex; flex-direction: column; gap: 1rem; }
+  .den-item { border: 1px solid rgba(22,17,10,.25); border-left: 4px solid #b4280b;
+              border-radius: 5px; background: rgba(255,255,255,.45); padding: .9rem 1.1rem; }
+  .den-flag { font-weight: 700; color: #b4280b; font-size: .88rem; }
+  .den-sub { font-size: .74rem; color: var(--ink-2, #423929); text-transform: uppercase;
+             letter-spacing: .03em; margin: .15rem 0 .4rem; }
+  .den-title { font-family: Georgia, serif; font-size: 1.12rem; margin: 0 0 .4rem; }
+  .den-script { font-family: Georgia, serif; line-height: 1.45; margin: 0; }
+  .den-actions { margin-top: .7rem; }
+  .den-btn { border: none; border-radius: 4px; padding: .45rem .85rem; font-weight: 700;
+             font-size: .82rem; cursor: pointer; color: #fff; background: #1f6b2e; }
+  .den-btn:disabled { opacity: .5; cursor: default; }
+  .den-empty { text-align: center; color: var(--ink-2, #423929); padding: 3rem 1rem; font-style: italic; }
+</style>
+</head>
+<body class="dash-body">
+
+<header class="paper-masthead">
+  <div class="paper-mast-edge">
+    <span class="paper-mast-edge-bit">Denied Archive</span>
+    <span id="paper-date" class="paper-mast-edge-bit">—</span>
+    <span class="paper-mast-edge-bit"><a id="back-link" href="/news" class="paper-nav">← News Desk</a></span>
+  </div>
+  <div class="paper-mast-main">
+    <img class="paper-mast-logo" src="/static/logo.png" alt="jafo">
+    <h1 class="paper-title">Denied Stories</h1>
+  </div>
+  <div class="paper-mast-sub">
+    <span class="paper-tagline">Held for child safety, then denied</span>
+    <span id="paper-time" class="paper-time">—</span>
+  </div>
+</header>
+
+<main class="paper-main">
+  <p class="den-intro">
+    Stories flagged for a possible minor and denied during review. They never
+    reached the public feed. You can still restore one to the feed if it was a
+    false positive.
+  </p>
+  <section class="paper-section">
+    <div id="den-list" class="den-list"><div class="den-empty">Loading…</div></div>
+  </section>
+</main>
+
+<script>
+const ADMIN_TOKEN = new URLSearchParams(location.search).get('token') || '';
+function withTok(u){ return ADMIN_TOKEN ? u + (u.includes('?')?'&':'?') + 'token=' + encodeURIComponent(ADMIN_TOKEN) : u; }
+function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+function fmtClock(ts){ return ts ? new Date(ts*1000).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—'; }
+const back = document.getElementById('back-link'); if(back) back.href = withTok('/news');
+
+function itemHtml(it){
+  return `<div class="den-item" data-id="${it.id}">
+    <div class="den-flag">⚠️ ${esc(it.reason||'Flagged')}</div>
+    <div class="den-sub">${esc(it.talkgroup_tag||'')} · denied ${esc(fmtClock(it.moderation_at))}</div>
+    <h3 class="den-title">${esc(it.title||'')}</h3>
+    <p class="den-script">${esc(it.script||'')}</p>
+    <div class="den-actions">
+      <button class="den-btn" data-id="${it.id}">↩ Restore to feed</button>
+    </div>
+  </div>`;
+}
+async function restore(id){
+  const b = document.querySelector(`.den-item[data-id="${id}"] .den-btn`); if(b) b.disabled = true;
+  try {
+    const r = await fetch(withTok(`/api/news/${id}/moderate?action=approve`), {method:'POST'});
+    if(!r.ok) throw new Error('http '+r.status);
+    const el = document.querySelector(`.den-item[data-id="${id}"]`); if(el) el.remove();
+    load();
+  } catch(e){ alert('Restore failed: '+e.message); if(b) b.disabled=false; }
+}
+async function load(){
+  const wrap = document.getElementById('den-list');
+  if(!ADMIN_TOKEN){ wrap.innerHTML = '<div class="den-empty">Add ?token=YOUR_ADMIN_TOKEN to view the denied archive.</div>'; return; }
+  try {
+    const r = await fetch(withTok('/api/news/denied'), {cache:'no-store'});
+    if(r.status===401){ wrap.innerHTML = '<div class="den-empty">Invalid admin token.</div>'; return; }
+    if(!r.ok) throw new Error('http '+r.status);
+    const items = (await r.json()).denied || [];
+    if(!items.length){ wrap.innerHTML = '<div class="den-empty">No denied stories.</div>'; return; }
+    wrap.innerHTML = items.map(itemHtml).join('');
+    wrap.querySelectorAll('.den-btn').forEach(b => b.addEventListener('click', () => restore(b.dataset.id)));
+  } catch(e){ wrap.innerHTML = '<div class="den-empty">Failed to load.</div>'; }
+}
+function tickClock(){
+  const now = new Date();
+  const d = document.getElementById('paper-date'); const t = document.getElementById('paper-time');
+  if(d) d.textContent = now.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
+  if(t) t.textContent = now.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+}
+tickClock(); setInterval(tickClock, 30000); load();
+</script>
+</body>
+</html>

@@ -1644,7 +1644,16 @@ _STORY_EXTRA_COLS = [
     ("news_model",        "TEXT"),     # model that wrote it
     ("news_generated_at", "INTEGER"),
     ("is_fun",            "INTEGER DEFAULT 0"),  # 1 = light "sprinkled-in" story, not an emergency
+    # Child-safety gate: 'held' stories are kept out of every public feed until a
+    # human approves them. NULL/'released' = public; 'approved' = released after
+    # review; 'denied' = archived (/news/denied), never public.
+    ("moderation_status", "TEXT"),
+    ("moderation_reason", "TEXT"),
+    ("moderation_at",     "INTEGER"),
 ]
+
+# Stories visible in public feeds: not held, not denied.
+_FEED_VISIBLE = "(moderation_status IS NULL OR moderation_status IN ('released','approved'))"
 
 
 def _ensure_stories_views_col() -> None:
@@ -2069,6 +2078,56 @@ def _redact_pii(text: str, names: list[str]) -> str:
     return re.sub(r'[ \t]{2,}', ' ', out).strip()
 
 
+# --- Child-safety gate -----------------------------------------------------
+# Stories that appear to involve a minor are HELD for manual review before they
+# can reach any public feed or the social posting endpoints. Detection is
+# deliberately cautious — a false positive costs one quick approval click, a
+# missed child reference is exactly the harm this guards against.
+_CHILD_TERMS = [
+    "child", "children", "kid", "kids", "juvenile", "juveniles", "infant",
+    "baby", "babies", "toddler", "newborn", "teen", "teens", "teenager",
+    "teenagers", "teenage", "daycare", "day care", "preschool", "pre-school",
+    "kindergarten", "elementary", "middle school", "high school", "schoolchild",
+    "amber alert", "abduction", "abducted", "abduct", "molest", "molested",
+    "molestation", "child protective", "missing child", "young boy", "young girl",
+    "little boy", "little girl", "minor child", "runaway",
+]
+_CHILD_TERM_RE = re.compile(r"(?i)\b(" + "|".join(re.escape(t) for t in _CHILD_TERMS) + r")\b")
+# Standalone CPS (case-sensitive to avoid matching words like "cpsy...").
+_CPS_RE = re.compile(r"\bCPS\b")
+# "a minor" but NOT "minor injuries / minor crash / minor damage / minor delay".
+_MINOR_RE = re.compile(
+    r"(?i)\bminor\b(?!\s+(?:injur|crash|collision|accident|damage|fender|"
+    r"wound|laceration|incident|delay|repair|issue|problem|cut|bruis))")
+# "<n> year old" / "<n>-yr-old" with n < 18.
+_YOUNG_AGE_RE = re.compile(r"(?i)\b(\d{1,2})[\s-]*(?:year|yr)s?[\s-]*old\b")
+
+
+def _child_flag(text: str) -> str | None:
+    """Return a short reason if the text appears to mention a minor, else None."""
+    if not text:
+        return None
+    hits: list[str] = []
+    for m in _CHILD_TERM_RE.finditer(text):
+        t = m.group(1).lower()
+        if t not in hits:
+            hits.append(t)
+    if _CPS_RE.search(text) and "cps" not in hits:
+        hits.append("CPS")
+    if _MINOR_RE.search(text) and "minor" not in hits:
+        hits.append("minor")
+    for m in _YOUNG_AGE_RE.finditer(text):
+        try:
+            if int(m.group(1)) < 18:
+                hits.append(f"{m.group(1)}-year-old")
+                break
+        except ValueError:
+            continue
+    if not hits:
+        return None
+    return "Possible minor mentioned: " + ", ".join(hits[:6])
+
+
 # The cloud server runs in UTC, so time.localtime() formats user-facing times
 # 5-6h off. Format all script/source times in the region's zone explicitly.
 JAFO_TZ = os.environ.get("JAFO_TZ", "America/Chicago")
@@ -2406,6 +2465,15 @@ def _insert_story(conn, key: str, lst: list[dict], synthesized: dict,
     success. Shared by the main ranked loop and the fun-story injector."""
     primary = max(lst, key=lambda c: c["start_time"])
     related_ids = [c["id"] for c in lst]
+    # Child-safety gate: scan the transcripts + generated copy. If a minor may
+    # be involved, HOLD the story (kept out of every public feed until reviewed).
+    flag_text = " ".join(filter(None, [
+        " ".join((c.get("transcript") or "") for c in lst),
+        (news or {}).get("anchor_body") or "",
+        synthesized.get("body") or "", synthesized.get("title") or "",
+    ]))
+    reason = _child_flag(flag_text)
+    mod_status = "held" if reason else "released"
     try:
         conn.execute("""
             INSERT OR IGNORE INTO stories
@@ -2413,8 +2481,8 @@ def _insert_story(conn, key: str, lst: list[dict], synthesized: dict,
                primary_call_id, related_call_ids, score, created_at, last_call_at,
                news_script, news_slug, news_title, news_caption, news_caption_tts,
                news_sources, news_confidence, news_runtime_sec, news_model,
-               news_generated_at, is_fun)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               news_generated_at, is_fun, moderation_status, moderation_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             key, synthesized["title"], synthesized["body"],
             (primary.get("incident_severity") or "unknown").lower(),
@@ -2428,9 +2496,11 @@ def _insert_story(conn, key: str, lst: list[dict], synthesized: dict,
             (news or {}).get("runtime_sec"),
             NEWS_MODEL if news else None,
             int(time.time()) if news else None,
-            is_fun,
+            is_fun, mod_status, reason,
         ))
         conn.commit()
+        if reason:
+            print(f"[moderation] HELD story '{synthesized.get('title','')[:50]}' — {reason}", file=sys.stderr)
         return True
     except sqlite3.Error as e:
         print(f"story insert failed: {e}", file=sys.stderr)
@@ -2623,7 +2693,7 @@ def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC) -> int:
             continue
         stories = [dict(r) for r in conn.execute(
             "SELECT id, news_title, news_slug, news_script, severity, talkgroup_tag, score "
-            "FROM stories WHERE news_script IS NOT NULL "
+            f"FROM stories WHERE news_script IS NOT NULL AND {_FEED_VISIBLE} "
             "AND last_call_at >= ? AND last_call_at < ? ORDER BY score DESC",
             (bs, be))]
         if not stories:
@@ -3012,7 +3082,7 @@ def news_list():
         # Polling mode: everything new since `since`, oldest-first, score cap lifted.
         cur = conn.execute(
             f"SELECT {cols} FROM stories "
-            f"WHERE last_call_at >= ? AND news_script IS NOT NULL "
+            f"WHERE last_call_at >= ? AND news_script IS NOT NULL AND {_FEED_VISIBLE} "
             f"AND COALESCE(news_generated_at, 0) > ? "
             f"ORDER BY news_generated_at ASC LIMIT ?",
             (cutoff, since, limit))
@@ -3023,7 +3093,7 @@ def news_list():
         # stories under a backlog of emergencies. score breaks ties.
         cur = conn.execute(
             f"SELECT {cols} FROM stories "
-            f"WHERE last_call_at >= ? AND news_script IS NOT NULL "
+            f"WHERE last_call_at >= ? AND news_script IS NOT NULL AND {_FEED_VISIBLE} "
             f"ORDER BY last_call_at DESC, score DESC LIMIT ?",
             (cutoff, limit))
     out = [dict(r) for r in cur]
@@ -3122,7 +3192,7 @@ def news_best():
                      ORDER BY score DESC, last_call_at DESC, id DESC
                  ) AS rn
           FROM stories s
-          WHERE news_script IS NOT NULL
+          WHERE news_script IS NOT NULL AND {_FEED_VISIBLE}
             AND last_call_at >= ?
             AND (last_call_at / {blk} * {blk}) < ?
             AND (last_call_at / {blk} * {blk}) > ?
@@ -3253,11 +3323,133 @@ def news_detail(story_id: int):
     return jsonify(s)
 
 
+# =============================================================================
+# Child-safety moderation — held stories await human approval before any feed.
+# Admin-gated (JAFO_ADMIN_TOKEN via ?token= or Bearer). Edge proxies to hub.
+# =============================================================================
+def _proxy_to_hub_admin(path: str, method: str = "GET"):
+    hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+    if not hub_url:
+        return jsonify({"error": "no hub configured"}), 502
+    qs = request.query_string.decode()
+    url = f"{hub_url}{path}{('?' + qs) if qs else ''}"
+    try:
+        import requests as _r
+        resp = _r.request(method, url, timeout=8,
+                          headers={"Authorization": request.headers.get("Authorization", "")})
+        return (resp.text, resp.status_code,
+                {"Content-Type": resp.headers.get("Content-Type", "application/json")})
+    except Exception as e:
+        print(f"[mod-proxy] {path}: {e}", file=sys.stderr)
+        return jsonify({"error": "hub unreachable"}), 502
+
+
+def _moderation_item(conn, s: dict) -> dict:
+    """A held/denied story plus its radio context, for the review UI."""
+    try:
+        ids = json.loads(s.get("related_call_ids") or "[]")
+    except json.JSONDecodeError:
+        ids = []
+    calls = []
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for r in conn.execute(
+            f"""SELECT id, start_time, talkgroup_tag, transcript,
+                       incident_type, incident_severity
+                FROM calls WHERE id IN ({ph}) ORDER BY start_time ASC""", ids):
+            calls.append(dict(r))
+    return {
+        "id":            s["id"],
+        "title":         s.get("news_title") or s.get("title"),
+        "slug":          s.get("news_slug"),
+        "script":        s.get("news_script"),
+        "caption":       s.get("news_caption"),
+        "severity":      s.get("severity"),
+        "talkgroup_tag": s.get("talkgroup_tag"),
+        "is_fun":        s.get("is_fun"),
+        "reason":        s.get("moderation_reason"),
+        "last_call_at":  s.get("last_call_at"),
+        "moderation_at": s.get("moderation_at"),
+        "context_calls": calls,
+    }
+
+
+@app.route("/api/news/pending")
+def news_pending():
+    """Stories held for child-safety review — script, radio context, and the
+    reason each was flagged. Admin only."""
+    if _is_edge_node():
+        return _proxy_to_hub_admin("/api/news/pending")
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM stories WHERE moderation_status = 'held' "
+        "ORDER BY last_call_at DESC LIMIT 100")]
+    out = [_moderation_item(conn, s) for s in rows]
+    conn.close()
+    return jsonify({"pending": out, "now": int(time.time())})
+
+
+@app.route("/api/news/denied")
+def news_denied_api():
+    """Archive of denied stories. Admin only."""
+    if _is_edge_node():
+        return _proxy_to_hub_admin("/api/news/denied")
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM stories WHERE moderation_status = 'denied' "
+        "ORDER BY moderation_at DESC LIMIT 200")]
+    out = [_moderation_item(conn, s) for s in rows]
+    conn.close()
+    return jsonify({"denied": out, "now": int(time.time())})
+
+
+@app.route("/api/news/<int:story_id>/moderate", methods=["POST"])
+def news_moderate(story_id: int):
+    """Approve (release to feed), deny (archive), or delete a held story. Admin only."""
+    if _is_edge_node():
+        return _proxy_to_hub_admin(f"/api/news/{story_id}/moderate", method="POST")
+    if not _admin_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
+    action = (request.values.get("action")
+              or (request.get_json(silent=True) or {}).get("action") or "").strip().lower()
+    if action not in ("approve", "deny", "delete"):
+        return jsonify({"error": "action must be approve, deny, or delete"}), 400
+    conn = get_db()
+    row = conn.execute("SELECT id FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "not found"}), 404
+    now = int(time.time())
+    if action == "delete":
+        conn.execute("DELETE FROM stories WHERE id = ?", (story_id,))
+    elif action == "approve":
+        conn.execute("UPDATE stories SET moderation_status='approved', moderation_at=? WHERE id=?",
+                     (now, story_id))
+    else:  # deny
+        conn.execute("UPDATE stories SET moderation_status='denied', moderation_at=? WHERE id=?",
+                     (now, story_id))
+    conn.commit()
+    conn.close()
+    print(f"[moderation] story {story_id} -> {action}", file=sys.stderr)
+    return jsonify({"ok": True, "id": story_id, "action": action})
+
+
 @app.route("/news")
 def news_page():
     """News desk — cards of top stories that have anchor scripts."""
     return render_template("news.html", node_name=NODE_NAME,
                            hub_link=_hub_link_for_this_node(),
+                           is_hub=not _is_edge_node())
+
+
+@app.route("/news/denied")
+def news_denied_page():
+    """Archive of denied stories (admin token required client-side)."""
+    return render_template("news_denied.html", node_name=NODE_NAME,
                            is_hub=not _is_edge_node())
 
 

@@ -43,6 +43,36 @@
   .news-card.fun { background: #eef6fb; border-color: #2a7fb8; }
   .news-readlink { font-size: .8rem; font-weight: 700; color: #b4280b; }
   .news-empty { text-align: center; color: var(--ink-2, #423929); padding: 3rem 1rem; }
+  /* Child-safety approval queue (admin only) */
+  .news-approval { border: 2px solid #b4280b; border-radius: 6px; background: #fff6f3;
+                   padding: 1rem 1.2rem; margin-bottom: 1.8rem; }
+  .mod-head { display: flex; align-items: baseline; justify-content: space-between;
+              gap: 1rem; margin-bottom: .8rem; flex-wrap: wrap; }
+  .mod-h-title { font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+                 font-size: 1rem; letter-spacing: .04em; color: #b4280b; text-transform: uppercase; }
+  .mod-denied-link { font-size: .8rem; font-weight: 700; color: #7a5; }
+  .mod-empty { color: var(--ink-2, #423929); font-style: italic; padding: .5rem 0; }
+  .mod-list { display: flex; flex-direction: column; gap: 1rem; }
+  .mod-item { border: 1px solid rgba(180,40,11,.4); border-radius: 5px;
+              background: rgba(255,255,255,.7); padding: .9rem 1rem; }
+  .mod-flag { font-weight: 700; color: #b4280b; font-size: .9rem; }
+  .mod-sub { font-size: .74rem; color: var(--ink-2, #423929); text-transform: uppercase;
+             letter-spacing: .03em; margin: .15rem 0 .4rem; }
+  .mod-title { font-family: Georgia, serif; font-size: 1.15rem; margin: 0 0 .5rem; }
+  .mod-label { font-size: .68rem; font-weight: 700; text-transform: uppercase;
+               letter-spacing: .06em; color: #8a6d3b; margin: .6rem 0 .2rem; }
+  .mod-script { font-family: Georgia, serif; line-height: 1.45; margin: 0; }
+  .mod-context { font-size: .82rem; background: rgba(22,17,10,.05); border-radius: 4px;
+                 padding: .5rem .6rem; max-height: 220px; overflow-y: auto; }
+  .mod-ctx-line { padding: .2rem 0; border-bottom: 1px dotted rgba(22,17,10,.15); }
+  .mod-ctx-meta { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: #6b5; }
+  .mod-actions { display: flex; gap: .6rem; margin-top: .8rem; flex-wrap: wrap; }
+  .mod-btn { border: none; border-radius: 4px; padding: .5rem .9rem; font-weight: 700;
+             font-size: .85rem; cursor: pointer; color: #fff; }
+  .mod-btn.approve { background: #1f6b2e; }
+  .mod-btn.deny { background: #b4280b; }
+  .mod-btn.del { background: #555; }
+  .mod-btn:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body class="dash-body">
@@ -70,6 +100,7 @@
     Every line is sourced from live transmissions — nothing is invented.
     Click a story to open the full read.
   </p>
+  <section id="news-approval" class="news-approval" style="display:none"></section>
   <section class="paper-section">
     <div id="news-grid" class="news-grid">
       <div class="news-empty">Loading the latest scripts…</div>
