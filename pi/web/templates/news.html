@@ -11,8 +11,18 @@
   /* News-desk specifics layered on the newspaper palette in dashboard.css */
   .news-intro { max-width: 70ch; margin: 0 auto 1.5rem; text-align: center;
                 color: var(--ink-2, #423929); font-style: italic; }
-  .news-grid { display: grid; gap: 1rem;
-               grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  /* Container stacks hour groups; each group holds a card grid */
+  .news-grid { display: flex; flex-direction: column; gap: 1.6rem; }
+  .news-grid-row { display: grid; gap: 1rem;
+                   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  /* Hour header with a rule line running to the right edge */
+  .news-hour-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .7rem; }
+  .news-hour-label { font-family: ui-monospace, Menlo, monospace; font-size: .82rem;
+                     font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+                     color: var(--ink-2, #423929); white-space: nowrap; }
+  .news-hour-rule { flex: 1; height: 2px; background: rgba(22,17,10,.22); }
+  .news-hour-new .news-hour-label { color: #b4280b; font-size: .92rem; }
+  .news-hour-new .news-hour-rule { background: #b4280b; }
   .news-card { border: 1px solid rgba(22,17,10,.25); border-radius: 4px;
                padding: 1rem 1.1rem; background: rgba(255,255,255,.35);
                display: flex; flex-direction: column; gap: .55rem;
