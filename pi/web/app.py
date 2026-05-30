@@ -1603,6 +1603,8 @@ _STORY_EXTRA_COLS = [
     # News anchor script (Claude Sonnet) — see _synthesize_news_script.
     ("news_script",       "TEXT"),     # ready-to-read broadcast body
     ("news_slug",         "TEXT"),     # short slug line
+    ("news_title",        "TEXT"),     # social-ready headline (may include emoji)
+    ("news_caption",      "TEXT"),     # social caption: emojis + hashtags, tone-matched
     ("news_sources",      "TEXT"),     # "Talkgroup · N transmissions · HH:MM–HH:MM"
     ("news_confidence",   "TEXT"),     # high | medium  (strict gate omits low)
     ("news_runtime_sec",  "INTEGER"),  # estimated read time
@@ -2135,6 +2137,14 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "stays warm, sincere, and gentle (a caring 'stay safe out there, "
         "friends', not a punchline). NEVER pun on or make light of harm, danger, "
         "or tragedy. Save the playful river puns for the light, no-harm stories.\n"
+        "SOCIAL (title + caption): also produce a short social_title and a "
+        "social_caption for posting. The caption is 1-2 punchy lines with "
+        "tone-matched EMOJIS and 2-4 relevant HASHTAGS (e.g. #RGV #McAllen plus "
+        "an incident tag like #Fire/#Traffic/#BreakingNews). Emojis MUST match "
+        "tone: playful (🦦🌊✨) only for light no-harm stories; for crashes, "
+        "fires, injuries, or death use serious, respectful emojis (🚨🚑🚒🙏) and "
+        "NEVER celebratory/laughing ones (no 🎉😂🔥-as-cool). Same no-guessing + "
+        "no-names/plates rules apply to the title and caption.\n"
         "PRIVACY (hard rule): NEVER include any person's name or any license-"
         "plate / tag / registration number, even if it appears in the "
         "transcripts. Refer to people generically (a driver, a man, a woman, a "
@@ -2174,6 +2184,10 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f'  "confidence": "high" if the core facts are corroborated across '
         f'multiple transmissions or stated clearly, otherwise "medium"\n'
         f'  "runtime_sec": integer estimate of read time in seconds\n'
+        f'  "social_title": a short, scroll-stopping headline for social media '
+        f'(<= 70 chars), may start with ONE tone-matched emoji\n'
+        f'  "social_caption": 1-2 punchy lines with tone-matched emojis and 2-4 '
+        f'relevant hashtags, ready to post (no names or plate numbers)\n'
         f"No preamble, no commentary, JSON only."
     )
     try:
@@ -2202,6 +2216,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     # every script reads in under 30 seconds, no matter how long the model went.
     body = _fit_to_word_budget(body, NEWS_MAX_WORDS)
     slug = _redact_pii((data.get("slug") or story.get("title") or "").strip(), persons)
+    social_title = _redact_pii((data.get("social_title") or story.get("title") or "").strip(), persons)
+    social_caption = _redact_pii((data.get("social_caption") or "").strip(), persons)
     conf = (data.get("confidence") or "medium").strip().lower()
     if conf not in ("high", "medium"):
         conf = "medium"
@@ -2210,6 +2226,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     runtime = max(4, round(words / NEWS_WORDS_PER_SEC))
     return {
         "slug":         slug[:120],
+        "title":        social_title[:160],
+        "caption":      social_caption[:400],
         "anchor_body":  body,
         "sources_line": (data.get("sources_line") or "").strip()[:200],
         "confidence":   conf,
@@ -2266,9 +2284,9 @@ def _refresh_stories_once() -> tuple[int, int]:
                 INSERT OR IGNORE INTO stories
                   (cluster_key, title, body, severity, talkgroup, talkgroup_tag,
                    primary_call_id, related_call_ids, score, created_at, last_call_at,
-                   news_script, news_slug, news_sources, news_confidence,
-                   news_runtime_sec, news_model, news_generated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   news_script, news_slug, news_title, news_caption, news_sources,
+                   news_confidence, news_runtime_sec, news_model, news_generated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 key, synthesized["title"], synthesized["body"],
                 (primary.get("incident_severity") or "unknown").lower(),
@@ -2276,6 +2294,7 @@ def _refresh_stories_once() -> tuple[int, int]:
                 primary["id"], json.dumps(related_ids),
                 score, int(time.time()), primary["start_time"],
                 (news or {}).get("anchor_body"), (news or {}).get("slug"),
+                (news or {}).get("title"), (news or {}).get("caption"),
                 (news or {}).get("sources_line"), (news or {}).get("confidence"),
                 (news or {}).get("runtime_sec"),
                 NEWS_MODEL if news else None,
@@ -2649,9 +2668,10 @@ def news_list():
             return jsonify(data)
         return jsonify({"stories": [], "now": now})
 
-    cols = ("id, title, news_slug, severity, talkgroup_tag, news_confidence, "
-            "news_runtime_sec, news_sources, news_generated_at, score, "
-            "last_call_at, created_at, COALESCE(views, 0) AS views")
+    cols = ("id, title, news_slug, news_title, news_caption, severity, "
+            "talkgroup_tag, news_confidence, news_runtime_sec, news_sources, "
+            "news_generated_at, score, last_call_at, created_at, "
+            "COALESCE(views, 0) AS views")
     if full:
         cols += ", news_script, news_model"
 
