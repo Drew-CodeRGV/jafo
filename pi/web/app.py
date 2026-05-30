@@ -19,6 +19,7 @@ Designed to be served behind nginx as the upstream.
 from __future__ import annotations
 
 import csv
+import datetime
 import fcntl
 import hashlib
 import json
@@ -1839,7 +1840,7 @@ def _refine_story(draft: dict, cluster: list[dict]) -> dict | None:
         return None  # no context file → skip refine, caller uses draft
 
     transcripts = "\n".join(
-        f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
+        f"[{_fmt_local(c['start_time'], '%H:%M:%S')}] {c['transcript'].strip()}"
         for c in cluster if c.get("transcript")
     ) or "(no transcripts)"
 
@@ -1895,7 +1896,7 @@ def _synthesize_story(cluster: list[dict]) -> dict | None:
     """
     primary = cluster[-1]  # most recent in cluster (calls are ASC)
     transcripts = "\n".join(
-        f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
+        f"[{_fmt_local(c['start_time'], '%H:%M:%S')}] {c['transcript'].strip()}"
         for c in cluster if c.get("transcript")
     ) or "(no transcripts)"
 
@@ -2019,6 +2020,22 @@ def _redact_pii(text: str, names: list[str]) -> str:
     return re.sub(r'[ \t]{2,}', ' ', out).strip()
 
 
+# The cloud server runs in UTC, so time.localtime() formats user-facing times
+# 5-6h off. Format all script/source times in the region's zone explicitly.
+JAFO_TZ = os.environ.get("JAFO_TZ", "America/Chicago")
+try:
+    from zoneinfo import ZoneInfo
+    _TZINFO = ZoneInfo(JAFO_TZ)
+except Exception as _tz_e:  # missing tzdata / bad name → fall back to localtime
+    print(f"[news] timezone {JAFO_TZ} unavailable ({_tz_e}); using server local", file=sys.stderr)
+    _TZINFO = None
+def _fmt_local(epoch: int, fmt: str) -> str:
+    """Format an epoch in the region timezone (America/Chicago), not server UTC."""
+    if _TZINFO is not None:
+        return datetime.datetime.fromtimestamp(epoch, _TZINFO).strftime(fmt)
+    return time.strftime(fmt, time.localtime(epoch))
+
+
 _SENT_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
 def _fit_to_word_budget(text: str, max_words: int) -> str:
     """Trim to <= max_words at a sentence boundary so the read stays under the
@@ -2076,12 +2093,12 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
 
     primary = cluster[-1]
     transcripts = "\n".join(
-        f"[{time.strftime('%H:%M:%S', time.localtime(c['start_time']))}] {c['transcript'].strip()}"
+        f"[{_fmt_local(c['start_time'], '%H:%M:%S')}] {c['transcript'].strip()}"
         for c in cluster if c.get("transcript")
     ) or "(no transcripts)"
     units = sorted({u.strip() for c in cluster for u in (c.get("incident_units") or "").split(",") if u.strip()})
-    first_t = time.strftime("%-I:%M %p", time.localtime(min(c["start_time"] for c in cluster)))
-    last_t  = time.strftime("%-I:%M %p", time.localtime(max(c["start_time"] for c in cluster)))
+    first_t = _fmt_local(min(c["start_time"] for c in cluster), "%-I:%M %p")
+    last_t  = _fmt_local(max(c["start_time"] for c in cluster), "%-I:%M %p")
     context = _load_rgv_context()
     news_facts = _load_news_context()
     weather = _current_weather()
@@ -3160,7 +3177,7 @@ def _build_call_share(call_id: int, fmt: str = "square") -> tuple[Path, Path | N
     blurb = cd.get("incident_summary") or cd.get("transcript") or "(no summary available)"
     if len(blurb) > 360:
         blurb = blurb[:357].rstrip() + "…"
-    ts_str = time.strftime("%b %d, %Y · %I:%M %p", time.localtime(cd["start_time"] or time.time()))
+    ts_str = _fmt_local(cd["start_time"] or int(time.time()), "%b %d, %Y · %I:%M %p")
 
     render_card(
         card_png, fmt=fmt,
@@ -3242,7 +3259,7 @@ def _build_story_share(story_id: int, fmt: str = "square",
                     audios.append(ap)
     conn.close()
 
-    ts_str = time.strftime("%b %d, %Y", time.localtime(story_mtime or time.time()))
+    ts_str = _fmt_local(story_mtime or int(time.time()), "%b %d, %Y")
     if not card_png.exists() or card_png.stat().st_mtime < story_mtime:
         render_story_card(
             card_png, fmt=fmt,
@@ -3411,14 +3428,14 @@ def share_story_page(story_id: int):
                 d["audio_url"] = f"/audio/{d['opus_path']}"
             else:
                 d["audio_url"] = None
-            d["start_time_str"] = time.strftime("%H:%M", time.localtime(d["start_time"])) if d.get("start_time") else ""
+            d["start_time_str"] = _fmt_local(d["start_time"], "%H:%M") if d.get("start_time") else ""
             d["duration_sec"] = int(d.get("duration_sec") or 0) or None
             calls.append(d)
     conn.close()
 
     first_time_str = ""
     if calls:
-        first_time_str = time.strftime("%b %-d, %-I:%M %p", time.localtime(calls[0]["start_time"]))
+        first_time_str = _fmt_local(calls[0]["start_time"], "%b %-d, %-I:%M %p")
 
     # Best-effort canonical URL: prefer X-Forwarded-Host (nginx), else Host header.
     share_url = request.headers.get("X-Forwarded-Host") or request.host

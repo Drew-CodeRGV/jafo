@@ -256,19 +256,19 @@ def retranscribe_news_batch(conn, groq_client) -> int:
             text, model_used, meta = transcribe_via_groq(groq_client, opus_full)
             if not text:
                 continue
-            # Preserve the edge transcript, install the upgrade, and re-null the
-            # enrichment so the enricher re-extracts from the better text.
+            # Preserve the edge transcript and install the large-v3 upgrade.
+            # We do NOT re-null the enrichment: the news script reads the
+            # (now-better) transcript directly, and keeping the existing
+            # incident_json avoids flooding the enricher with thousands of
+            # re-enrichment jobs (which previously stalled the whole feed).
             conn.execute("""
                 UPDATE calls
                 SET transcript_original       = COALESCE(transcript_original, transcript),
                     transcript_original_model = COALESCE(transcript_original_model, transcript_model),
-                    transcript = ?, transcript_model = ?, transcript_at = ?,
-                    transcript_confidence = ?, transcript_no_speech = ?, transcript_lang = ?,
-                    incident_json = NULL, incident_type = NULL, incident_summary = NULL,
-                    incident_location = NULL, incident_units = NULL, incident_severity = NULL,
-                    enriched_at = NULL, enrich_error = NULL
+                    transcript = ?, transcript_model = ?,
+                    transcript_confidence = ?, transcript_no_speech = ?, transcript_lang = ?
                 WHERE id = ?
-            """, (text, model_used, int(time.time()),
+            """, (text, model_used,
                   meta.get("confidence"), meta.get("no_speech"), meta.get("lang"),
                   call["id"]))
             conn.commit()
