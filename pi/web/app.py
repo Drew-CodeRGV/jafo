@@ -1605,6 +1605,7 @@ _STORY_EXTRA_COLS = [
     ("news_slug",         "TEXT"),     # short slug line
     ("news_title",        "TEXT"),     # social-ready headline (may include emoji)
     ("news_caption",      "TEXT"),     # social caption: emojis + hashtags, tone-matched
+    ("news_caption_tts",  "TEXT"),     # caption sans emoji/hashtags, TTS-friendly
     ("news_sources",      "TEXT"),     # "Talkgroup · N transmissions · HH:MM–HH:MM"
     ("news_confidence",   "TEXT"),     # high | medium  (strict gate omits low)
     ("news_runtime_sec",  "INTEGER"),  # estimated read time
@@ -2057,8 +2058,54 @@ def _fit_to_word_budget(text: str, max_words: int) -> str:
             break
     out = " ".join(kept).strip()
     if len(out.split()) > max_words:  # single over-long sentence
-        out = " ".join(out.split()[:max_words]).rstrip(",;:") + "…"
+        out = " ".join(out.split()[:max_words]).rstrip(",;:") + "."
     return out
+
+
+# --- TTS readability -------------------------------------------------------
+# The anchor script is fed straight into a text-to-speech engine. Many TTS
+# voices mispronounce typographic characters — an em dash gets read aloud as
+# "circumflex", a middot as "dot", emoji as their literal names. Normalise the
+# spoken text to plain words and simple comma/period punctuation.
+_TTS_DASH_RE = re.compile(r"\s*[‒–—―−⁃]\s*")  # ‒–—―−⁃
+_TTS_INWORD_HYPHEN_RE = re.compile(r"(?<=\w)-(?=\w)")
+_TTS_SEP_RE = re.compile(r"\s*[·•‧▪|/]+\s*")            # · • ‧ ▪ | /
+_TTS_EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001ffff\U00002600-\U000027bf\U0001f1e6-\U0001f1ff"
+    "\U00002190-\U000021ff\U00002b00-\U00002bff\U0000fe00-\U0000fe0f‍⁦-⁩]+"
+)
+_TTS_DROP_RE = re.compile(r"[#*_`~^<>{}\[\]\\]")
+_TTS_SPACE_RE = re.compile(r"[ \t]+")
+
+
+def _tts_sanitize(text: str) -> str:
+    """Strip/normalise anything a TTS voice reads badly: emoji, typographic
+    dashes (read as 'circumflex'), middots, curly quotes, ellipses, stray
+    symbols. Returns plain text with comma/period punctuation only."""
+    if not text:
+        return text
+    s = _TTS_EMOJI_RE.sub("", text)
+    s = (s.replace("‘", "'").replace("’", "'")
+           .replace("“", '"').replace("”", '"')
+           .replace("…", ". ").replace(" ", " "))
+    s = _TTS_DASH_RE.sub(", ", s)               # pause dash → comma
+    s = _TTS_INWORD_HYPHEN_RE.sub(" ", s)       # go-ahead → go ahead, 9-1-1 → 9 1 1
+    s = _TTS_SEP_RE.sub(", ", s)                # separators → comma
+    s = s.replace("&", " and ")
+    s = _TTS_DROP_RE.sub("", s)
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)      # no space before punctuation
+    s = re.sub(r"(,\s*){2,}", ", ", s)          # collapse repeated commas
+    s = re.sub(r",\s*([.!?])", r"\1", s)        # ", ." → "."
+    s = _TTS_SPACE_RE.sub(" ", s).strip()
+    return s.strip(" ,;:")
+
+
+def _caption_for_tts(caption: str) -> str:
+    """A spoken-friendly version of the social caption: drop hashtags entirely
+    (they read as 'hashtag X') and run the standard TTS sanitiser."""
+    if not caption:
+        return caption
+    return _tts_sanitize(re.sub(r"#\w+", "", caption)).strip()
 
 
 def _cluster_persons(cluster: list[dict]) -> list[str]:
@@ -2118,6 +2165,12 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "flavor, never facts.\n"
         "- Write for the ear: short sentences, present tense, plain words, "
         "attribute to 'emergency radio traffic' or 'dispatch'.\n"
+        "TEXT-TO-SPEECH (anchor_body): the anchor_body is read by a TTS voice, "
+        "so use ONLY plain words and simple punctuation — periods and commas. "
+        "Do NOT use dashes (— or -), ellipses, slashes, ampersands, emojis, "
+        "hashtags, asterisks, or any symbol/special character in the "
+        "anchor_body; use commas for pauses and spell things out. (Emojis and "
+        "hashtags belong ONLY in the social_caption, never in the script.)\n"
         "- These are unconfirmed scanner reports. Never assert guilt. Treat "
         "everything as preliminary.\n"
         f"LENGTH (hard limit): the ENTIRE anchor_body MUST read aloud in UNDER "
@@ -2215,6 +2268,9 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     # Hard length guarantee: trim to the word budget at a sentence boundary so
     # every script reads in under 30 seconds, no matter how long the model went.
     body = _fit_to_word_budget(body, NEWS_MAX_WORDS)
+    # The script is fed straight into TTS — strip anything it reads badly
+    # (em dashes voiced as "circumflex", emoji, middots) and normalise punctuation.
+    body = _tts_sanitize(body)
     slug = _redact_pii((data.get("slug") or story.get("title") or "").strip(), persons)
     social_title = _redact_pii((data.get("social_title") or story.get("title") or "").strip(), persons)
     social_caption = _redact_pii((data.get("social_caption") or "").strip(), persons)
@@ -2228,6 +2284,7 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "slug":         slug[:120],
         "title":        social_title[:160],
         "caption":      social_caption[:400],
+        "caption_tts":  _caption_for_tts(social_caption)[:400],
         "anchor_body":  body,
         "sources_line": (data.get("sources_line") or "").strip()[:200],
         "confidence":   conf,
@@ -2284,9 +2341,10 @@ def _refresh_stories_once() -> tuple[int, int]:
                 INSERT OR IGNORE INTO stories
                   (cluster_key, title, body, severity, talkgroup, talkgroup_tag,
                    primary_call_id, related_call_ids, score, created_at, last_call_at,
-                   news_script, news_slug, news_title, news_caption, news_sources,
-                   news_confidence, news_runtime_sec, news_model, news_generated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   news_script, news_slug, news_title, news_caption, news_caption_tts,
+                   news_sources, news_confidence, news_runtime_sec, news_model,
+                   news_generated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 key, synthesized["title"], synthesized["body"],
                 (primary.get("incident_severity") or "unknown").lower(),
@@ -2295,6 +2353,7 @@ def _refresh_stories_once() -> tuple[int, int]:
                 score, int(time.time()), primary["start_time"],
                 (news or {}).get("anchor_body"), (news or {}).get("slug"),
                 (news or {}).get("title"), (news or {}).get("caption"),
+                (news or {}).get("caption_tts"),
                 (news or {}).get("sources_line"), (news or {}).get("confidence"),
                 (news or {}).get("runtime_sec"),
                 NEWS_MODEL if news else None,
@@ -2668,9 +2727,9 @@ def news_list():
             return jsonify(data)
         return jsonify({"stories": [], "now": now})
 
-    cols = ("id, title, news_slug, news_title, news_caption, severity, "
-            "talkgroup_tag, news_confidence, news_runtime_sec, news_sources, "
-            "news_generated_at, score, last_call_at, created_at, "
+    cols = ("id, title, news_slug, news_title, news_caption, news_caption_tts, "
+            "severity, talkgroup_tag, news_confidence, news_runtime_sec, "
+            "news_sources, news_generated_at, score, last_call_at, created_at, "
             "COALESCE(views, 0) AS views")
     if full:
         cols += ", news_script, news_model"
