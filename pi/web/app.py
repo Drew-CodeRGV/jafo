@@ -2562,12 +2562,15 @@ def news_list():
     now = int(time.time())
     cutoff = now - STORY_MAX_AGE_SEC
     full = request.args.get("full", "").strip().lower() in ("1", "true", "yes")
+    # `since` is active whenever the param is present (even since=0, which means
+    # "everything, oldest-first"). Falsiness must NOT disable it.
+    since_mode = "since" in request.args
     try:
-        since = int(request.args.get("since", "0") or 0)
+        since = int(request.args.get("since") or 0)
     except ValueError:
-        since = 0
+        since, since_mode = 0, False
     try:
-        limit = int(request.args.get("limit") or (100 if since else STORY_KEEP_MAX))
+        limit = int(request.args.get("limit") or (100 if since_mode else STORY_KEEP_MAX))
     except ValueError:
         limit = STORY_KEEP_MAX
     limit = max(1, min(limit, 100))
@@ -2600,7 +2603,7 @@ def news_list():
         cols += ", news_script, news_model"
 
     conn = get_db()
-    if since:
+    if since_mode:
         # Polling mode: everything new since `since`, oldest-first, score cap lifted.
         cur = conn.execute(
             f"SELECT {cols} FROM stories "
