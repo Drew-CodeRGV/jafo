@@ -2549,33 +2549,74 @@ def _proxy_news_from_hub():
 
 @app.route("/api/news")
 def news_list():
-    """Top stories that have a finished anchor script, newest activity first."""
-    cutoff = int(time.time()) - STORY_MAX_AGE_SEC
+    """Stories that have a finished anchor script.
+
+    Query params (all optional) — built for polling integrations (n8n etc.):
+      full=1        include the full `news_script` body (+ news_model). Without
+                    it the list stays light (cards only).
+      since=<epoch> only stories generated AFTER this unix time, oldest-first —
+                    pass the previous response's max news_generated_at to fetch
+                    only what's new. Lifts the score cap so nothing is missed.
+      limit=<n>     max rows (default 16, hard cap 100).
+    """
+    now = int(time.time())
+    cutoff = now - STORY_MAX_AGE_SEC
+    full = request.args.get("full", "").strip().lower() in ("1", "true", "yes")
+    try:
+        since = int(request.args.get("since", "0") or 0)
+    except ValueError:
+        since = 0
+    try:
+        limit = int(request.args.get("limit") or (100 if since else STORY_KEEP_MAX))
+    except ValueError:
+        limit = STORY_KEEP_MAX
+    limit = max(1, min(limit, 100))
 
     if _is_edge_node():
+        # Forward query params to the hub. Cache only the plain (no-arg) call.
+        if request.query_string:
+            hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+            if not hub_url:
+                return jsonify({"stories": [], "now": now})
+            try:
+                import requests as _r
+                resp = _r.get(f"{hub_url}/api/news?{request.query_string.decode()}", timeout=8)
+                if resp.status_code == 200:
+                    return jsonify(resp.json())
+            except Exception as e:
+                print(f"[news-proxy] hub fetch failed: {e}", file=sys.stderr)
+            return jsonify({"stories": [], "now": now})
         data = _proxy_news_from_hub()
         if data is not None:
-            data["stories"] = [
-                s for s in (data.get("stories") or [])
-                if (s.get("last_call_at") or 0) >= cutoff
-            ]
+            data["stories"] = [s for s in (data.get("stories") or [])
+                               if (s.get("last_call_at") or 0) >= cutoff]
             return jsonify(data)
-        return jsonify({"stories": [], "now": int(time.time())})
+        return jsonify({"stories": [], "now": now})
+
+    cols = ("id, title, news_slug, severity, talkgroup_tag, news_confidence, "
+            "news_runtime_sec, news_sources, news_generated_at, score, "
+            "last_call_at, created_at, COALESCE(views, 0) AS views")
+    if full:
+        cols += ", news_script, news_model"
 
     conn = get_db()
-    cur = conn.execute(f"""
-        SELECT id, title, news_slug, severity, talkgroup_tag,
-               news_confidence, news_runtime_sec, news_sources,
-               score, last_call_at, created_at, COALESCE(views, 0) AS views
-        FROM stories
-        WHERE last_call_at >= ?
-          AND news_script IS NOT NULL
-        ORDER BY score DESC, last_call_at DESC
-        LIMIT {STORY_KEEP_MAX}
-    """, (cutoff,))
+    if since:
+        # Polling mode: everything new since `since`, oldest-first, score cap lifted.
+        cur = conn.execute(
+            f"SELECT {cols} FROM stories "
+            f"WHERE last_call_at >= ? AND news_script IS NOT NULL "
+            f"AND COALESCE(news_generated_at, 0) > ? "
+            f"ORDER BY news_generated_at ASC LIMIT ?",
+            (cutoff, since, limit))
+    else:
+        cur = conn.execute(
+            f"SELECT {cols} FROM stories "
+            f"WHERE last_call_at >= ? AND news_script IS NOT NULL "
+            f"ORDER BY score DESC, last_call_at DESC LIMIT ?",
+            (cutoff, limit))
     out = [dict(r) for r in cur]
     conn.close()
-    return jsonify({"stories": out, "now": int(time.time())})
+    return jsonify({"stories": out, "now": now})
 
 
 @app.route("/api/news/<int:story_id>")
