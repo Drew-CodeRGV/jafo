@@ -25,6 +25,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import sqlite3
 import sys
@@ -1611,6 +1612,7 @@ _STORY_EXTRA_COLS = [
     ("news_runtime_sec",  "INTEGER"),  # estimated read time
     ("news_model",        "TEXT"),     # model that wrote it
     ("news_generated_at", "INTEGER"),
+    ("is_fun",            "INTEGER DEFAULT 0"),  # 1 = light "sprinkled-in" story, not an emergency
 ]
 
 
@@ -1635,6 +1637,11 @@ STORY_BUCKET_SEC           = 15 * 60     # 15-min cluster window
 STORY_MAX_NEW_PER_PASS     = 6           # cap Claude calls per refresh
 STORY_RETENTION_HOURS      = 14 * 24    # 14 days — share URLs stay alive this long
 STORY_KEEP_MAX             = 16          # how many top stories to keep + serve
+NEWS_FEED_LIMIT            = 24          # /news cards shown (a touch above KEEP_MAX so sprinkled-in fun stories aren't culled by critical ones)
+# So the feed isn't wall-to-wall emergencies: roughly every 30 min, promote one
+# light, non-critical cluster to a story (the otter plays it for fun). 0 disables.
+FUN_STORY_INTERVAL_SEC     = int(os.environ.get("JAFO_FUN_STORY_INTERVAL_SEC", str(30 * 60)))
+FUN_STORY_MAX_ATTEMPTS     = 3           # candidate clusters to try before giving up (bounds LLM cost)
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
 
@@ -2326,43 +2333,19 @@ def _refresh_stories_once() -> tuple[int, int]:
             skipped += 1
             continue
 
-        primary = max(lst, key=lambda c: c["start_time"])
         synthesized = _synthesize_story(lst)
         if not synthesized:
             continue
-
-        related_ids = [c["id"] for c in lst]
         # Anchor script (Sonnet, strict no-guessing). Returns None when the
         # cluster fails the confidence gate — story still saves, just without a
         # script, so it appears on /dashboard but not /news.
         news = _synthesize_news_script(lst, synthesized)
-        try:
-            conn.execute("""
-                INSERT OR IGNORE INTO stories
-                  (cluster_key, title, body, severity, talkgroup, talkgroup_tag,
-                   primary_call_id, related_call_ids, score, created_at, last_call_at,
-                   news_script, news_slug, news_title, news_caption, news_caption_tts,
-                   news_sources, news_confidence, news_runtime_sec, news_model,
-                   news_generated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                key, synthesized["title"], synthesized["body"],
-                (primary.get("incident_severity") or "unknown").lower(),
-                primary.get("talkgroup"), primary.get("talkgroup_tag"),
-                primary["id"], json.dumps(related_ids),
-                score, int(time.time()), primary["start_time"],
-                (news or {}).get("anchor_body"), (news or {}).get("slug"),
-                (news or {}).get("title"), (news or {}).get("caption"),
-                (news or {}).get("caption_tts"),
-                (news or {}).get("sources_line"), (news or {}).get("confidence"),
-                (news or {}).get("runtime_sec"),
-                NEWS_MODEL if news else None,
-                int(time.time()) if news else None,
-            ))
-            conn.commit()
+        if _insert_story(conn, key, lst, synthesized, news, score):
             new_count += 1
-        except sqlite3.Error as e:
-            print(f"story insert failed: {e}", file=sys.stderr)
+
+    # Once every ~30 min, sprinkle in one light, non-critical story so the feed
+    # isn't all emergencies. Independent of the per-pass cap above.
+    new_count += _maybe_inject_fun_story(conn, ranked, existing_keys)
 
     # No row-count trim: the `score` column is frozen at insert time, so a
     # top-N-by-score cap kept old high-severity stories forever and culled
@@ -2370,6 +2353,88 @@ def _refresh_stories_once() -> tuple[int, int]:
     # row eviction now; /api/stories applies the LIMIT at query time.
     conn.close()
     return (new_count, skipped)
+
+
+def _insert_story(conn, key: str, lst: list[dict], synthesized: dict,
+                  news: dict | None, score: float, is_fun: int = 0) -> bool:
+    """Insert one synthesized story (+ optional anchor script). Returns True on
+    success. Shared by the main ranked loop and the fun-story injector."""
+    primary = max(lst, key=lambda c: c["start_time"])
+    related_ids = [c["id"] for c in lst]
+    try:
+        conn.execute("""
+            INSERT OR IGNORE INTO stories
+              (cluster_key, title, body, severity, talkgroup, talkgroup_tag,
+               primary_call_id, related_call_ids, score, created_at, last_call_at,
+               news_script, news_slug, news_title, news_caption, news_caption_tts,
+               news_sources, news_confidence, news_runtime_sec, news_model,
+               news_generated_at, is_fun)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            key, synthesized["title"], synthesized["body"],
+            (primary.get("incident_severity") or "unknown").lower(),
+            primary.get("talkgroup"), primary.get("talkgroup_tag"),
+            primary["id"], json.dumps(related_ids),
+            score, int(time.time()), primary["start_time"],
+            (news or {}).get("anchor_body"), (news or {}).get("slug"),
+            (news or {}).get("title"), (news or {}).get("caption"),
+            (news or {}).get("caption_tts"),
+            (news or {}).get("sources_line"), (news or {}).get("confidence"),
+            (news or {}).get("runtime_sec"),
+            NEWS_MODEL if news else None,
+            int(time.time()) if news else None,
+            is_fun,
+        ))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"story insert failed: {e}", file=sys.stderr)
+        return False
+
+
+def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
+    """Roughly every FUN_STORY_INTERVAL_SEC, promote one light, non-critical
+    cluster to a story so the news feed has human-interest/fun alongside the
+    emergencies. Only light severities qualify (critical/high go through the
+    normal ranked path), and only clusters that clear the strict news gate get
+    a script. Returns 1 if one was added, else 0."""
+    if FUN_STORY_INTERVAL_SEC <= 0:
+        return 0
+    last_fun = conn.execute(
+        "SELECT MAX(created_at) FROM stories WHERE is_fun = 1"
+    ).fetchone()[0] or 0
+    if int(time.time()) - last_fun < FUN_STORY_INTERVAL_SEC:
+        return 0
+    # Light candidates: new, non-critical/high, and substantive enough to write.
+    cands = []
+    for key, lst, score in ranked:
+        if key in existing_keys:
+            continue
+        sev = max(
+            (SEVERITY_WEIGHT.get((c.get("incident_severity") or "unknown").lower(), 0.5) for c in lst),
+            default=0.5,
+        )
+        if sev >= SEVERITY_WEIGHT["high"]:   # crashes/fires/etc. aren't "fun"
+            continue
+        if not _cluster_passes_news_gate(lst):
+            continue
+        cands.append((key, lst, score))
+    if not cands:
+        return 0
+    # Pick randomly among the candidates so the sprinkle feels spontaneous, but
+    # cap attempts to bound LLM cost if synthesis fails.
+    random.shuffle(cands)
+    for key, lst, score in cands[:FUN_STORY_MAX_ATTEMPTS]:
+        synthesized = _synthesize_story(lst)
+        if not synthesized:
+            continue
+        news = _synthesize_news_script(lst, synthesized)
+        if not news:           # gate or model hiccup — try the next candidate
+            continue
+        if _insert_story(conn, key, lst, synthesized, news, score, is_fun=1):
+            print(f"[news] sprinkled in a fun story: {synthesized.get('title','')[:60]}", file=sys.stderr)
+            return 1
+    return 0
 
 
 def _stories_leader_loop():
@@ -2701,9 +2766,9 @@ def news_list():
     except ValueError:
         since, since_mode = 0, False
     try:
-        limit = int(request.args.get("limit") or (100 if since_mode else STORY_KEEP_MAX))
+        limit = int(request.args.get("limit") or (100 if since_mode else NEWS_FEED_LIMIT))
     except ValueError:
-        limit = STORY_KEEP_MAX
+        limit = NEWS_FEED_LIMIT
     limit = max(1, min(limit, 100))
 
     if _is_edge_node():
@@ -2730,7 +2795,7 @@ def news_list():
     cols = ("id, title, news_slug, news_title, news_caption, news_caption_tts, "
             "severity, talkgroup_tag, news_confidence, news_runtime_sec, "
             "news_sources, news_generated_at, score, last_call_at, created_at, "
-            "COALESCE(views, 0) AS views")
+            "COALESCE(is_fun, 0) AS is_fun, COALESCE(views, 0) AS views")
     if full:
         cols += ", news_script, news_model"
 

@@ -36,10 +36,11 @@ function cardHtml(s){
     ? '<span class="news-badge high">High</span>'
     : '<span class="news-badge medium">Medium</span>';
   const runtime = s.news_runtime_sec ? `~${s.news_runtime_sec}s read` : '';
-  return `<a class="news-card" href="/news/${s.id}">
+  const funTag = s.is_fun ? '<span class="news-badge fun">🦦 Just for fun</span>' : '';
+  return `<a class="news-card${s.is_fun ? ' fun' : ''}" href="/news/${s.id}">
     <div class="news-card-top">
       <span class="news-card-slug">${esc(s.news_slug || 'STORY')}</span>
-      ${badge}
+      ${funTag}${badge}
     </div>
     <h2 class="news-card-title">${esc(s.title || '')}</h2>
     <div class="news-card-meta">
