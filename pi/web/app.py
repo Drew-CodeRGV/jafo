@@ -2829,27 +2829,51 @@ def news_list():
     return jsonify({"stories": out, "now": now})
 
 
-# 30-min digest window for the rate-limited social feed. Instagram allows 50
-# posts / 24h; one best story per 30-min block is 48/day, comfortably under.
-NEWS_BLOCK_SEC = int(os.environ.get("JAFO_NEWS_BLOCK_SEC", str(30 * 60)))
+# Digest window for rate-limited social feeds. The block size is per-request
+# (?block=15m for Instagram Stories ~96/day, ?block=60m for feed Posts 24/day).
+NEWS_BLOCK_SEC = int(os.environ.get("JAFO_NEWS_BLOCK_SEC", str(30 * 60)))   # default
 NEWS_BEST_WINDOW_SEC = 26 * 3600   # how far back to consider blocks (catch-up headroom)
+
+
+def _parse_block_sec(raw: str, default: int) -> int:
+    """Parse a ?block= value: '15m', '1h', '900s', or bare seconds. Clamped to
+    [60s, 24h]."""
+    if not raw:
+        return default
+    raw = raw.strip().lower()
+    try:
+        if raw.endswith("m"):
+            secs = int(float(raw[:-1]) * 60)
+        elif raw.endswith("h"):
+            secs = int(float(raw[:-1]) * 3600)
+        elif raw.endswith("s"):
+            secs = int(float(raw[:-1]))
+        else:
+            secs = int(float(raw))
+    except ValueError:
+        return default
+    return max(60, min(secs, 24 * 3600))
 
 
 @app.route("/api/news/best")
 def news_best():
-    """One best (highest-impact) story per CLOSED 30-min block — built for
-    rate-limited social posting (Instagram caps at 50/24h; 48 blocks/day fits).
+    """One best (highest-impact) story per CLOSED time block — built for
+    rate-limited social posting. Run two pollers off the same endpoint:
+      Instagram Stories (100/day): ?block=15m  -> ~96 winners/day
+      Instagram Posts   (50/day):  ?block=60m  -> 24 winners/day (more selective)
 
-    A block is only emitted once its 30-min window has fully elapsed, so a poller
-    posts exactly one winner per block and never double-posts when a bigger story
-    lands later in the same block. 'Best' = the story score (severity x volume x
+    A block is only emitted once its window has fully elapsed, so a poller posts
+    exactly one winner per block and never double-posts when a bigger story lands
+    later in the same block. 'Best' = the story score (severity x volume x
     recency), the same impact metric the dashboard ranks by.
 
     Params (all optional):
+      block=<dur>    block size: '15m', '60m'/'1h', '900s', or bare seconds.
+                     Default 30m. Each cadence keeps its own `since` cursor.
       since=<epoch>  only blocks whose start is AFTER this. Pass the previous
                      response's max `block_start` to advance the cursor. Oldest-first.
       full=1         include the full news_script (+ news_model) for posting.
-      limit=<n>      max blocks (default 48 = a full day, hard cap 100).
+      limit=<n>      max blocks (default 100, hard cap 100).
     """
     now = int(time.time())
     full = request.args.get("full", "").strip().lower() in ("1", "true", "yes")
@@ -2858,15 +2882,16 @@ def news_best():
     except ValueError:
         since = 0
     try:
-        limit = int(request.args.get("limit") or 48)
+        limit = int(request.args.get("limit") or 100)
     except ValueError:
-        limit = 48
+        limit = 100
     limit = max(1, min(limit, 100))
+    blk = _parse_block_sec(request.args.get("block", ""), NEWS_BLOCK_SEC)
 
     if _is_edge_node():
         hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
         if not hub_url:
-            return jsonify({"blocks": [], "now": now, "block_sec": NEWS_BLOCK_SEC})
+            return jsonify({"blocks": [], "now": now, "block_sec": blk})
         try:
             import requests as _r
             qs = request.query_string.decode()
@@ -2875,7 +2900,7 @@ def news_best():
                 return jsonify(resp.json())
         except Exception as e:
             print(f"[news-best-proxy] hub fetch failed: {e}", file=sys.stderr)
-        return jsonify({"blocks": [], "now": now, "block_sec": NEWS_BLOCK_SEC})
+        return jsonify({"blocks": [], "now": now, "block_sec": blk})
 
     cols = ("id, title, news_slug, news_title, news_caption, news_caption_tts, "
             "severity, talkgroup_tag, news_confidence, news_runtime_sec, "
@@ -2884,7 +2909,6 @@ def news_best():
     if full:
         cols += ", news_script, news_model"
 
-    blk = NEWS_BLOCK_SEC
     cur_block = (now // blk) * blk          # the still-open block — exclude it
     win_cutoff = now - NEWS_BEST_WINDOW_SEC
     conn = get_db()
