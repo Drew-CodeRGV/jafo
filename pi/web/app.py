@@ -2815,10 +2815,14 @@ def news_list():
             f"ORDER BY news_generated_at ASC LIMIT ?",
             (cutoff, since, limit))
     else:
+        # Cards feed: order by recency, not severity. The page groups by hour
+        # (newest first) and we want light "fun" stories to interleave with the
+        # serious ones by time — a score-ranked cap buried low-severity fun
+        # stories under a backlog of emergencies. score breaks ties.
         cur = conn.execute(
             f"SELECT {cols} FROM stories "
             f"WHERE last_call_at >= ? AND news_script IS NOT NULL "
-            f"ORDER BY score DESC, last_call_at DESC LIMIT ?",
+            f"ORDER BY last_call_at DESC, score DESC LIMIT ?",
             (cutoff, limit))
     out = [dict(r) for r in cur]
     conn.close()
