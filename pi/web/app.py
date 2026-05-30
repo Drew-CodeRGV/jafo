@@ -2083,14 +2083,14 @@ def _redact_pii(text: str, names: list[str]) -> str:
 # can reach any public feed or the social posting endpoints. Detection is
 # deliberately cautious — a false positive costs one quick approval click, a
 # missed child reference is exactly the harm this guards against.
+# NOTE: school/juvenile/teen/runaway terms are intentionally NOT here — Drew
+# actively monitors threats against schools etc., so those must reach the feed.
 _CHILD_TERMS = [
-    "child", "children", "kid", "kids", "juvenile", "juveniles", "infant",
-    "baby", "babies", "toddler", "newborn", "teen", "teens", "teenager",
-    "teenagers", "teenage", "daycare", "day care", "preschool", "pre-school",
-    "kindergarten", "elementary", "middle school", "high school", "schoolchild",
+    "child", "children", "kid", "kids", "infant", "baby", "babies", "toddler",
+    "newborn", "daycare", "day care", "preschool", "pre-school", "kindergarten",
     "amber alert", "abduction", "abducted", "abduct", "molest", "molested",
-    "molestation", "child protective", "missing child", "young boy", "young girl",
-    "little boy", "little girl", "minor child", "runaway",
+    "molestation", "child protective", "young boy", "young girl", "little boy",
+    "little girl", "minor child",
 ]
 _CHILD_TERM_RE = re.compile(r"(?i)\b(" + "|".join(re.escape(t) for t in _CHILD_TERMS) + r")\b")
 # Standalone CPS (case-sensitive to avoid matching words like "cpsy...").
