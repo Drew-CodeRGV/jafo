@@ -27,6 +27,7 @@ import math
 import os
 import random
 import re
+import secrets
 import sqlite3
 import sys
 import threading
@@ -34,7 +35,8 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file
+from flask import (Flask, abort, has_request_context, jsonify, redirect,
+                   render_template, request, send_file)
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "services"))
 from common import (
@@ -292,6 +294,8 @@ def get_db() -> sqlite3.Connection:
 
 def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
                      overrides: dict[int, dict] | None = None) -> dict:
+    # Only owner-viewers (local edge operator or admin) see playable audio.
+    _audio_viewer = has_request_context() and _viewer_is_owner(request)
     tg = r["talkgroup"]
     csv_meta = (tg_meta or {}).get(tg, {}) if tg else {}
     ov = (overrides or {}).get(tg, {}) if tg else {}
@@ -316,12 +320,16 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
         "speech_sec": r["speech_sec"],
         "status": r["status"],
         "skip_reason": r["skip_reason"],
+        # Audio is private to its supplier on the hub: only show a playable
+        # path/flag to owner-viewers (local edge operator or admin). Public hub
+        # viewers get audio_available=False and no opus_path → no player renders.
         "audio_available": (
-            r["status"] == "kept"
+            _audio_viewer
+            and r["status"] == "kept"
             and not r["audio_deleted"]
             and r["opus_path"] is not None
         ),
-        "opus_path": r["opus_path"],
+        "opus_path": r["opus_path"] if _audio_viewer else None,
         "transcript": r["transcript"],
         "transcript_at": r["transcript_at"],
         "transcript_error": r["transcript_error"],
@@ -470,6 +478,131 @@ def _admin_ok(req) -> bool:
     if auth.startswith("Bearer ") and auth[7:].strip() == ADMIN_TOKEN:
         return True
     return False
+
+
+def _req_token(req) -> str:
+    """The raw credential on a request: ?node_token=, ?token=, or Bearer header."""
+    tok = (req.args.get("node_token") or req.args.get("token") or "").strip()
+    if tok:
+        return tok
+    auth = req.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _node_id_from_token(req) -> int | None:
+    """The node whose token_hash matches the request credential, else None.
+    This is how a *supplier* (node owner) proves ownership of their own audio on
+    the hub. Mirrors the /api/ingest Bearer scheme."""
+    tok = _req_token(req)
+    if not tok:
+        return None
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM nodes WHERE token_hash = ?", (th,)).fetchone()
+    finally:
+        conn.close()
+    return row["id"] if row else None
+
+
+def _grant_for(req):
+    """The valid (un-revoked, un-expired) share_grants row for ?grant=<token>, else None."""
+    tok = (req.args.get("grant") or "").strip()
+    if not tok:
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM share_grants WHERE token = ? AND revoked = 0", (tok,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    if row["expires_at"] and row["expires_at"] < int(time.time()):
+        return None
+    return row
+
+
+def _viewer_is_owner(req) -> bool:
+    """True if the viewer may see audio PLAYERS in the normal browsing UI: the
+    local edge operator (jafo.local) or an admin-token holder on the hub. Public
+    hub viewers get no player at all — audio is shared only via explicit links."""
+    return _is_edge_node() or _admin_ok(req)
+
+
+def _grant_covers_call(grant, call_id: int) -> bool:
+    """Does a share grant unlock this specific call's audio?"""
+    if not grant:
+        return False
+    if grant["kind"] == "call":
+        return grant["target_id"] == call_id
+    if grant["kind"] == "story":
+        conn = get_db()
+        try:
+            s = conn.execute("SELECT related_call_ids FROM stories WHERE id = ?",
+                             (grant["target_id"],)).fetchone()
+        finally:
+            conn.close()
+        if not s:
+            return False
+        try:
+            return call_id in set(json.loads(s["related_call_ids"] or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            return False
+    return False
+
+
+def _node_owns_call(node_id: int | None, call_id: int) -> bool:
+    if node_id is None:
+        return False
+    conn = get_db()
+    try:
+        r = conn.execute("SELECT node_id FROM calls WHERE id = ?", (call_id,)).fetchone()
+    finally:
+        conn.close()
+    return bool(r) and r["node_id"] == node_id
+
+
+def _node_owns_story(node_id: int | None, story_id: int) -> bool:
+    """True if the node contributed any source call to the story."""
+    if node_id is None:
+        return False
+    conn = get_db()
+    try:
+        s = conn.execute("SELECT related_call_ids FROM stories WHERE id = ?",
+                         (story_id,)).fetchone()
+        if not s:
+            return False
+        try:
+            ids = json.loads(s["related_call_ids"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            ids = []
+        if not ids:
+            return False
+        ph = ",".join("?" * len(ids))
+        owners = conn.execute(
+            f"SELECT DISTINCT node_id FROM calls WHERE id IN ({ph})", ids).fetchall()
+    finally:
+        conn.close()
+    return node_id in {o["node_id"] for o in owners}
+
+
+def _share_media_allowed(kind: str, id_: int) -> bool:
+    """Gate for shareable audio/video (mp3/mp4). Private to the supplier on the
+    hub: allowed for admin, the owning node's token, or a valid share grant for
+    this exact target. (card.png is NOT gated — social link previews need it.)"""
+    if _is_edge_node():
+        return True
+    if _admin_ok(request):
+        return True
+    g = _grant_for(request)
+    if g and g["kind"] == kind and g["target_id"] == id_:
+        return True
+    nid = _node_id_from_token(request)
+    return _node_owns_call(nid, id_) if kind == "call" else _node_owns_story(nid, id_)
 
 
 @app.route("/admin")
@@ -1327,6 +1460,65 @@ def search():
 # "audio/ogg" with codec hint. Some browsers also need conditional=True for
 # byte-range requests so the audio element can scrub correctly.
 # -----------------------------------------------------------------------------
+def _audio_serve_allowed(rel_path: str) -> bool:
+    """Hub access control for raw audio. Audio on jafo.live is private to its
+    supplier: allowed only for admin, the owning node's token, or a valid share
+    grant covering that call. The edge (jafo.local) is the local operator's own
+    machine, so it serves freely."""
+    if _is_edge_node():
+        return True
+    if _admin_ok(request):
+        return True
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id, node_id FROM calls WHERE opus_path = ?",
+                           (rel_path,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False  # unknown path: deny rather than leak
+    nid = _node_id_from_token(request)
+    if nid is not None and nid == row["node_id"]:
+        return True
+    return _grant_covers_call(_grant_for(request), row["id"])
+
+
+def _node_auth_headers() -> dict:
+    """Authorization header carrying this edge's node token. Sent on hub API
+    calls that must return the node's OWN private audio info (opus_path)."""
+    tok = os.environ.get("JAFO_NODE_TOKEN", "").strip()
+    return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+
+def _proxy_hub_audio(rel_path: str):
+    """Edge fallback: the call's audio isn't on this Pi (aged out / hub-only), so
+    stream it from the hub, authenticating with our node token so the hub's
+    access control lets us in. Keeps the token server-side, never in the browser."""
+    hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+    node_token = os.environ.get("JAFO_NODE_TOKEN", "").strip()
+    if not hub_url or not node_token:
+        abort(404)
+    try:
+        import requests as _r
+        headers = {"Authorization": f"Bearer {node_token}"}
+        rng = request.headers.get("Range")
+        if rng:
+            headers["Range"] = rng
+        upstream = _r.get(f"{hub_url}/audio/{rel_path}", headers=headers,
+                          stream=True, timeout=15)
+    except Exception as e:
+        print(f"[audio-proxy] hub fetch failed: {e}", file=sys.stderr)
+        abort(502)
+    if upstream.status_code not in (200, 206):
+        abort(upstream.status_code if upstream.status_code in (403, 404) else 502)
+    from flask import Response
+    passthru = {k: v for k, v in upstream.headers.items()
+                if k.lower() in ("content-type", "content-length", "content-range",
+                                 "accept-ranges")}
+    return Response(upstream.iter_content(chunk_size=65536),
+                    status=upstream.status_code, headers=passthru)
+
+
 @app.route("/audio/<path:rel_path>")
 def audio(rel_path: str):
     if ".." in rel_path or rel_path.startswith("/"):
@@ -1336,8 +1528,17 @@ def audio(rel_path: str):
         full.relative_to(CALLS_DIR.resolve())
     except ValueError:
         abort(400)
+
     if not full.exists():
+        # On the edge, the file may have aged out locally but still live on the
+        # hub — proxy it (authenticated). On the hub, a missing file is a 404.
+        if _is_edge_node():
+            return _proxy_hub_audio(rel_path)
         abort(404)
+
+    # Private audio: only the supplier (or admin, or a valid share link) may hear it.
+    if not _audio_serve_allowed(rel_path):
+        abort(403)
 
     # OGG-container Opus — works in every modern browser, supports range seeks.
     response = send_file(
@@ -1348,7 +1549,8 @@ def audio(rel_path: str):
     )
     # Hint the browser this is seekable
     response.headers["Accept-Ranges"] = "bytes"
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    # Private: do not let shared CDNs/proxies cache supplier audio.
+    response.headers["Cache-Control"] = "private, max-age=3600"
     return response
 
 
@@ -1629,6 +1831,33 @@ CREATE INDEX IF NOT EXISTS idx_digests_block ON digests(block_sec, block_start);
 def ensure_digests_table() -> None:
     conn = get_db()
     conn.executescript(DIGESTS_DDL)
+    conn.commit()
+    conn.close()
+
+
+# Share grants — the explicit "owner shared this" capability. Audio on the hub
+# (jafo.live) is private by default; a grant is an unguessable token, minted by
+# the owning node (or admin), that unlocks audio for ONE call or story so it can
+# be shared as a link. No grant + not owner/admin = no audio (403).
+SHARE_GRANTS_DDL = """
+CREATE TABLE IF NOT EXISTS share_grants (
+    token        TEXT PRIMARY KEY,        -- urlsafe random; the shareable secret
+    kind         TEXT NOT NULL,           -- 'call' | 'story'
+    target_id    INTEGER NOT NULL,
+    created_by   TEXT,                    -- 'admin' or node slug
+    created_at   INTEGER,
+    expires_at   INTEGER,                 -- NULL = no expiry
+    revoked      INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_share_grants_target ON share_grants(kind, target_id);
+-- /audio access control looks up the owning call by opus_path on every play.
+CREATE INDEX IF NOT EXISTS idx_calls_opus_path ON calls(opus_path);
+"""
+
+
+def ensure_share_grants_table() -> None:
+    conn = get_db()
+    conn.executescript(SHARE_GRANTS_DDL)
     conn.commit()
     conn.close()
 
@@ -3032,19 +3261,20 @@ def story_detail(story_id: int):
             abort(503)
         try:
             import requests as _r
-            resp = _r.get(f"{hub_url}/api/stories/{story_id}", timeout=8)
+            resp = _r.get(f"{hub_url}/api/stories/{story_id}",
+                          headers=_node_auth_headers(), timeout=8)
         except Exception as e:
             print(f"[stories-proxy] hub detail fetch failed: {e}", file=sys.stderr)
             abort(502)
         if resp.status_code != 200:
             return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
         data = resp.json()
-        # Audio lives on the hub (different filesystem than this Pi). Add an
-        # absolute audio_url so the browser plays directly from jafo.live and
-        # we don't have to mirror /audio/ on the edge.
+        # Audio lives on the hub, but it's private — route playback through this
+        # edge's own /audio/<path> (which serves the local copy or proxies the
+        # hub WITH our node token), so the operator's token never hits the browser.
         for c in data.get("calls") or []:
             if c.get("opus_path") and c.get("audio_available"):
-                c["audio_url"] = f"{hub_url}/audio/{c['opus_path']}"
+                c["audio_url"] = f"/audio/{c['opus_path']}"
         return jsonify(data)
 
     conn = get_db()
@@ -3062,7 +3292,7 @@ def story_detail(story_id: int):
     if ids:
         placeholders = ",".join("?" * len(ids))
         cur = conn.execute(
-            f"""SELECT id, start_time, duration_sec, opus_path, audio_deleted,
+            f"""SELECT id, node_id, start_time, duration_sec, opus_path, audio_deleted,
                        talkgroup_tag, transcript, incident_summary,
                        incident_location, incident_units, incident_severity,
                        incident_type, enriched_at
@@ -3071,9 +3301,19 @@ def story_detail(story_id: int):
             ids,
         )
         edge = _is_edge_node()
+        global_owner = _viewer_is_owner(request)   # edge or admin → sees all audio
+        # A node-token request (e.g. an edge proxying on behalf of its operator)
+        # owns only its OWN calls' audio.
+        tok_node = None if global_owner else _node_id_from_token(request)
         for r in cur:
             d = dict(r)
-            d["audio_available"] = bool(d["opus_path"]) and not d["audio_deleted"]
+            owner = global_owner or (tok_node is not None and d.get("node_id") == tok_node)
+            # Audio is private to its supplier: hide the path + player from public
+            # hub viewers. They keep the transcript/analysis.
+            d["audio_available"] = owner and bool(d["opus_path"]) and not d["audio_deleted"]
+            if not owner:
+                d["opus_path"] = None
+            d.pop("node_id", None)
             if not edge:
                 d["incident_location"] = _generalize_location(d.get("incident_location"))
             audio.append(d)
@@ -3371,16 +3611,19 @@ def news_detail(story_id: int):
             abort(503)
         try:
             import requests as _r
-            resp = _r.get(f"{hub_url}/api/news/{story_id}", timeout=8)
+            resp = _r.get(f"{hub_url}/api/news/{story_id}",
+                          headers=_node_auth_headers(), timeout=8)
         except Exception as e:
             print(f"[news-proxy] hub detail fetch failed: {e}", file=sys.stderr)
             abort(502)
         if resp.status_code != 200:
             return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
         data = resp.json()
+        # Private audio: play through this edge's own /audio (local copy or
+        # token-authenticated hub proxy), never exposing the node token to the browser.
         for c in data.get("calls") or []:
             if c.get("opus_path") and c.get("audio_available"):
-                c["audio_url"] = f"{hub_url}/audio/{c['opus_path']}"
+                c["audio_url"] = f"/audio/{c['opus_path']}"
         return jsonify(data)
 
     conn = get_db()
@@ -3397,7 +3640,7 @@ def news_detail(story_id: int):
     if ids:
         placeholders = ",".join("?" * len(ids))
         cur = conn.execute(
-            f"""SELECT id, start_time, duration_sec, opus_path, audio_deleted,
+            f"""SELECT id, node_id, start_time, duration_sec, opus_path, audio_deleted,
                        talkgroup_tag, transcript, incident_summary,
                        incident_location, incident_units, incident_severity,
                        incident_type, enriched_at
@@ -3406,9 +3649,19 @@ def news_detail(story_id: int):
             ids,
         )
         edge = _is_edge_node()
+        global_owner = _viewer_is_owner(request)   # edge or admin → sees all audio
+        # A node-token request (e.g. an edge proxying on behalf of its operator)
+        # owns only its OWN calls' audio.
+        tok_node = None if global_owner else _node_id_from_token(request)
         for r in cur:
             d = dict(r)
-            d["audio_available"] = bool(d["opus_path"]) and not d["audio_deleted"]
+            owner = global_owner or (tok_node is not None and d.get("node_id") == tok_node)
+            # Audio is private to its supplier: hide the path + player from public
+            # hub viewers. They keep the transcript/analysis.
+            d["audio_available"] = owner and bool(d["opus_path"]) and not d["audio_deleted"]
+            if not owner:
+                d["opus_path"] = None
+            d.pop("node_id", None)
             if not edge:
                 d["incident_location"] = _generalize_location(d.get("incident_location"))
             audio.append(d)
@@ -4118,6 +4371,8 @@ def share_call_card(call_id: int):
 
 @app.route("/api/share/call/<int:call_id>/video.mp4")
 def share_call_video(call_id: int):
+    if not _share_media_allowed("call", call_id):
+        abort(403, description="audio is private; ask the owner to share a link")
     fmt = _fmt_arg()
     res = _build_call_share(call_id, fmt)
     if not res: abort(404)
@@ -4129,6 +4384,8 @@ def share_call_video(call_id: int):
 
 @app.route("/api/share/call/<int:call_id>/audio.mp3")
 def share_call_audio(call_id: int):
+    if not _share_media_allowed("call", call_id):
+        abort(403, description="audio is private; ask the owner to share a link")
     res = _build_call_share(call_id)
     if not res: abort(404)
     _, _, audio = res
@@ -4153,6 +4410,8 @@ def share_story_card(story_id: int):
 
 @app.route("/api/share/story/<int:story_id>/video.mp4")
 def share_story_video(story_id: int):
+    if not _share_media_allowed("story", story_id):
+        abort(403, description="audio is private; ask the owner to share a link")
     fmt = _fmt_arg()
     res = _build_story_share(story_id, fmt)
     if not res: abort(404)
@@ -4164,12 +4423,126 @@ def share_story_video(story_id: int):
 
 @app.route("/api/share/story/<int:story_id>/audio.mp3")
 def share_story_audio(story_id: int):
+    if not _share_media_allowed("story", story_id):
+        abort(403, description="audio is private; ask the owner to share a link")
     res = _build_story_share(story_id)
     if not res: abort(404)
     _, _, audio = res
     if not audio: abort(404, description="audio not available for this story")
     return send_file(audio, mimetype="audio/mpeg", as_attachment=True,
                      download_name=f"jafo-story-{story_id}.mp3")
+
+
+def _share_base_url() -> str:
+    scheme = request.headers.get("X-Forwarded-Proto") or ("https" if request.is_secure else "http")
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    return f"{scheme}://{host}"
+
+
+@app.route("/api/share/grant", methods=["POST"])
+def create_share_grant():
+    """Mint an unguessable share link that unlocks ONE call/story's audio so the
+    owner can share it. Owner (node token) or admin only. Body: {kind, id,
+    ttl_days?}. The edge proxies to the hub (where the audio + grants live)."""
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if not hub_url:
+            abort(503)
+        try:
+            import requests as _r
+            resp = _r.post(f"{hub_url}/api/share/grant",
+                           headers={**_node_auth_headers(), "Content-Type": "application/json"},
+                           data=request.get_data(), timeout=8)
+        except Exception as e:
+            print(f"[share-grant] hub proxy failed: {e}", file=sys.stderr)
+            abort(502)
+        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
+
+    body = request.get_json(silent=True) or {}
+    kind = (body.get("kind") or "").strip()
+    if kind not in ("call", "story"):
+        return jsonify({"error": "kind must be 'call' or 'story'"}), 400
+    try:
+        target_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "numeric id required"}), 400
+
+    if _admin_ok(request):
+        created_by = "admin"
+    else:
+        nid = _node_id_from_token(request)
+        owns = _node_owns_call(nid, target_id) if kind == "call" else _node_owns_story(nid, target_id)
+        if not owns:
+            return jsonify({"error": "unauthorized"}), 401
+        conn = get_db()
+        try:
+            row = conn.execute("SELECT slug FROM nodes WHERE id = ?", (nid,)).fetchone()
+        finally:
+            conn.close()
+        created_by = row["slug"] if row and row["slug"] else f"node:{nid}"
+
+    expires_at = None
+    try:
+        ttl_days = int(body.get("ttl_days")) if body.get("ttl_days") is not None else 0
+        if ttl_days > 0:
+            expires_at = int(time.time()) + ttl_days * 86400
+    except (TypeError, ValueError):
+        expires_at = None
+
+    token = secrets.token_urlsafe(18)
+    conn = get_db()
+    try:
+        conn.execute(
+            """INSERT INTO share_grants
+               (token, kind, target_id, created_by, created_at, expires_at, revoked)
+               VALUES (?, ?, ?, ?, ?, ?, 0)""",
+            (token, kind, target_id, created_by, int(time.time()), expires_at))
+        conn.commit()
+    finally:
+        conn.close()
+
+    base = _share_base_url()
+    return jsonify({
+        "token": token, "kind": kind, "id": target_id, "expires_at": expires_at,
+        "share_url": f"{base}/share/{kind}/{target_id}?grant={token}",
+        "audio_url": f"{base}/api/share/{kind}/{target_id}/audio.mp3?grant={token}",
+        "video_url": f"{base}/api/share/{kind}/{target_id}/video.mp4?grant={token}",
+    })
+
+
+@app.route("/api/share/grant/<token>", methods=["DELETE"])
+def revoke_share_grant(token: str):
+    """Revoke a previously-minted share link (owner or admin). The link stops
+    unlocking audio immediately."""
+    if _is_edge_node():
+        hub_url = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
+        if not hub_url:
+            abort(503)
+        try:
+            import requests as _r
+            resp = _r.delete(f"{hub_url}/api/share/grant/{token}",
+                             headers=_node_auth_headers(), timeout=8)
+        except Exception as e:
+            print(f"[share-grant] hub revoke proxy failed: {e}", file=sys.stderr)
+            abort(502)
+        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
+
+    conn = get_db()
+    try:
+        g = conn.execute("SELECT * FROM share_grants WHERE token = ?", (token,)).fetchone()
+        if not g:
+            return jsonify({"error": "not found"}), 404
+        if not _admin_ok(request):
+            nid = _node_id_from_token(request)
+            owns = (_node_owns_call(nid, g["target_id"]) if g["kind"] == "call"
+                    else _node_owns_story(nid, g["target_id"]))
+            if not owns:
+                return jsonify({"error": "unauthorized"}), 401
+        conn.execute("UPDATE share_grants SET revoked = 1 WHERE token = ?", (token,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "revoked": token})
 
 
 @app.route("/share/call/<int:call_id>")
@@ -4224,6 +4597,13 @@ def share_story_page(story_id: int):
     except json.JSONDecodeError:
         ids = []
 
+    # Audio plays on the public share page ONLY with a valid share grant for this
+    # story (the owner's explicit "share this" link). Otherwise the page shows the
+    # transcript/analysis with no player.
+    g = _grant_for(request)
+    grant_tok = (request.args.get("grant") or "").strip()
+    audio_ok = bool(g and g["kind"] == "story" and g["target_id"] == story_id)
+
     calls = []
     if ids:
         placeholders = ",".join("?" * len(ids))
@@ -4236,8 +4616,8 @@ def share_story_page(story_id: int):
         )
         for r in cur:
             d = dict(r)
-            if d.get("opus_path") and not d.get("audio_deleted"):
-                d["audio_url"] = f"/audio/{d['opus_path']}"
+            if audio_ok and d.get("opus_path") and not d.get("audio_deleted"):
+                d["audio_url"] = f"/audio/{d['opus_path']}?grant={grant_tok}"
             else:
                 d["audio_url"] = None
             d["start_time_str"] = _fmt_local(d["start_time"], "%H:%M") if d.get("start_time") else ""
@@ -5127,6 +5507,9 @@ def api_aircraft():
 db_connect().close()
 # Ensure the overrides table exists. Safe to call repeatedly.
 ensure_overrides_table()
+# Share grants (private-audio share links) live on the hub; ensure on both so the
+# table is present wherever get_db() short-circuited the initial schema apply.
+ensure_share_grants_table()
 # Stories generation only runs on the hub. Edge nodes proxy /api/stories
 # from the hub instead — they don't have a Groq key, and Ollama enrichment
 # is too weak to produce useful clusters.

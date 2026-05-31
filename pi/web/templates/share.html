@@ -109,7 +109,8 @@
   <article class="sh-body">{{ description }}</article>
 
   {% if calls %}
-  <h3 class="sh-section-h">Listen to the source calls</h3>
+  {% set any_audio = calls | selectattr('audio_url') | list | length > 0 %}
+  <h3 class="sh-section-h">{{ 'Listen to the source calls' if any_audio else 'Source calls' }}</h3>
   {% for c in calls %}
     <div class="sh-call">
       <div class="sh-call-head">
@@ -139,16 +140,14 @@
   </section>
 
   <footer class="sh-footer">
-    JAFO operates passive radio observers that listen to open public-safety and air-traffic broadcasts.
-    All audio above is from publicly broadcast radio traffic in the
-    <a href="/editions">McAllen Edition</a> region.
-    Source calls are kept for 14 days; share links expire after that.
+    JAFO operates passive radio observers that listen to open public-safety and air-traffic broadcasts
+    in the <a href="/editions">McAllen Edition</a> region.
+    Source audio is private to the observer who captured it; any clip you can play
+    here was shared deliberately via this link. Share links expire when the owner revokes them.
     <br><br>
     <strong>Transcriptions are produced using AI</strong> and may contain errors in
     transcription or translation, particularly for proper nouns, addresses, and
-    local dialects and accents. The original audio is always the source of truth —
-    all source recordings are available to listen to at
-    <a href="https://jafo.live">jafo.live</a>.
+    local dialects and accents.
     <br>
     Read more at <a href="/dashboard">The JAFO Report</a>.
   </footer>
