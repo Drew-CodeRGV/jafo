@@ -2067,12 +2067,40 @@ _PLATE_CTX_RE = re.compile(
 # Spelled-out digit runs like "6-0-0-5" (3+ single digits) — plate-specific;
 # does not match unit IDs like "2-2108" (mixed multi-digit groups).
 _PLATE_DIGITS_RE = re.compile(r'\b\d(?:[-\s]\d){2,}\b')
+# Phone numbers (NANP shapes): 956-555-1234, (956) 555-1234, +1 956 555 1234.
+_PHONE_RE = re.compile(
+    r'(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?!\d)')
+# Social-security / similar 3-2-4 government identifiers.
+_SSN_RE = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
+# Specific street addresses → generalised to the block (RTDNA/TPJ: never publish a
+# precise residence). "1234 Main Street" -> "the 1200 block of Main Street".
+# Requires a real street suffix so unit IDs, highways ("Highway 281"), and bare
+# numbers are left untouched.
+_STREET_SUFFIX = (r'(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|'
+                  r'Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Terrace|Ter|'
+                  r'Highway|Hwy|Expressway|Trail|Trl|Parkway|Pkwy|Loop)')
+_ADDRESS_RE = re.compile(
+    r'\b(\d{2,5})\s+((?:[NSEW]\.?\s+)?[A-Z][A-Za-z0-9]*'
+    r'(?:\s+[A-Z][A-Za-z0-9]*){0,2}\s+' + _STREET_SUFFIX + r')\b\.?')
+
+
+def _block_of(num_str: str) -> str:
+    try:
+        n = int(num_str)
+    except ValueError:
+        return num_str
+    return str((n // 100) * 100)
 def _redact_pii(text: str, names: list[str]) -> str:
     if not text:
         return text
     out = text
     for nm in sorted({n.strip() for n in names if n and len(n.strip()) > 1}, key=len, reverse=True):
         out = re.sub(r'\b' + re.escape(nm) + r'\b', "an individual", out, flags=re.IGNORECASE)
+    # Generalise precise street addresses to the block before any digit-stripping
+    # runs eat the house number ("1234 Main St" -> "the 1200 block of Main St").
+    out = _ADDRESS_RE.sub(lambda m: f"the {_block_of(m.group(1))} block of {m.group(2)}", out)
+    out = _SSN_RE.sub("[redacted]", out)
+    out = _PHONE_RE.sub("[redacted]", out)
     out = _PLATE_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[redacted]", out)
     out = _PLATE_DIGITS_RE.sub("[redacted]", out)
     return re.sub(r'[ \t]{2,}', ' ', out).strip()
@@ -2284,6 +2312,35 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "above; use no other special characters.\n"
         "- These are unconfirmed scanner reports. Never assert guilt. Treat "
         "everything as preliminary.\n"
+        "RTDNA / NEWSROOM STANDARDS (mandatory — this is unverified scanner audio):\n"
+        "- ATTRIBUTION & UNCERTAINTY: present everything as preliminary and "
+        "attributed, never as established fact. Use 'according to emergency radio "
+        "traffic', 'dispatch reports', 'crews are responding to what is described "
+        "as'. For anyone accused, use 'suspected', 'alleged', or 'reportedly' — "
+        "never state a person did something. No one is guilty; charges are not "
+        "convictions.\n"
+        "- ADDRESSES: never read a specific street address or house number. "
+        "Generalize to the block or area only (say 'the 100 block of Main Street' "
+        "or 'a McAllen neighborhood'), never '123 Main Street'. Do not pinpoint a "
+        "private residence.\n"
+        "- MEDICAL / GRAPHIC: do NOT describe injuries graphically or relay any "
+        "medical detail or patient condition. Say a person was 'hurt' or 'taken "
+        "for treatment' — never the nature, severity, or gore of a wound.\n"
+        "- OFFICER & PUBLIC SAFETY: never broadcast the real-time location, "
+        "staging, or tactics of an ACTIVE operation — a pursuit in progress, a "
+        "SWAT/tactical callout, an active-shooter response, surveillance, or "
+        "officers approaching a suspect. Reporting live positions endangers them. "
+        "If the radio traffic is an in-progress tactical event, speak only in "
+        "general terms ('police are responding to an incident in the area') with "
+        "NO live locations or movements, or omit the tactical specifics entirely.\n"
+        "- NON-PUBLIC CONTENT: if a transmission reads like a private phone patch, "
+        "a personal phone call, a data/records readout, or otherwise not routine "
+        "public dispatch, do NOT report its contents — leave it out.\n"
+        "- NO DATA PII: never read a phone number, date of birth, social-security "
+        "or driver-license number, or any record identifier, even if spoken.\n"
+        "- UNINTELLIGIBLE AUDIO: if the transcript is garbled, partial, or you are "
+        "unsure what was said, say the detail is 'unclear' or omit it. NEVER guess "
+        "at words, numbers, or names to fill a gap.\n"
         f"LENGTH (hard limit): the ENTIRE anchor_body MUST read aloud in UNDER "
         f"30 seconds. That means NO MORE THAN ABOUT {NEWS_MAX_WORDS} WORDS total "
         "— including your otter line and the color sentence. Be tight: one short "
@@ -2598,6 +2655,12 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int) ->
         "double quotes; quote verbatim only. (Emojis/hashtags go ONLY in the "
         "social_caption.)\n"
         "PRIVACY: never include a person's name or any plate/tag number.\n"
+        "STANDARDS: this is unverified scanner traffic. Keep it attributed and "
+        "preliminary ('dispatch reports', 'according to radio traffic'); for "
+        "anyone accused use 'suspected' or 'alleged', never assert guilt. No "
+        "specific street addresses (block or area only), no graphic medical "
+        "detail, no phone numbers or record IDs, and no real-time locations of "
+        "any active pursuit or tactical operation.\n"
         "Output STRICT JSON only, no markdown."
     )
     user_msg = (
