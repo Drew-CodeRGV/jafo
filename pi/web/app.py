@@ -328,7 +328,10 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
         "transcript_model": r["transcript_model"],
         "incident_type": r["incident_type"],
         "incident_summary": r["incident_summary"],
-        "incident_location": r["incident_location"],
+        # On the public hub (jafo.live) generalise precise addresses to the
+        # block; the edge (jafo.local) keeps the full location for operators.
+        "incident_location": (r["incident_location"] if _is_edge_node()
+                              else _generalize_location(r["incident_location"])),
         "incident_units": (r["incident_units"] or "").split(",") if r["incident_units"] else [],
         "incident_severity": r["incident_severity"],
         "enriched_at": r["enriched_at"],
@@ -2079,31 +2082,51 @@ _SSN_RE = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
 _STREET_SUFFIX = (r'(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|'
                   r'Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Terrace|Ter|'
                   r'Highway|Hwy|Expressway|Trail|Trl|Parkway|Pkwy|Loop)')
+# A street-name word: a letter-initial word or an ordinal (10th, 23rd). Pure
+# numbers are excluded so a name token can't bridge unrelated words like a
+# phone tail ("...0142 from 1200 Pecan Blvd").
+_STREET_WORD = r'(?:[A-Za-z][A-Za-z0-9]*|\d{1,3}(?:st|nd|rd|th))\.?'
 _ADDRESS_RE = re.compile(
-    r'\b(\d{2,5})\s+((?:[NSEW]\.?\s+)?[A-Z][A-Za-z0-9]*'
-    r'(?:\s+[A-Z][A-Za-z0-9]*){0,2}\s+' + _STREET_SUFFIX + r')\b\.?')
+    r'\b(\d{2,5})\s+((?:[NSEW]\.?\s+)?(?:' + _STREET_WORD + r'\s+){1,3}'
+    + _STREET_SUFFIX + r')\b\.?', re.IGNORECASE)
 
 
-def _block_of(num_str: str) -> str:
+def _addr_block_repl(m: "re.Match") -> str:
+    """Replace a street address with its block. House numbers under 100 have no
+    sensible block ("the 0 block of..."), so drop the number and keep just the
+    street name — still removes the pinpoint."""
+    street = m.group(2)
     try:
-        n = int(num_str)
+        block = (int(m.group(1)) // 100) * 100
     except ValueError:
-        return num_str
-    return str((n // 100) * 100)
+        return m.group(0)
+    return street if block == 0 else f"the {block} block of {street}"
 def _redact_pii(text: str, names: list[str]) -> str:
     if not text:
         return text
     out = text
     for nm in sorted({n.strip() for n in names if n and len(n.strip()) > 1}, key=len, reverse=True):
         out = re.sub(r'\b' + re.escape(nm) + r'\b', "an individual", out, flags=re.IGNORECASE)
-    # Generalise precise street addresses to the block before any digit-stripping
-    # runs eat the house number ("1234 Main St" -> "the 1200 block of Main St").
-    out = _ADDRESS_RE.sub(lambda m: f"the {_block_of(m.group(1))} block of {m.group(2)}", out)
+    # Redact phone/SSN digits FIRST so a phone tail can't be mistaken for a house
+    # number, then generalise precise street addresses to the block
+    # ("1234 Main St" -> "the 1200 block of Main St").
     out = _SSN_RE.sub("[redacted]", out)
     out = _PHONE_RE.sub("[redacted]", out)
+    out = _ADDRESS_RE.sub(_addr_block_repl, out)
     out = _PLATE_CTX_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[redacted]", out)
     out = _PLATE_DIGITS_RE.sub("[redacted]", out)
     return re.sub(r'[ \t]{2,}', ' ', out).strip()
+
+
+def _generalize_location(text: str) -> str:
+    """Public-surface incident location: generalise a precise street address to
+    its block ("1234 Main St" -> "the 1200 block of Main St") and scrub any
+    phone/plate that slipped into the location string. Intersections, business
+    names, and landmarks (no house number) pass through unchanged. Applied only
+    when serving the hub (jafo.live) — the edge (jafo.local) keeps full detail."""
+    if not text:
+        return text
+    return _redact_pii(text, [])
 
 
 # --- Child-safety gate -----------------------------------------------------
@@ -2986,6 +3009,8 @@ def stories_list():
         locs = [(c.get("incident_location") or "").strip() for c in rows]
         locs = [x for x in locs if x]
         address = max(locs, key=len) if locs else ""
+        if address and not _is_edge_node():
+            address = _generalize_location(address)
         d["meta"] = {
             "first_time":  first.get("start_time"),
             "last_time":   last.get("start_time"),
@@ -3045,9 +3070,12 @@ def story_detail(story_id: int):
                 ORDER BY start_time ASC""",
             ids,
         )
+        edge = _is_edge_node()
         for r in cur:
             d = dict(r)
             d["audio_available"] = bool(d["opus_path"]) and not d["audio_deleted"]
+            if not edge:
+                d["incident_location"] = _generalize_location(d.get("incident_location"))
             audio.append(d)
     conn.close()
     s["calls"] = audio
@@ -3377,9 +3405,12 @@ def news_detail(story_id: int):
                 ORDER BY start_time ASC""",
             ids,
         )
+        edge = _is_edge_node()
         for r in cur:
             d = dict(r)
             d["audio_available"] = bool(d["opus_path"]) and not d["audio_deleted"]
+            if not edge:
+                d["incident_location"] = _generalize_location(d.get("incident_location"))
             audio.append(d)
     conn.close()
     s["calls"] = audio
