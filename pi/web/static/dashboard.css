@@ -709,6 +709,16 @@ html.dash-html, body.dash-body {
   text-align: center;
   font-style: italic;
 }
+.paper-foot-compliance {
+  margin-top: 6px;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: .02em;
+  color: #6b5d45;
+  max-width: 80ch;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
