@@ -3436,6 +3436,10 @@ def news_list():
 # (?block=15m for Instagram Stories ~96/day, ?block=60m for feed Posts 24/day).
 NEWS_BLOCK_SEC = int(os.environ.get("JAFO_NEWS_BLOCK_SEC", str(30 * 60)))   # default
 NEWS_BEST_WINDOW_SEC = 26 * 3600   # how far back to consider blocks (catch-up headroom)
+# Hard cap on how far back the IG posting feeds (/api/news/posts + /stories) will
+# expose blocks. Keeps the feeds to the most recent window so a poller never
+# dumps a stale backlog — even with no `since` cursor it only sees the last hour.
+NEWS_FEED_MAX_AGE_SEC = int(os.environ.get("JAFO_NEWS_FEED_MAX_AGE_SEC", str(3600)))
 
 
 def _parse_block_sec(raw: str, default: int) -> int:
@@ -3512,7 +3516,11 @@ def news_best():
         cols += ", news_script, news_model"
 
     cur_block = (now // blk) * blk          # the still-open block — exclude it
-    win_cutoff = now - NEWS_BEST_WINDOW_SEC
+    # Cap to the last NEWS_FEED_MAX_AGE_SEC of CONTENT (by last_call_at, not the
+    # block boundary) so the backlog is cleared and a no-cursor poll only ever
+    # sees the last hour — without dropping a recent post whose 30-min block
+    # happens to start just over the line.
+    win_cutoff = now - NEWS_FEED_MAX_AGE_SEC
     conn = get_db()
     cur = conn.execute(
         f"""
@@ -3594,7 +3602,7 @@ def news_digest():
         f"SELECT {cols} FROM digests "
         f"WHERE block_sec = ? AND block_start > ? AND block_start >= ? "
         f"ORDER BY block_start ASC LIMIT ?",
-        (blk, since, now - NEWS_BEST_WINDOW_SEC, limit))
+        (blk, since, now - NEWS_FEED_MAX_AGE_SEC, limit))
     out = [dict(r) for r in cur]
     conn.close()
     for s in out:
