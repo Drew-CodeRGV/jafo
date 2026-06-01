@@ -73,6 +73,33 @@
   .mod-btn.deny { background: #b4280b; }
   .mod-btn.del { background: #555; }
   .mod-btn:disabled { opacity: .5; cursor: default; }
+  /* "Going to Instagram" feed-plan panel — what posts where */
+  .feedplan { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;
+              margin-bottom: 1.8rem; border: 1px solid rgba(22,17,10,.2);
+              border-radius: 6px; padding: 1rem 1.1rem; background: rgba(255,255,255,.4); }
+  .fp-title { grid-column: 1 / -1; font-family: ui-monospace, Menlo, monospace;
+              font-size: .82rem; font-weight: 700; letter-spacing: .05em;
+              text-transform: uppercase; color: var(--ink-2,#423929); margin: 0; }
+  @media (max-width: 720px) { .feedplan { grid-template-columns: 1fr; } }
+  .fp-col { display: flex; flex-direction: column; gap: .55rem; }
+  .fp-stories { border-right: 1px solid rgba(22,17,10,.12); padding-right: 1.1rem; }
+  @media (max-width: 720px) { .fp-stories { border-right: none; padding-right: 0;
+      border-bottom: 1px solid rgba(22,17,10,.12); padding-bottom: .8rem; } }
+  .fp-head { font-family: ui-monospace, Menlo, monospace; font-size: .78rem; font-weight: 700;
+             display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .fp-cadence { font-weight: 400; text-transform: none; color: var(--ink-2,#423929); opacity: .85; }
+  .fp-badge { font-size: .66rem; font-weight: 700; padding: .15rem .45rem; border-radius: 3px;
+              text-transform: uppercase; letter-spacing: .04em; color: #fff; white-space: nowrap; }
+  .fp-badge.story { background: #2a7fb8; }
+  .fp-badge.post  { background: #b4280b; }
+  .fp-item { border: 1px solid rgba(22,17,10,.15); border-radius: 4px; padding: .55rem .65rem;
+             background: rgba(255,255,255,.55); }
+  .fp-item-meta { font-size: .68rem; color: var(--ink-2,#423929); text-transform: uppercase;
+                  letter-spacing: .03em; margin-bottom: .2rem; }
+  .fp-item-title { font-family: Georgia, serif; font-size: .98rem; font-weight: 700; margin: 0 0 .25rem; }
+  .fp-item-body { font-size: .82rem; line-height: 1.4; color: var(--ink-1,#16110a); margin: 0; }
+  .fp-empty { font-size: .82rem; font-style: italic; color: var(--ink-2,#423929); }
+  .news-badge.post { background: #b4280b; color: #fff; }
 </style>
 </head>
 <body class="dash-body">
@@ -101,6 +128,7 @@
     Click a story to open the full read.
   </p>
   <section id="news-approval" class="news-approval" style="display:none"></section>
+  <section id="news-feedplan" class="feedplan" style="display:none"></section>
   <section class="paper-section">
     <div id="news-grid" class="news-grid">
       <div class="news-empty">Loading the latest scripts…</div>
