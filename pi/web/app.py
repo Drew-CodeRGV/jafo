@@ -1924,6 +1924,12 @@ DIGEST_ENABLED             = os.environ.get("JAFO_DIGEST_ENABLED", "true").strip
 DIGEST_MAX_NEW_PER_PASS    = 2           # bound Sonnet calls per leader pass
 DIGEST_LOOKBACK_BLOCKS     = 2           # only digest the last N closed blocks lacking one
 DIGEST_MAX_WORDS           = int(os.environ.get("JAFO_DIGEST_MAX_WORDS", "110"))   # ~44s read
+# Hourly "rundown" for the reels/posts feed: one aggregate roundup per 60-min
+# block, longer than the 20-min Story digest — a fuller read that still lands
+# under 90 seconds (210 words / 2.5 wps ≈ 84s, with margin under the cap).
+RUNDOWN_BLOCK_SEC          = int(os.environ.get("JAFO_RUNDOWN_BLOCK_SEC", str(60 * 60)))
+RUNDOWN_MAX_WORDS          = int(os.environ.get("JAFO_RUNDOWN_MAX_WORDS", "210"))   # <90s read
+RUNDOWN_MAX_ITEMS          = int(os.environ.get("JAFO_RUNDOWN_MAX_ITEMS", "14"))    # source stories to summarize
 
 # News anchor script generation (Claude Sonnet — see _synthesize_news_script).
 # Always Anthropic regardless of the story-synth backend: this is the news
@@ -2896,15 +2902,26 @@ def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
 # into one short roundup. The per-story scripts are already grounded + PII-
 # scrubbed, so the digest only summarizes them — it introduces no new facts.
 # ---------------------------------------------------------------------------
-def _synthesize_digest(stories: list[dict], block_start: int, block_end: int) -> dict | None:
+def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
+                       max_words: int = DIGEST_MAX_WORDS,
+                       max_items: int = 8) -> dict | None:
+    """Summarize a closed block's verified stories into one roundup. Same engine
+    serves both the 20-min IG-Story digest (short, ~44s) and the hourly reels
+    rundown (longer, under 90s) — only the length/breadth budget differs."""
     client = _claude()
     if not client:
         return None
     mins = max(1, round((block_end - block_start) / 60))
     win = f"{_fmt_local(block_start, '%-I:%M %p')} to {_fmt_local(block_end, '%-I:%M %p')}"
+    # Breadth + duration scale with the budget: the short Story digest hits 2-4
+    # items and reads well under a minute; the hourly rundown hits more and may
+    # run up to ~90s.
+    is_rundown = max_words > DIGEST_MAX_WORDS + 20
+    n_lo, n_hi = (4, 7) if is_rundown else (2, 4)
+    dur_phrase = "under 90 seconds" if is_rundown else "well under a minute"
     # Feed the already-aired, verified per-story scripts as the only source.
     items = []
-    for s in stories[:8]:
+    for s in stories[:max_items]:
         sev = (s.get("severity") or "unknown")
         items.append(
             f"- [{sev}] {s.get('news_title') or s.get('news_slug') or ''}\n"
@@ -2915,16 +2932,17 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int) ->
 
     system = (
         "You are OTTER, a charming river-otter news anchor for a Rio Grande "
-        "Valley TV station, writing a short Instagram-Story ROUNDUP that sums up "
+        "Valley TV station, writing a " + ("rundown" if is_rundown else "short "
+        "Instagram-Story") + " ROUNDUP that sums up "
         f"the public-safety activity from the last {mins} minutes.\n"
         "SOURCE: you are given the individual verified story scripts that already "
         "aired this block. Summarize them into ONE cohesive read. Use ONLY facts "
         "present in those scripts — add NO new details, numbers, names, or "
         "specifics. These are unconfirmed scanner reports; never assert guilt.\n"
         "SHAPE: open with a quick 'here's what's moving across the Valley' style "
-        "line, then hit the 2 to 4 most notable items, one tight sentence each, "
-        f"then a brief otter sign-off. UNDER {DIGEST_MAX_WORDS} words total so it "
-        "reads in well under a minute.\n"
+        f"line, then hit the {n_lo} to {n_hi} most notable items, one tight "
+        f"sentence each, then a brief otter sign-off. UNDER {max_words} words "
+        f"total so it reads in {dur_phrase}.\n"
         "TONE GUARD: match the heaviest item in the mix. If anything involves a "
         "crash, fire, injury, or death, keep the WHOLE read measured and warm — "
         "no jokes. Save playful river/otter wordplay for blocks that are entirely "
@@ -2975,7 +2993,7 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int) ->
     if not body:
         return None
     body = _redact_pii(body, [])           # plate backstop; names already scrubbed upstream
-    body = _fit_to_word_budget(body, DIGEST_MAX_WORDS)
+    body = _fit_to_word_budget(body, max_words)
     body = _tts_sanitize(body)
     social_title = (data.get("social_title") or (stories[0].get("news_title") if stories else "") or "Valley roundup").strip()
     social_caption = _redact_pii((data.get("social_caption") or "").strip(), [])
@@ -3014,10 +3032,13 @@ def _insert_digest(conn, block_key, blk, bs, be, stories, dg) -> bool:
         return False
 
 
-def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC) -> int:
+def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC,
+                          max_words: int = DIGEST_MAX_WORDS,
+                          max_items: int = 8) -> int:
     """Generate aggregate digests for recently-CLOSED blocks that lack one.
     Forward-only (last DIGEST_LOOKBACK_BLOCKS blocks) so there's no historical
-    backfill. Returns the number of digests created."""
+    backfill. Returns the number of digests created. Called once per block size:
+    20-min for the IG-Story digest, 60-min for the hourly reels rundown."""
     if not DIGEST_ENABLED:
         return 0
     now = int(time.time())
@@ -3044,9 +3065,10 @@ def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC) -> int:
         if not stories:
             bs += blk
             continue                          # nothing newsworthy — no digest for this block
-        dg = _synthesize_digest(stories, bs, be)
+        dg = _synthesize_digest(stories, bs, be, max_words=max_words, max_items=max_items)
         if dg and _insert_digest(conn, block_key, blk, bs, be, stories, dg):
-            print(f"[digest] block {_fmt_local(bs, '%H:%M')} roundup of {len(stories)} stories", file=sys.stderr)
+            kind = "rundown" if blk >= RUNDOWN_BLOCK_SEC else "roundup"
+            print(f"[digest] {blk//60}m {kind} {_fmt_local(bs, '%H:%M')} of {len(stories)} stories", file=sys.stderr)
             made += 1
         bs += blk
     conn.close()
@@ -3072,7 +3094,11 @@ def _stories_leader_loop():
         except Exception as e:
             print(f"[stories] refresh failed: {e}", file=sys.stderr)
         try:
-            made = _refresh_digests_once()
+            # 20-min IG-Story digests + the hourly reels/posts rundown. Same
+            # generator, different length/breadth budgets per block size.
+            made = _refresh_digests_once(DIGEST_BLOCK_SEC, DIGEST_MAX_WORDS, 8)
+            made += _refresh_digests_once(RUNDOWN_BLOCK_SEC, RUNDOWN_MAX_WORDS,
+                                          RUNDOWN_MAX_ITEMS)
             if made:
                 print(f"[digest] generated {made} block roundup(s)", file=sys.stderr)
         except Exception as e:
@@ -3585,13 +3611,15 @@ def news_digest():
     """Aggregate roundups — one synthesized script per closed block (the IG
     'Stories' feed). Each block summarizes all the verified stories in that window.
 
-    Generated forward-only by the leader loop at JAFO_DIGEST_BLOCK_SEC (default
-    20 min). Poll this for Instagram Stories:
-      ?block=20m&full=1&since=<cursor>  -> ~72/day, one roundup per 20-min block.
+    Generated forward-only by the leader loop. Two block sizes are produced:
+      ?block=20m&full=1&since=<cursor>  -> IG Stories: ~72/day, ~44s roundup.
+      ?block=60m&full=1&since=<cursor>  -> reels/posts: 24/day, the hourly
+                                          rundown that reads in under 90s.
 
     Params (all optional):
-      block=<dur>    block size to serve (default 20m). Must match what the
-                     generator produces, else the result is empty.
+      block=<dur>    block size to serve (default 20m; use 60m/1h for the hourly
+                     rundown). Must match what the generator produces (20m or
+                     60m), else the result is empty.
       since=<epoch>  only blocks whose start is AFTER this (cursor). Oldest-first.
       full=1         include the full `script` (+ model).
       limit=<n>      max blocks (default 100, hard cap 100).
@@ -3627,12 +3655,16 @@ def news_digest():
             "sources, story_count, confidence, runtime_sec, generated_at")
     if full:
         cols += ", script, model"
+    # Backlog floor scales with block size: a just-closed block has
+    # block_start = now - blk, so the window must be at least ~2 blocks wide or
+    # the hourly rundown would age out before the next hourly poll sees it.
+    age_floor = now - max(NEWS_FEED_MAX_AGE_SEC, 2 * blk)
     conn = get_db()
     cur = conn.execute(
         f"SELECT {cols} FROM digests "
         f"WHERE block_sec = ? AND block_start > ? AND block_start >= ? "
         f"ORDER BY block_start ASC LIMIT ?",
-        (blk, since, now - NEWS_FEED_MAX_AGE_SEC, limit))
+        (blk, since, age_floor, limit))
     out = [dict(r) for r in cur]
     conn.close()
     for s in out:

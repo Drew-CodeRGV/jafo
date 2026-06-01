@@ -35,20 +35,17 @@ function hourLabel(bucketMs){
   return range;
 }
 
-function cardHtml(s, winnerIds){
+function cardHtml(s){
   const conf = (s.news_confidence || 'medium').toLowerCase();
   const badge = conf === 'high'
     ? '<span class="news-badge high">High</span>'
     : '<span class="news-badge medium">Medium</span>';
   const runtime = s.news_runtime_sec ? `~${s.news_runtime_sec}s read` : '';
   const funTag = s.is_fun ? '<span class="news-badge fun">🦦 Just for fun</span>' : '';
-  // This script is its 30-min block winner → the one posted to the IG Posts feed.
-  const postTag = (winnerIds && winnerIds.has(s.id))
-    ? '<span class="news-badge post">📮 IG Post</span>' : '';
   return `<a class="news-card${s.is_fun ? ' fun' : ''}" href="/news/${s.id}">
     <div class="news-card-top">
       <span class="news-card-slug">${esc(s.news_slug || 'STORY')}</span>
-      ${postTag}${funTag}${badge}
+      ${funTag}${badge}
     </div>
     <h2 class="news-card-title">${esc(s.title || '')}</h2>
     <div class="news-card-meta">
@@ -58,7 +55,7 @@ function cardHtml(s, winnerIds){
   </a>`;
 }
 
-function renderCards(data, winnerIds){
+function renderCards(data){
   const grid = document.getElementById('news-grid');
   const stories = (data && data.stories) || [];
   if(!stories.length){
@@ -80,64 +77,59 @@ function renderCards(data, winnerIds){
     const cls = (i === 0) ? 'news-hour-head news-hour-new' : 'news-hour-head';
     return `<section class="news-hour-group">
         <div class="${cls}"><span class="news-hour-label">${esc(label)}</span><span class="news-hour-rule"></span></div>
-        <div class="news-grid-row">${g.items.map(s => cardHtml(s, winnerIds)).join('')}</div>
+        <div class="news-grid-row">${g.items.map(s => cardHtml(s)).join('')}</div>
       </section>`;
   }).join('');
 }
 
 // ---- "Going to Instagram" feed plan -------------------------------------
 // Shows exactly what's queued for each IG feed so Drew can track what's running:
-//   📱 Stories  = the 20-min aggregate roundups (/api/news/posts is per-story).
-//   📮 Posts    = the 30-min single-best winners.
-// Returns the set of winner story IDs so the main grid can badge them.
+//   📱 IG Story    = the 20-min aggregate roundups (/api/news/stories?block=20m).
+//   📽 Reel/Post   = the hourly <90s rundown        (/api/news/stories?block=60m).
+// Both are aggregate digests; the rundown is just longer and on a slower cadence.
 function fpWindow(bs, be){
   if(!bs) return '';
   const f = t => new Date(t*1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   return `${f(bs)}–${f(be)}`;
 }
-function renderFeedPlan(posts, stories){
-  const wrap = document.getElementById('news-feedplan');
-  if(!wrap) return new Set();
-  const pBlocks = (posts && posts.blocks) || [];
-  const sBlocks = (stories && stories.blocks) || [];
-  const winnerIds = new Set(pBlocks.map(b => b.id));
-  // newest-first for display (feeds come oldest-first for cursor polling)
-  const storyItem = b => `<div class="fp-item">
-      <div class="fp-item-meta">${esc(fpWindow(b.block_start,b.block_end))} · ${b.story_count||0} stories${b.runtime_sec?` · ~${b.runtime_sec}s`:''}</div>
+function digestItem(b){
+  return `<div class="fp-item">
+      <div class="fp-item-meta">${esc(fpWindow(b.block_start,b.block_end))} · ${b.story_count||0} stories${b.runtime_sec?` · ~${b.runtime_sec}s read`:''}</div>
       <h4 class="fp-item-title">${esc(b.title||'Roundup')}</h4>
       <p class="fp-item-body">${esc(b.script || b.caption_tts || b.caption || '')}</p>
     </div>`;
-  const postItem = b => `<div class="fp-item">
-      <div class="fp-item-meta">${esc(fpWindow(b.block_start,b.block_end))} · ${esc(b.talkgroup_tag||'')}${b.news_runtime_sec?` · ~${b.news_runtime_sec}s`:''}</div>
-      <h4 class="fp-item-title">${esc(b.news_title || b.title || b.news_slug || '')}</h4>
-      <p class="fp-item-body">${esc(b.news_script || b.news_caption_tts || b.news_caption || '')}</p>
-    </div>`;
+}
+function renderFeedPlan(stories, rundown){
+  const wrap = document.getElementById('news-feedplan');
+  if(!wrap) return;
+  const sBlocks = (stories && stories.blocks) || [];
+  const rBlocks = (rundown && rundown.blocks) || [];
+  // newest-first for display (feeds come oldest-first for cursor polling)
   wrap.style.display = 'grid';
   wrap.innerHTML = `
-    <p class="fp-title">📣 Going to Instagram · last hour</p>
+    <p class="fp-title">📣 Going to Instagram</p>
     <div class="fp-col fp-stories">
-      <div class="fp-head"><span class="fp-badge story">📱 IG Story</span><span class="fp-cadence">every 20 min · aggregate roundup</span></div>
-      ${sBlocks.length ? sBlocks.slice().reverse().map(storyItem).join('') : '<div class="fp-empty">No roundup posted in the last hour yet.</div>'}
+      <div class="fp-head"><span class="fp-badge story">📱 IG Story</span><span class="fp-cadence">every 20 min · short roundup</span></div>
+      ${sBlocks.length ? sBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No 20-minute roundup in the last hour yet.</div>'}
     </div>
     <div class="fp-col fp-posts">
-      <div class="fp-head"><span class="fp-badge post">📮 IG Post</span><span class="fp-cadence">every 30 min · single best story</span></div>
-      ${pBlocks.length ? pBlocks.slice().reverse().map(postItem).join('') : '<div class="fp-empty">No post winner in the last hour yet.</div>'}
+      <div class="fp-head"><span class="fp-badge post">📽 IG Reel / Post</span><span class="fp-cadence">hourly · full rundown under 90s</span></div>
+      ${rBlocks.length ? rBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No hourly rundown yet — one posts after each clock hour closes.</div>'}
     </div>`;
-  return winnerIds;
 }
 
 async function refresh(){
   try {
-    const [newsR, postsR, storiesR] = await Promise.all([
+    const [newsR, storiesR, rundownR] = await Promise.all([
       fetch('/api/news', {cache:'no-store'}),
-      fetch('/api/news/posts?block=30m&full=1', {cache:'no-store'}),
       fetch('/api/news/stories?block=20m&full=1', {cache:'no-store'}),
+      fetch('/api/news/stories?block=60m&full=1', {cache:'no-store'}),
     ]);
     const news    = newsR.ok    ? await newsR.json()    : {stories: []};
-    const posts   = postsR.ok   ? await postsR.json()   : {blocks: []};
     const stories = storiesR.ok ? await storiesR.json() : {blocks: []};
-    const winnerIds = renderFeedPlan(posts, stories);
-    renderCards(news, winnerIds);
+    const rundown = rundownR.ok ? await rundownR.json() : {blocks: []};
+    renderFeedPlan(stories, rundown);
+    renderCards(news);
   } catch(e){
     console.warn('news refresh failed', e);
   }
