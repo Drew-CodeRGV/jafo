@@ -3793,6 +3793,47 @@ def news_moderate(story_id: int):
     return jsonify({"ok": True, "id": story_id, "action": action})
 
 
+@app.route("/api/news/upload-status")
+def news_upload_status():
+    """Operator tool: check an upload-post.com job by request_id.
+
+    Thin proxy so the browser never has to talk to upload-post.com directly
+    (CORS) and the API key isn't pinned in page source. The key is supplied
+    per-request by the operator via the X-UploadPost-Key header (or ?key=),
+    never stored. Forwards exactly one upstream:
+      GET https://api.upload-post.com/api/uploadposts/status?request_id=<id>
+      Authorization: Apikey <key>
+
+    Owner-gated, not admin-gated: the local edge operator (jafo.local) owns
+    their box and needs no token; on the public hub it requires the admin token.
+    """
+    if not _viewer_is_owner(request):
+        return jsonify({"error": "unauthorized"}), 401
+    request_id = (request.args.get("request_id") or "").strip()
+    key = (request.headers.get("X-UploadPost-Key")
+           or request.args.get("key") or "").strip()
+    if not request_id:
+        return jsonify({"error": "request_id required"}), 400
+    if not key:
+        return jsonify({"error": "api key required"}), 400
+    try:
+        import requests as _r
+        r = _r.get(
+            "https://api.upload-post.com/api/uploadposts/status",
+            params={"request_id": request_id},
+            headers={"Authorization": f"Apikey {key}"},
+            timeout=15,
+        )
+    except Exception as e:  # network/timeout
+        return jsonify({"error": f"upstream request failed: {e}"}), 502
+    try:
+        body = r.json()
+    except ValueError:
+        body = {"raw": r.text[:4000]}
+    return jsonify({"status_code": r.status_code, "body": body}), (
+        200 if r.ok else 502)
+
+
 @app.route("/news")
 def news_page():
     """News desk — cards of top stories that have anchor scripts."""

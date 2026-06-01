@@ -212,6 +212,60 @@ async function loadPending(){
   }
 }
 
+// ---- Upload-Post status checker (admin only) ----------------------------
+// Looks up an upload-post.com job via the admin-gated backend proxy so the
+// browser never hits the upstream directly (CORS) and the key isn't in source.
+const UPS_KEY_LS = 'jafo_ups_key';
+function setupUploadTool(){
+  const wrap = document.getElementById('news-upload-tool');
+  // Owner-only tool: shown to the local edge operator (no token needed — they
+  // own the box) or to an admin-token holder on the public hub.
+  const isOwner = (typeof window.JAFO_IS_HUB !== 'undefined' && !window.JAFO_IS_HUB) || !!ADMIN_TOKEN;
+  if(!wrap || !isOwner) return;
+  wrap.style.display = 'block';
+  const keyEl = document.getElementById('ups-key');
+  const idEl  = document.getElementById('ups-id');
+  const btn   = document.getElementById('ups-check');
+  const rememberEl = document.getElementById('ups-remember');
+  const out   = document.getElementById('ups-result');
+
+  const saved = localStorage.getItem(UPS_KEY_LS);
+  if(saved){ keyEl.value = saved; rememberEl.checked = true; }
+  rememberEl.addEventListener('change', () => {
+    if(rememberEl.checked) localStorage.setItem(UPS_KEY_LS, keyEl.value.trim());
+    else localStorage.removeItem(UPS_KEY_LS);
+  });
+
+  async function check(){
+    const key = keyEl.value.trim();
+    const id  = idEl.value.trim();
+    if(!key){ out.innerHTML = '<div class="ups-status err">Enter an API key.</div>'; return; }
+    if(!id){ out.innerHTML = '<div class="ups-status err">Enter a request / video ID.</div>'; return; }
+    if(rememberEl.checked) localStorage.setItem(UPS_KEY_LS, key);
+    btn.disabled = true;
+    out.innerHTML = '<div class="ups-status">Checking…</div>';
+    try {
+      const r = await fetch(withTok('/api/news/upload-status?request_id=' + encodeURIComponent(id)),
+        { cache:'no-store', headers: { 'X-UploadPost-Key': key } });
+      const data = await r.json();
+      if(!r.ok){
+        out.innerHTML = `<div class="ups-status err">Error ${r.status}: ${esc((data && data.error) || 'request failed')}</div>`;
+        return;
+      }
+      const code = data.status_code;
+      const ok = code >= 200 && code < 300;
+      out.innerHTML = `<div class="ups-status ${ok?'ok':'err'}">upstream HTTP ${esc(code)}</div>`
+        + `<pre class="ups-json">${esc(JSON.stringify(data.body, null, 2))}</pre>`;
+    } catch(e){
+      out.innerHTML = `<div class="ups-status err">${esc(e.message || 'request failed')}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  btn.addEventListener('click', check);
+  idEl.addEventListener('keydown', e => { if(e.key === 'Enter') check(); });
+}
+
 function tickClock(){
   const now = new Date();
   const d = document.getElementById('paper-date');
@@ -226,3 +280,4 @@ refresh();
 setInterval(refresh, 60000);
 loadPending();
 setInterval(loadPending, 60000);
+setupUploadTool();

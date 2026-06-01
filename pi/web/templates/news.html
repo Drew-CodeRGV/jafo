@@ -100,6 +100,33 @@
   .fp-item-body { font-size: .82rem; line-height: 1.4; color: var(--ink-1,#16110a); margin: 0; }
   .fp-empty { font-size: .82rem; font-style: italic; color: var(--ink-2,#423929); }
   .news-badge.post { background: #b4280b; color: #fff; }
+  /* Upload-post.com status checker (admin only) */
+  .ups-tool { border: 1px solid rgba(22,17,10,.3); border-radius: 6px; background: rgba(255,255,255,.5);
+              padding: 1rem 1.1rem; margin-bottom: 1.8rem; }
+  .ups-head { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: .82rem;
+              letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2,#423929);
+              margin: 0 0 .2rem; }
+  .ups-sub { font-size: .76rem; color: var(--ink-2,#423929); margin: 0 0 .7rem; }
+  .ups-row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; }
+  .ups-field { display: flex; flex-direction: column; gap: .2rem; flex: 1; min-width: 180px; }
+  .ups-field label { font-size: .68rem; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: .04em; color: #8a6d3b; }
+  .ups-field input { font-family: ui-monospace, Menlo, monospace; font-size: .82rem;
+                     padding: .45rem .5rem; border: 1px solid rgba(22,17,10,.3);
+                     border-radius: 4px; background: #fff; }
+  .ups-btn { border: none; border-radius: 4px; padding: .5rem 1rem; font-weight: 700; font-size: .85rem;
+             cursor: pointer; color: #fff; background: #1f6b2e; white-space: nowrap; }
+  .ups-btn:disabled { opacity: .5; cursor: default; }
+  .ups-remember { font-size: .72rem; color: var(--ink-2,#423929); margin-top: .55rem;
+                  display: flex; align-items: center; gap: .35rem; }
+  .ups-result { margin-top: .8rem; }
+  .ups-status { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: .8rem;
+                margin-bottom: .35rem; }
+  .ups-status.ok { color: #1f6b2e; }
+  .ups-status.err { color: #b4280b; }
+  .ups-json { font-family: ui-monospace, Menlo, monospace; font-size: .76rem; line-height: 1.45;
+              background: #16110a; color: #e8e2d0; border-radius: 4px; padding: .7rem .8rem;
+              overflow-x: auto; white-space: pre; max-height: 360px; overflow-y: auto; margin: 0; }
 </style>
 </head>
 <body class="dash-body">
@@ -129,6 +156,23 @@
   </p>
   <section id="news-approval" class="news-approval" style="display:none"></section>
   <section id="news-feedplan" class="feedplan" style="display:none"></section>
+  <section id="news-upload-tool" class="ups-tool" style="display:none">
+    <p class="ups-head">📤 Upload-Post Status Checker</p>
+    <p class="ups-sub">Look up an upload-post.com job by request&nbsp;ID. The API key is sent only with this request and never stored on the server.</p>
+    <div class="ups-row">
+      <div class="ups-field">
+        <label for="ups-key">API key</label>
+        <input id="ups-key" type="password" autocomplete="off" spellcheck="false" placeholder="Apikey …">
+      </div>
+      <div class="ups-field">
+        <label for="ups-id">Request / video ID</label>
+        <input id="ups-id" type="text" autocomplete="off" spellcheck="false" placeholder="7aaabf59…">
+      </div>
+      <button id="ups-check" class="ups-btn" type="button">Check status</button>
+    </div>
+    <label class="ups-remember"><input id="ups-remember" type="checkbox"> Remember API key in this browser</label>
+    <div id="ups-result" class="ups-result"></div>
+  </section>
   <section class="paper-section">
     <div id="news-grid" class="news-grid">
       <div class="news-empty">Loading the latest scripts…</div>
