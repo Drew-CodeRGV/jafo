@@ -2507,6 +2507,23 @@ def _cluster_persons(cluster: list[dict]) -> list[str]:
     return names
 
 
+# Rotating lead-in styles so consecutive anchor scripts don't all open the
+# same way (Drew: every script began "A quick update from emergency radio
+# traffic this morning"). One is suggested per script; the TONE GUARD still
+# governs gravity, and the attribution rule still applies — it just no longer
+# has to be the opening line.
+_NEWS_LEAD_STYLES = (
+    "Lead straight in with what is happening right now, and attribute it a beat later.",
+    "Open on the place or neighborhood, then what is unfolding there.",
+    "Paint the scene in a few quick words first, then give the facts.",
+    "Start with a warm, brief hello to viewers, then ease into the story.",
+    "Open mid-action on the crews or responders involved, attributing as you go.",
+    "Begin with the plain news and weave the 'according to dispatch' attribution into the second sentence, not the first.",
+    "Work the time of day in naturally, then the development.",
+    "Open with a short, friendly otter aside (only if the story is light), then the news.",
+)
+
+
 def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     """Write a broadcast-ready anchor script for a story cluster using Claude
     Sonnet, under a strict no-guessing contract.
@@ -2536,6 +2553,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     context = _load_rgv_context()
     news_facts = _load_news_context()
     weather = _current_weather()
+    # Rotate the opening so scripts don't all start identically.
+    lead_style = random.choice(_NEWS_LEAD_STYLES)
 
     system = (
         "You are OTTER — a charming river-otter news anchor for a local Rio "
@@ -2605,6 +2624,15 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "brief spontaneous aside or two, like you're ad-libbing between facts. "
         "Keep it light and natural — a sprinkle, not a flood. Don't force a pun "
         "into every line.\n"
+        "OPENING (variety + warmth — important): do NOT open every script the "
+        "same way. NEVER begin with 'A quick update from emergency radio "
+        "traffic' or any near-copy of that stock phrase. Vary your lead every "
+        "single time and keep it friendly and human — sometimes lead with the "
+        "place, sometimes the action, sometimes a warm hello to viewers. The "
+        "attribution ('according to emergency radio traffic', 'dispatch "
+        "reports') can fall ANYWHERE — start, middle, or end — and must NOT be a "
+        "repeated opening formula; it just has to appear somewhere. Follow the "
+        "LEAD-IN hint given for this particular script.\n"
         "TONE GUARD (critical): match the gravity of the story. For crashes, "
         "fires, injuries, missing persons, or death, DROP the jokes — the otter "
         "stays warm, sincere, and gentle (a caring 'stay safe out there, "
@@ -2645,6 +2673,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"---\n"
         f"RADIO TRANSCRIPTS (chronological — your ONLY source of incident facts):\n{transcripts}\n"
         f"---\n"
+        f"LEAD-IN for THIS script (vary the opening; stay tone-appropriate, and "
+        f"if the story is serious keep it sincere): {lead_style}\n"
         f"Write the anchor script. Output strict JSON with these keys:\n"
         f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE" '
         f'(no names or plate numbers)\n'
