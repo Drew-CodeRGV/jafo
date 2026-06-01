@@ -247,7 +247,15 @@ function setupUploadTool(){
     try {
       const r = await fetch(withTok('/api/news/upload-status?request_id=' + encodeURIComponent(id)),
         { cache:'no-store', headers: { 'X-UploadPost-Key': key } });
-      const data = await r.json();
+      const raw = await r.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch(_){
+        // Non-JSON body = the route isn't live (old process / 404 / nginx page).
+        out.innerHTML = `<div class="ups-status err">Server returned a non-JSON response (HTTP ${r.status}). `
+          + `The upload-status route may not be deployed yet — restart jafo-web on this host.</div>`;
+        return;
+      }
       if(!r.ok){
         out.innerHTML = `<div class="ups-status err">Error ${r.status}: ${esc((data && data.error) || 'request failed')}</div>`;
         return;
