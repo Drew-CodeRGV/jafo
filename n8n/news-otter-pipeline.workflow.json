@@ -1,0 +1,632 @@
+{
+  "name": "News Otter - Auto Video Pipeline (animated otter, local render)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "news-otter",
+        "options": {}
+      },
+      "id": "4704c40b-22d2-4e3a-854b-40f5622f67cb",
+      "name": "Script In (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        160
+      ],
+      "webhookId": "news-otter"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/render",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": {{ JSON.stringify(($json.body && $json.body.script) ? $json.body.script : ($json.text || $json.script)) }},\n  \"title\": {{ JSON.stringify($json.title || \"The News Otter\") }},\n  \"caption\": {{ JSON.stringify($json.caption || $json.title || \"The News Otter\") }},\n  \"media_type\": {{ JSON.stringify($json.media_type || \"REELS\") }}\n}",
+        "options": {}
+      },
+      "id": "b1655e25-379e-48af-afe0-2d3dce823c28",
+      "name": "Render Submit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "id": "e4ad674b-d8a7-433f-9755-dbfef87ce0dd",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1632,
+        160
+      ],
+      "webhookId": "news-otter-wait"
+    },
+    {
+      "parameters": {
+        "url": "=http://127.0.0.1:8000/status/{{ $('Render Submit').item.json.job_id }}",
+        "options": {}
+      },
+      "id": "3d68bc25-5f37-4f77-b027-9c3df98d9dc4",
+      "name": "Render Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1856,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "65845997-9ad6-4d6d-b65d-a292c4109d71",
+      "name": "Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://127.0.0.1:8000/video/{{ $('Render Submit').item.json.job_id }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "185732b7-1ea6-4fc4-a1bc-6013298e98a7",
+      "name": "Get Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2528,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upload-post.com/api/upload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Apikey __UPLOAD_POST_API_KEY__"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "user",
+              "value": "TheNewsOtter"
+            },
+            {
+              "name": "platform[]",
+              "value": "instagram"
+            },
+            {
+              "name": "title",
+              "value": "={{ $('Render Status').item.json.caption }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "video",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "media_type",
+              "value": "={{ $('Render Status').item.json.media_type }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a395bd22-3dcc-4820-9999-f11fad74147c",
+      "name": "Post to Upload-Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2752,
+        160
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "43bc9266-89ee-4f0a-92c0-e0adbdf67afb",
+      "name": "Backfill Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        752,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://jafo.live/api/news?full=1",
+        "options": {}
+      },
+      "id": "5d337dc7-e305-46e7-8a72-bf3dcf2a055c",
+      "name": "Fetch All Stories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Backfill: grab the most recent stories and run them through the FULL pipeline (render + post).\nconst list = ($input.first().json.stories || []).slice();\nlist.sort((a,b)=>(b.created_at||0)-(a.created_at||0));   // newest first\nconst LIMIT = 3;   // <-- set how many of the latest stories to process. Use list.length for ALL.\nreturn list.slice(0, LIMIT).map(s => ({\n  json: {\n    id: s.id,\n    title: s.news_title || s.title || 'The News Otter',\n    caption: s.news_caption || s.news_title || s.title || 'The News Otter',\n    script: s.news_script || ''\n  }\n}));"
+      },
+      "id": "49bf150e-db33-44ca-b403-10584a7cd51b",
+      "name": "Take Last N",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      },
+      "id": "08c85777-7682-4ddc-82cf-c2d1eca4d10e",
+      "name": "Stories Every 20m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        528,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd=$getWorkflowStaticData('global');\nif(sd.storiesSince==null) sd.storiesSince=Math.floor(Date.now()/1000)-1200;  // first run: last block\nreturn [{json:{since: sd.storiesSince}}];"
+      },
+      "id": "2e5ac796-ede9-45b5-8d74-65dba93003ae",
+      "name": "Stories Since",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://jafo.live/api/news/stories?block=20m&full=1&since={{ $json.since }}",
+        "options": {}
+      },
+      "id": "10f13120-fc30-4169-9641-26d6f468322e",
+      "name": "Fetch Stories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd=$getWorkflowStaticData('global');\nconst blocks=$input.first().json.blocks||[];\nlet mx = sd.storiesSince ?? 0;\nconst out=[];\nfor(const b of blocks){\n  if(b.block_start>mx) mx=b.block_start;\n  out.push({json:{\n    block_start:b.block_start,\n    text:b.script||b.news_script||'',\n    title:b.news_title||b.title||'The News Otter',\n    caption:b.caption||b.news_caption||b.title||'The News Otter',\n    media_type:'STORIES'\n  }});\n}\nif(blocks.length) sd.storiesSince=mx;   // advance only when we actually got blocks\nreturn out;"
+      },
+      "id": "533b1ecf-46cb-428f-a6d7-1f332ca56227",
+      "name": "Normalize Stories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "a08d8d39-9a4a-4659-b40e-ca961ab0c755",
+      "name": "Posts Every 30m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        528,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd=$getWorkflowStaticData('global');\nif(sd.postsSince==null) sd.postsSince=Math.floor(Date.now()/1000)-1800;  // first run: last block\nreturn [{json:{since: sd.postsSince}}];"
+      },
+      "id": "621c62d7-e650-42dc-b1c1-2bd9fd160e81",
+      "name": "Posts Since",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://jafo.live/api/news/posts?block=30m&full=1&since={{ $json.since }}",
+        "options": {}
+      },
+      "id": "67ce9642-750c-4370-bb45-a402b924250e",
+      "name": "Fetch Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd=$getWorkflowStaticData('global');\nconst blocks=$input.first().json.blocks||[];\nlet mx = sd.postsSince ?? 0;\nconst out=[];\nfor(const b of blocks){\n  if(b.block_start>mx) mx=b.block_start;\n  out.push({json:{\n    block_start:b.block_start,\n    text:b.news_script||b.script||'',\n    title:b.news_title||b.title||'The News Otter',\n    caption:b.news_caption||b.news_caption_tts||b.title||'The News Otter',\n    media_type:'REELS'\n  }});\n}\nif(blocks.length) sd.postsSince=mx;   // advance only when we actually got blocks\nreturn out;"
+      },
+      "id": "2121a5f1-7492-46ec-8221-32cee93c709e",
+      "name": "Normalize Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "News Otter \u2014 Test Transmission",
+        "formDescription": "Pick a type and run a test render+post.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Type",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Post"
+                  },
+                  {
+                    "option": "Story"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Script",
+              "fieldType": "textarea",
+              "placeholder": "Leave blank to use sample text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "888a3d92-f6d1-4e31-aa29-79a28546eb8b",
+      "name": "Test Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        512,
+        0
+      ],
+      "webhookId": "45bb5442-b9be-4dcf-8af0-3220c447d9e7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const f=$input.first().json;\nconst type=f.Type||f.type||'Post';\nconst isStory=String(type).toLowerCase().startsWith('s');\nconst script=(f.Script||'').trim() || (isStory\n  ? 'Here is what is moving across the Valley this block. McAllen crews handled a medical call and a minor traffic incident. This is a test story digest.'\n  : \"Good evening, I'm the News Otter, and these are the stories making waves tonight. This is a test broadcast.\");\nreturn [{json:{\n  text: script,\n  title: isStory ? '\\ud83d\\udea8 Test Digest: Valley Roundup' : 'Test Broadcast',\n  caption: isStory ? 'A test roundup of Valley activity this block. \\ud83d\\ude4f #RGVNews #Test' : 'Test broadcast \\ud83e\\udda6 #TheNewsOtter #Test',\n  media_type: isStory ? 'STORIES' : 'REELS'\n}}];"
+      },
+      "id": "fb8eda48-da63-4af4-98dd-5b789fa88c55",
+      "name": "Build Test",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://127.0.0.1:8000/video/{{ $('Render Submit').item.json.job_id }}",
+        "options": {}
+      },
+      "id": "6f4d1b62-4027-45d7-bac8-b0bf7f30bacb",
+      "name": "Cleanup Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2976,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Script In (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Render Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Submit": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Status": {
+      "main": [
+        [
+          {
+            "node": "Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Done?": {
+      "main": [
+        [
+          {
+            "node": "Get Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video": {
+      "main": [
+        [
+          {
+            "node": "Post to Upload-Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backfill Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Stories": {
+      "main": [
+        [
+          {
+            "node": "Take Last N",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Take Last N": {
+      "main": [
+        [
+          {
+            "node": "Render Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stories Every 20m": {
+      "main": [
+        [
+          {
+            "node": "Stories Since",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stories Since": {
+      "main": [
+        [
+          {
+            "node": "Fetch Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Stories": {
+      "main": [
+        [
+          {
+            "node": "Normalize Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Stories": {
+      "main": [
+        [
+          {
+            "node": "Render Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posts Every 30m": {
+      "main": [
+        [
+          {
+            "node": "Posts Since",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posts Since": {
+      "main": [
+        [
+          {
+            "node": "Fetch Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Posts": {
+      "main": [
+        [
+          {
+            "node": "Normalize Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Posts": {
+      "main": [
+        [
+          {
+            "node": "Render Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Test": {
+      "main": [
+        [
+          {
+            "node": "Render Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Upload-Post": {
+      "main": [
+        [
+          {
+            "node": "Cleanup Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "active": false
+}
