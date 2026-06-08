@@ -2777,8 +2777,14 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f'  "confidence": "high" if the core facts are corroborated across '
         f'multiple transmissions or stated clearly, otherwise "medium"\n'
         f'  "runtime_sec": integer estimate of read time in seconds\n'
-        f'  "social_title": a short, scroll-stopping headline for social media '
-        f'(<= 70 chars), may start with ONE tone-matched emoji\n'
+        f'  "social_title": a SPECIFIC, scroll-stopping headline (<= 70 chars) '
+        f'that names what actually happened and where, favoring a vivid action '
+        f'over a bare category — e.g. "High-Speed Chase Through McAllen" not '
+        f'"McAllen Pursuit", "Crews Battle Elsa House Fire" not "Elsa Incident". '
+        f'NEVER a vague "<City> Incident". It is shown as an on-screen banner '
+        f'(emoji is stripped from the banner), so the WORDS must carry it. Emoji '
+        f'OPTIONAL: at most ONE, tone-matched, and do NOT default to the siren — '
+        f'vary it or use none\n'
         f'  "social_caption": 1-2 punchy lines with tone-matched emojis and 2-4 '
         f'relevant hashtags, ready to post (no names or plate numbers)\n'
         f"No preamble, no commentary, JSON only."
@@ -2979,7 +2985,8 @@ def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
 # ---------------------------------------------------------------------------
 def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
                        max_words: int = DIGEST_MAX_WORDS,
-                       max_items: int = 8) -> dict | None:
+                       max_items: int = 8,
+                       avoid_titles: list[str] | None = None) -> dict | None:
     """Summarize a closed block's verified stories into one roundup. Same engine
     serves both the 20-min IG-Story digest (short, ~44s) and the hourly reels
     rundown (longer, under 90s) — only the length/breadth budget differs."""
@@ -3038,13 +3045,33 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         "any active pursuit or tactical operation.\n"
         "Output STRICT JSON only, no markdown."
     )
+    avoid_block = ""
+    if avoid_titles:
+        avoid_block = (
+            "\nDO NOT REPEAT — these recent headlines already aired. Make THIS "
+            "title clearly different in wording, structure, AND lead item; do "
+            "not echo their phrasing:\n"
+            + "\n".join(f"- {t}" for t in avoid_titles[:12]) + "\n"
+        )
     user_msg = (
         f"REGION: {REGION}\n"
         f"WINDOW: {win} ({len(stories)} stories this block)\n"
         f"---\nVERIFIED STORY SCRIPTS (your ONLY source):\n{source}\n---\n"
+        f"{avoid_block}"
         "Write the roundup. Strict JSON keys:\n"
         '  "anchor_body": the roundup the anchor reads (plain text, TTS-safe)\n'
-        '  "social_title": a short scroll-stopping headline, may start with ONE emoji\n'
+        '  "social_title": a SPECIFIC chyron headline that names THIS block\'s '
+        "standout — lead with the actual event and place (a chase, a structure "
+        'fire, a rescue), or pair the two biggest as "Chase in McAllen, Fire in '
+        'Elsa". The headline is shown as an on-screen banner, so the WORDS must '
+        "tell a scrolling viewer what happened. BANNED (never output these or "
+        'anything like them): "Valley Update", "Valley Updates", "Valley '
+        'Emergency Updates", "Valley Incidents", "Valley Alerts", "Valley '
+        'Emergencies", "Breaking News in the Valley", or any vague "<place> '
+        'Update/Incident". Under 70 characters. Emoji is OPTIONAL and is '
+        "stripped from the on-screen banner anyway, so never rely on it: include "
+        "at most ONE only if it truly fits, and do NOT default to the siren — "
+        "vary it or use none.\n"
         '  "social_caption": 1-2 punchy lines with tone-matched emojis and 2-4 hashtags\n'
         '  "confidence": "high" or "medium"\n'
         "JSON only."
@@ -3116,6 +3143,11 @@ def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC,
     conn.execute("DELETE FROM digests WHERE block_end < ?",
                  (now - STORY_RETENTION_HOURS * 3600,))
     conn.commit()
+    # Recent digest titles for the same block size, fed to the synth as a
+    # "don't repeat these" list so chyron headlines stay differentiated.
+    recent_titles = [r[0] for r in conn.execute(
+        "SELECT title FROM digests WHERE block_sec = ? AND title IS NOT NULL "
+        "AND title != '' ORDER BY generated_at DESC LIMIT 12", (blk,)).fetchall()]
     made = 0
     bs = earliest
     while bs < cur_block and made < DIGEST_MAX_NEW_PER_PASS:
@@ -3132,10 +3164,12 @@ def _refresh_digests_once(blk: int = DIGEST_BLOCK_SEC,
         if not stories:
             bs += blk
             continue                          # nothing newsworthy — no digest for this block
-        dg = _synthesize_digest(stories, bs, be, max_words=max_words, max_items=max_items)
+        dg = _synthesize_digest(stories, bs, be, max_words=max_words,
+                                max_items=max_items, avoid_titles=recent_titles)
         if dg and _insert_digest(conn, block_key, blk, bs, be, stories, dg):
             kind = "rundown" if blk >= RUNDOWN_BLOCK_SEC else "roundup"
             print(f"[digest] {blk//60}m {kind} {_fmt_local(bs, '%H:%M')} of {len(stories)} stories", file=sys.stderr)
+            recent_titles.insert(0, dg["title"])   # so the next block in this pass avoids it too
             made += 1
         bs += blk
     conn.close()
