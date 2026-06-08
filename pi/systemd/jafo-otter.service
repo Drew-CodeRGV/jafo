@@ -12,6 +12,9 @@ Environment=JAFO_OTTER_VOICE=/var/jafo/otter/voices/en_US-ryan-high.onnx
 Environment=JAFO_OTTER_RHUBARB=/var/jafo/otter/rhubarb/Rhubarb-Lip-Sync-1.14.0-Linux/rhubarb
 Environment=JAFO_OTTER_BIND=127.0.0.1
 Environment=JAFO_OTTER_PORT=8000
+# Lower-third banner height: bar bottom edge as a fraction of canvas height up
+# from the bottom. Higher value = banner sits higher. 0.11 = original (low).
+Environment=JAFO_OTTER_LOWER_THIRD_Y=0.28
 # Disk hygiene: clips are deleted by the n8n workflow right after posting, and
 # any leftover (errored/never-posted) is reaped after this many hours.
 Environment=JAFO_OTTER_TTL_HOURS=12

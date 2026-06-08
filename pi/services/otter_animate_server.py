@@ -43,6 +43,7 @@ FPS         = int(os.environ.get("JAFO_OTTER_FPS", "25"))            # base fram
 SMOOTH      = os.environ.get("JAFO_OTTER_SMOOTH", "1") == "1"        # motion-interpolate jerky mouth swaps
 SMOOTH_FPS  = int(os.environ.get("JAFO_OTTER_SMOOTH_FPS", "60"))     # target fps when SMOOTH is on
 LOWER_THIRD = os.environ.get("JAFO_OTTER_LOWER_THIRD", "1") == "1"   # red headline banner overlay
+LOWER_THIRD_Y = float(os.environ.get("JAFO_OTTER_LOWER_THIRD_Y", "0.28"))  # bar BOTTOM edge, fraction of canvas height up from the bottom (higher = banner sits higher)
 BIND        = os.environ.get("JAFO_OTTER_BIND", "127.0.0.1")
 PORT        = int(os.environ.get("JAFO_OTTER_PORT", "8000"))
 # The python interpreter used to invoke `-m piper` (this venv by default).
@@ -131,7 +132,7 @@ def make_lower_third(title, path):
     lines = lines[:3]
     lh = int(fsize * 1.25)
     barh = int(fsize * 0.6) + lh * len(lines)
-    bary = H - barh - int(H * 0.11)                                     # sits above the baked-in handle
+    bary = H - barh - int(H * LOWER_THIRD_Y)                            # higher = banner sits higher (JAFO_OTTER_LOWER_THIRD_Y)
     d.rectangle([0, bary, W, bary + barh], fill=(200, 16, 46, 235))     # broadcast red
     d.rectangle([0, bary, int(W * 0.014), bary + barh], fill=(255, 255, 255, 255))  # white accent
     y = bary + int(fsize * 0.3)
