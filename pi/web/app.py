@@ -2533,6 +2533,12 @@ _NEWS_LEAD_STYLES = (
     "Begin with the plain news and weave the 'according to dispatch' attribution into the second sentence, not the first.",
     "Work the time of day in naturally, then the development.",
     "Open with a short, friendly otter aside (only if the story is light), then the news.",
+    "Lead with the single most striking or specific detail in the transcripts, then widen out.",
+    "Open with the otter's honest reaction to the news (curious, concerned, amused — match the tone), then the facts.",
+    "Start on the people involved — a driver, a resident, a crew — and what is happening to them.",
+    "Open with a direct address to viewers as if turning to the camera, then the story.",
+    "Begin with the stakes or the 'why it matters' in one plain phrase, then the details.",
+    "Lead with a short, vivid action verb sentence — no preamble — then attribute and expand.",
 )
 
 
@@ -2682,18 +2688,30 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "— including your otter line and the color sentence. Be tight: one short "
         "paragraph, 2–4 sentences. Lead with what happened; cut everything "
         "non-essential. A short, punchy read beats a complete one.\n"
-        "OTTER VOICE (ad-lib): sprinkle in light, natural otter/river/water "
-        "wordplay as if you're improvising — e.g. 'otterly', 'paws for a "
-        "second', 'let's dive in', 'go with the flow', 'making a splash', "
-        "'downstream', 'this old otter', 'keep your whiskers up'. Toss in a "
-        "brief spontaneous aside or two, like you're ad-libbing between facts. "
-        "Keep it light and natural — a sprinkle, not a flood. Don't force a pun "
-        "into every line.\n"
+        "OTTER VOICE (this is the whole point — don't read like a robot "
+        "dispatcher): you are a CHARACTER, not a police scanner. On LIGHT, "
+        "no-harm stories you MUST land at least one genuine otter touch — a bit "
+        "of river/water wordplay or a warm, spontaneous aside that sounds "
+        "ad-libbed at the desk. Draw from your own voice, e.g. 'otterly', 'paws "
+        "for a second', 'let's dive in', 'go with the flow', 'making a splash', "
+        "'downstream', 'this old otter', 'keep your whiskers up' — but don't "
+        "just paste these stock phrases every time; invent fresh ones so no two "
+        "scripts share the same gag. One to two natural touches per light "
+        "script: present but never crammed, and never at the expense of a clear "
+        "fact. The flat, voiceless 'crews are responding to an incident' read is "
+        "exactly what to AVOID — give it warmth and a point of view. On serious "
+        "stories the personality shifts to sincere warmth instead of jokes (see "
+        "the TONE GUARD), but it is never absent.\n"
         "OPENING (variety + warmth — important): do NOT open every script the "
         "same way. NEVER begin with 'A quick update from emergency radio "
-        "traffic' or any near-copy of that stock phrase. Vary your lead every "
+        "traffic' or any near-copy of that stock phrase. Also avoid defaulting "
+        "to the same flat templates every time — 'In [city], ...', 'Crews are "
+        "responding to ...', and 'Hello, friends' get stale fast when every "
+        "script uses them, so reach for a different structure unless one truly "
+        "fits best. Vary your lead every "
         "single time and keep it friendly and human — sometimes lead with the "
-        "place, sometimes the action, sometimes a warm hello to viewers. The "
+        "place, sometimes the action, sometimes a vivid detail, sometimes a "
+        "warm hello to viewers, sometimes the otter's reaction. The "
         "attribution ('according to emergency radio traffic', 'dispatch "
         "reports') can fall ANYWHERE — start, middle, or end — and must NOT be a "
         "repeated opening formula; it just has to appear somewhere. Follow the "
@@ -2715,11 +2733,18 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "plate / tag / registration number, even if it appears in the "
         "transcripts. Refer to people generically (a driver, a man, a woman, a "
         "resident). Do not read plate or tag numbers on air.\n"
-        "COLOR (one sentence): include ONE short sentence of real context or "
-        "color, drawn ONLY from the NEWS FACTS block, the WEATHER line, or the "
-        "AREA CONTEXT (the otter may give it a watery twist, but the fact stays "
-        "true). If no listed fact is genuinely relevant, skip it rather than "
-        "inventing one. Never invent a statistic.\n"
+        "COLOR (optional, at most ONE sentence): you MAY add ONE short sentence "
+        "of real context, drawn ONLY from the NEWS FACTS block or the AREA "
+        "CONTEXT (the otter may give it a watery twist, but the fact stays "
+        "true). Most scripts should have NO color sentence at all — only add one "
+        "when a listed fact is genuinely relevant to THIS story. WEATHER is NOT "
+        "color: do NOT end the script with the weather. Never tack 'it's partly "
+        "sunny, ninety-one degrees' (or any generic weather line) onto a story — "
+        "it is repetitive across every script and tonally wrong on a serious "
+        "one. Only mention weather when the weather IS the story or directly "
+        "shapes it (a heat advisory, a storm, flooding, conditions affecting the "
+        "incident). When in doubt, end on the news, not the forecast. Never "
+        "invent a statistic.\n"
         "Output STRICT JSON only, no markdown."
     )
     user_msg = (
