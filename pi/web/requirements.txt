@@ -1,3 +1,7 @@
 flask>=3.0
 gunicorn>=21.2
 python-dotenv>=1.0
+# News-desk synthesis (hybrid backend): Sonnet for the hourly rundown,
+# Groq for the high-volume per-story scripts + short digests.
+anthropic>=0.39
+groq>=0.11

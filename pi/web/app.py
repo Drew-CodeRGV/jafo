@@ -1931,10 +1931,16 @@ RUNDOWN_BLOCK_SEC          = int(os.environ.get("JAFO_RUNDOWN_BLOCK_SEC", str(60
 RUNDOWN_MAX_WORDS          = int(os.environ.get("JAFO_RUNDOWN_MAX_WORDS", "210"))   # <90s read
 RUNDOWN_MAX_ITEMS          = int(os.environ.get("JAFO_RUNDOWN_MAX_ITEMS", "14"))    # source stories to summarize
 
-# News anchor script generation (Claude Sonnet — see _synthesize_news_script).
-# Always Anthropic regardless of the story-synth backend: this is the news
-# deliverable and accuracy matters more than the per-call enrichment cost.
+# News anchor script generation. Hybrid backend (cost + credit resilience):
+# the once-hourly RUNDOWN stays on premium Claude Sonnet, while the high-volume
+# per-story scripts and the short 20-min digests run on cheaper Groq (a separate
+# billing pool). This keeps /news alive even when the Anthropic balance is zero.
+# Each leg is independently overridable via env to 'groq' or 'anthropic'.
 NEWS_MODEL                 = os.environ.get("JAFO_NEWS_MODEL", "claude-sonnet-4-6").strip()
+NEWS_GROQ_MODEL            = os.environ.get("JAFO_NEWS_GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+NEWS_SCRIPT_BACKEND        = os.environ.get("JAFO_NEWS_SCRIPT_BACKEND",  "groq").strip().lower()       # per-story anchor scripts
+NEWS_DIGEST_BACKEND        = os.environ.get("JAFO_NEWS_DIGEST_BACKEND",  "groq").strip().lower()       # short 20-min IG-Story digests
+NEWS_RUNDOWN_BACKEND       = os.environ.get("JAFO_NEWS_RUNDOWN_BACKEND", "anthropic").strip().lower()  # hourly <90s reels rundown
 NEWS_MAX_TOKENS            = 700
 # Every script must read in UNDER 30 seconds. At an anchor pace of ~2.5 words/sec
 # (≈150 wpm) that's ~75 words; we target a bit under and HARD-trim to the budget
@@ -2530,22 +2536,75 @@ _NEWS_LEAD_STYLES = (
 )
 
 
-def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
-    """Write a broadcast-ready anchor script for a story cluster using Claude
-    Sonnet, under a strict no-guessing contract.
+def _news_synth_json(system: str, user_msg: str, backend: str,
+                     max_tokens: int = NEWS_MAX_TOKENS) -> tuple[dict, str] | None:
+    """Run one news-synth completion on the chosen backend and return
+    (parsed_json, model_used), or None on any failure.
 
-    Returns {slug, anchor_body, sources_line, confidence, runtime_sec} or None
-    if the cluster fails the confidence gate or the model errors. Requires the
-    Anthropic backend — this is the news deliverable, so it always uses Claude
-    regardless of JAFO_LLM_BACKEND."""
-    if not _cluster_passes_news_gate(cluster):
+    backend is 'anthropic' (premium Sonnet) or 'groq' (cheap Llama). Lets the
+    news desk keep the hourly rundown on Sonnet while routing the high-volume
+    per-story scripts + short digests through Groq — independent of the Anthropic
+    credit balance and of the per-call enrichment backend (JAFO_LLM_BACKEND)."""
+    backend = (backend or "groq").lower()
+    model = NEWS_MODEL if backend == "anthropic" else NEWS_GROQ_MODEL
+    text = None
+    if backend == "anthropic":
+        client = _claude()
+        if not client:
+            why = "ANTHROPIC_API_KEY not set" if not ANTHROPIC_API_KEY else "anthropic package not importable"
+            print(f"[news] anthropic backend unavailable: {why}", file=sys.stderr)
+            return None
+        try:
+            resp = client.messages.create(
+                model=model, max_tokens=max_tokens,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+            text = resp.content[0].text.strip()
+        except Exception as e:
+            print(f"[news] sonnet synth failed: {e}", file=sys.stderr)
+            return None
+    else:  # groq
+        from common import GROQ_API_KEY
+        if not GROQ_API_KEY:
+            print("[news] groq backend unavailable: GROQ_API_KEY not set", file=sys.stderr)
+            return None
+        try:
+            from groq import Groq
+            gclient = Groq(api_key=GROQ_API_KEY, max_retries=2)
+            resp = gclient.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user_msg},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.5,
+                max_tokens=max_tokens,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+        except Exception as e:
+            print(f"[news] groq synth failed: {e}", file=sys.stderr)
+            return None
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    try:
+        return json.loads(text), model
+    except Exception as e:
+        print(f"[news] synth JSON parse failed ({backend}): {e}", file=sys.stderr)
         return None
-    client = _claude()
-    if not client:
-        # _claude() returns None if ANTHROPIC_API_KEY is unset OR the anthropic
-        # package isn't installed in this venv — distinguish so deploys are debuggable.
-        why = "ANTHROPIC_API_KEY not set" if not ANTHROPIC_API_KEY else "anthropic package not importable"
-        print(f"[news] cannot write news scripts: {why}", file=sys.stderr)
+
+
+def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
+    """Write a broadcast-ready anchor script for a story cluster under a strict
+    no-guessing contract.
+
+    Returns {slug, anchor_body, sources_line, confidence, runtime_sec, model} or
+    None if the cluster fails the confidence gate or the model errors. Backend is
+    NEWS_SCRIPT_BACKEND (default Groq) — the cheap, high-volume leg of the hybrid
+    news desk; the hourly rundown keeps premium Sonnet."""
+    if not _cluster_passes_news_gate(cluster):
         return None
 
     primary = cluster[-1]
@@ -2699,20 +2758,10 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f'relevant hashtags, ready to post (no names or plate numbers)\n'
         f"No preamble, no commentary, JSON only."
     )
-    try:
-        resp = client.messages.create(
-            model=NEWS_MODEL, max_tokens=NEWS_MAX_TOKENS,
-            system=system, messages=[{"role": "user", "content": user_msg}],
-        )
-        text = resp.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        data = json.loads(text)
-    except Exception as e:
-        print(f"[news] script synth failed: {e}", file=sys.stderr)
+    out = _news_synth_json(system, user_msg, NEWS_SCRIPT_BACKEND)
+    if not out:
         return None
+    data, model_used = out
 
     body = (data.get("anchor_body") or "").strip()
     if not body:
@@ -2745,6 +2794,7 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "sources_line": (data.get("sources_line") or "").strip()[:200],
         "confidence":   conf,
         "runtime_sec":  runtime,
+        "model":        model_used,
     }
 
 
@@ -2839,7 +2889,7 @@ def _insert_story(conn, key: str, lst: list[dict], synthesized: dict,
             (news or {}).get("caption_tts"),
             (news or {}).get("sources_line"), (news or {}).get("confidence"),
             (news or {}).get("runtime_sec"),
-            NEWS_MODEL if news else None,
+            (news or {}).get("model") if news else None,
             int(time.time()) if news else None,
             is_fun, mod_status, reason,
         ))
@@ -2908,15 +2958,15 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
     """Summarize a closed block's verified stories into one roundup. Same engine
     serves both the 20-min IG-Story digest (short, ~44s) and the hourly reels
     rundown (longer, under 90s) — only the length/breadth budget differs."""
-    client = _claude()
-    if not client:
-        return None
     mins = max(1, round((block_end - block_start) / 60))
     win = f"{_fmt_local(block_start, '%-I:%M %p')} to {_fmt_local(block_end, '%-I:%M %p')}"
     # Breadth + duration scale with the budget: the short Story digest hits 2-4
     # items and reads well under a minute; the hourly rundown hits more and may
     # run up to ~90s.
     is_rundown = max_words > DIGEST_MAX_WORDS + 20
+    # Hybrid backend: the hourly rundown is the premium deliverable (Sonnet); the
+    # short 20-min digest runs on cheap Groq.
+    backend = NEWS_RUNDOWN_BACKEND if is_rundown else NEWS_DIGEST_BACKEND
     n_lo, n_hi = (4, 7) if is_rundown else (2, 4)
     dur_phrase = "under 90 seconds" if is_rundown else "well under a minute"
     # Feed the already-aired, verified per-story scripts as the only source.
@@ -2974,20 +3024,10 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         '  "confidence": "high" or "medium"\n'
         "JSON only."
     )
-    try:
-        resp = client.messages.create(
-            model=NEWS_MODEL, max_tokens=NEWS_MAX_TOKENS,
-            system=system, messages=[{"role": "user", "content": user_msg}],
-        )
-        text = resp.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        data = json.loads(text)
-    except Exception as e:
-        print(f"[digest] synth failed: {e}", file=sys.stderr)
+    out = _news_synth_json(system, user_msg, backend)
+    if not out:
         return None
+    data, model_used = out
 
     body = (data.get("anchor_body") or "").strip()
     if not body:
@@ -3011,6 +3051,7 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         "sources":     sources[:240],
         "confidence":  conf,
         "runtime_sec": runtime,
+        "model":       model_used,
     }
 
 
@@ -3024,7 +3065,8 @@ def _insert_digest(conn, block_key, blk, bs, be, stories, dg) -> bool:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (block_key, blk, bs, be, dg["title"], dg["script"], dg["caption"],
              dg["caption_tts"], dg["sources"], json.dumps([s["id"] for s in stories]),
-             len(stories), dg["confidence"], dg["runtime_sec"], NEWS_MODEL, int(time.time())))
+             len(stories), dg["confidence"], dg["runtime_sec"],
+             dg.get("model", NEWS_MODEL), int(time.time())))
         conn.commit()
         return True
     except sqlite3.Error as e:
