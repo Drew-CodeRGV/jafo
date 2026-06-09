@@ -84,19 +84,28 @@ function renderCards(data){
 
 // ---- "Going to Instagram" feed plan -------------------------------------
 // Shows exactly what's queued for each IG feed so Drew can track what's running:
-//   📱 IG Story    = the 20-min aggregate roundups (/api/news/stories?block=20m).
-//   📽 Reel/Post   = the hourly <90s rundown        (/api/news/stories?block=60m).
-// Both are aggregate digests; the rundown is just longer and on a slower cadence.
+//   📱 IG Story  (:30) = the single top-story highlight (/api/news/posts?block=30m).
+//   📽 IG Reel   (:00) = the hourly <90s recap rundown  (/api/news/stories?block=60m).
+// Matches the live n8n schedule: a highlight Story at :30 (6:30a–10:30p) and a
+// recap Reel at the top of every hour.
 function fpWindow(bs, be){
   if(!bs) return '';
   const f = t => new Date(t*1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   return `${f(bs)}–${f(be)}`;
 }
+// Tolerant of both feed shapes: the digest roundup (title/script/story_count) and
+// the single best-story highlight (news_title/news_script/news_runtime_sec).
 function digestItem(b){
+  const title = b.title || b.news_title || b.social_title || 'Item';
+  const body  = b.script || b.news_script || b.caption_tts || b.caption || b.news_caption || '';
+  const rt    = b.runtime_sec || b.news_runtime_sec;
+  const meta  = [fpWindow(b.block_start, b.block_end),
+                 (b.story_count ? `${b.story_count} stories` : null),
+                 (rt ? `~${rt}s read` : null)].filter(Boolean).join(' · ');
   return `<div class="fp-item">
-      <div class="fp-item-meta">${esc(fpWindow(b.block_start,b.block_end))} · ${b.story_count||0} stories${b.runtime_sec?` · ~${b.runtime_sec}s read`:''}</div>
-      <h4 class="fp-item-title">${esc(b.title||'Roundup')}</h4>
-      <p class="fp-item-body">${esc(b.script || b.caption_tts || b.caption || '')}</p>
+      <div class="fp-item-meta">${esc(meta)}</div>
+      <h4 class="fp-item-title">${esc(title)}</h4>
+      <p class="fp-item-body">${esc(body)}</p>
     </div>`;
 }
 function renderFeedPlan(stories, rundown){
@@ -109,12 +118,12 @@ function renderFeedPlan(stories, rundown){
   wrap.innerHTML = `
     <p class="fp-title">📣 Going to Instagram</p>
     <div class="fp-col fp-stories">
-      <div class="fp-head"><span class="fp-badge story">📱 IG Story</span><span class="fp-cadence">every 20 min · short roundup</span></div>
-      ${sBlocks.length ? sBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No 20-minute roundup in the last hour yet.</div>'}
+      <div class="fp-head"><span class="fp-badge story">📱 IG Story</span><span class="fp-cadence">:30 each hour · top-story highlight</span></div>
+      ${sBlocks.length ? sBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No highlight story queued yet — one posts at :30 (6:30a–10:30p).</div>'}
     </div>
     <div class="fp-col fp-posts">
-      <div class="fp-head"><span class="fp-badge post">📽 IG Reel / Post</span><span class="fp-cadence">hourly · full rundown under 90s</span></div>
-      ${rBlocks.length ? rBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No hourly rundown yet — one posts after each clock hour closes.</div>'}
+      <div class="fp-head"><span class="fp-badge post">📽 IG Reel</span><span class="fp-cadence">top of the hour · recap under 90s</span></div>
+      ${rBlocks.length ? rBlocks.slice().reverse().map(digestItem).join('') : '<div class="fp-empty">No hourly recap yet — one posts after each clock hour closes.</div>'}
     </div>`;
 }
 
@@ -122,7 +131,7 @@ async function refresh(){
   try {
     const [newsR, storiesR, rundownR] = await Promise.all([
       fetch('/api/news', {cache:'no-store'}),
-      fetch('/api/news/stories?block=20m&full=1', {cache:'no-store'}),
+      fetch('/api/news/posts?block=30m&full=1', {cache:'no-store'}),
       fetch('/api/news/stories?block=60m&full=1', {cache:'no-store'}),
     ]);
     const news    = newsR.ok    ? await newsR.json()    : {stories: []};
