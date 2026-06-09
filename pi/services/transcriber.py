@@ -26,9 +26,12 @@ from common import (
 log = setup_logging("jafo-transcriber")
 
 GROQ_MODEL = "whisper-large-v3-turbo"
-LOCAL_MODEL_NAME = "base"           # multilingual; bilingual EN/ES traffic
-LOCAL_COMPUTE = "int8"
-LOCAL_CPU_THREADS = 2               # leave 2 cores for trunk-recorder + processor
+# faster-whisper size, env-tunable. base = light/fast (safe on a 4GB box but weak
+# on Spanish); small = much better bilingual EN/ES, ~3x RAM + ~2-3x slower (fine on
+# an 8GB box). medium/large need more RAM+cores than this hardware has.
+LOCAL_MODEL_NAME = os.environ.get("JAFO_LOCAL_WHISPER_MODEL", "base").strip()
+LOCAL_COMPUTE = os.environ.get("JAFO_LOCAL_WHISPER_COMPUTE", "int8").strip()
+LOCAL_CPU_THREADS = int(os.environ.get("JAFO_LOCAL_WHISPER_THREADS", "2"))  # bump to 4 on a 4-vCPU box
 POLL_INTERVAL_SEC = 10
 BATCH_SIZE = 5
 

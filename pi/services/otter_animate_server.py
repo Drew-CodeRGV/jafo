@@ -26,6 +26,7 @@ never exposed to the internet.
 """
 
 import os, sys, uuid, json, subprocess, threading, shutil, time, re
+import urllib.request, urllib.parse, urllib.error
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -69,9 +70,18 @@ W2L_DIR    = os.environ.get("JAFO_OTTER_W2L_DIR",  "/var/jafo/otter/wav2lip/Wav2
 W2L_CKPT   = os.environ.get("JAFO_OTTER_W2L_CKPT", "/var/jafo/otter/wav2lip/Wav2Lip/checkpoints/wav2lip_gan.pth")
 W2L_BASE   = os.environ.get("JAFO_OTTER_W2L_BASE", "/var/jafo/otter/w2l-assets/base.png")
 W2L_BOX    = os.environ.get("JAFO_OTTER_W2L_BOX",  "540 862 405 690")  # top bottom left right @1080x1920
+W2L_BATCH  = os.environ.get("JAFO_OTTER_W2L_BATCH", "16")  # mel batch; 128 default ≈ ~1.9GB, 16 ≈ much less
 # Only ONE Wav2Lip render at a time — each holds ~1.9 GB and two would OOM the
 # 3.7 GB hub. A second concurrent render waits here instead of running in parallel.
 _W2L_LOCK = threading.Lock()
+
+# Direct Instagram Graph API publishing (replaces upload-post.com). Meta fetches
+# the video from a public URL (JAFO_IG_PUBLIC_BASE/<filename>), so the rendered
+# clip must be reachable there (nginx serves the output dir). Token via env only.
+IG_USER_ID     = os.environ.get("JAFO_IG_USER_ID", "").strip()
+IG_TOKEN       = os.environ.get("JAFO_IG_ACCESS_TOKEN", "").strip()
+IG_GRAPH       = os.environ.get("JAFO_IG_GRAPH_VERSION", "v21.0").strip()
+IG_PUBLIC_BASE = os.environ.get("JAFO_IG_PUBLIC_BASE", "").rstrip("/")
 # ======================================================================
 
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -257,6 +267,7 @@ def _wav2lip_render(job_id, wav, jdir):
            "--checkpoint_path", W2L_CKPT,
            "--face", W2L_BASE, "--audio", wav,
            "--static", "True", "--fps", str(FPS),
+           "--wav2lip_batch_size", W2L_BATCH,   # default 128 is RAM-hungry; smaller batch ≈ lower peak RAM
            "--box"] + W2L_BOX.split() + ["--nosmooth", "--outfile", raw]
     p = subprocess.run(cmd, cwd=W2L_DIR, capture_output=True)
     if p.returncode != 0 or not os.path.exists(raw):
@@ -372,6 +383,87 @@ def render(req: RenderReq):
                     "media_type": req.media_type, "slug": req.slug}
     threading.Thread(target=_run_job, args=(job_id, req.text), daemon=True).start()
     return {"job_id": job_id}
+
+
+def _graph(method: str, path: str, params: dict, timeout: int = 60) -> dict:
+    """Minimal Graph API call (stdlib only). Token goes in the Authorization
+    header, never the URL/params, so it can't leak into logs."""
+    url = f"https://graph.facebook.com/{IG_GRAPH}/{path}"
+    hdr = {"Authorization": f"Bearer {IG_TOKEN}"}
+    if method == "GET":
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers=hdr, method="GET")
+    else:
+        body = urllib.parse.urlencode(params).encode()
+        req = urllib.request.Request(url, data=body, headers=hdr, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode())
+        except Exception:
+            return {"error": {"message": f"HTTP {e.code}"}}
+    except Exception as e:
+        return {"error": {"message": str(e)[:200]}}
+
+
+class PublishReq(BaseModel):
+    job_id: str
+    caption: str = ""
+    media_type: str = "REELS"
+    dry_run: bool = False        # build + process the container but skip publish
+
+
+@app.post("/publish")
+def publish(req: PublishReq):
+    """Publish a finished render straight to Instagram via the Graph API:
+    create container (REELS/STORIES) from the public video URL -> poll until
+    FINISHED -> media_publish. Blocks until published (~30-90s)."""
+    if not (IG_USER_ID and IG_TOKEN and IG_PUBLIC_BASE):
+        raise HTTPException(503, "instagram publishing not configured")
+    j = JOBS.get(req.job_id)
+    if not j or not j.get("path") or not os.path.isfile(j["path"]):
+        raise HTTPException(404, "rendered video not found for that job_id")
+    fname = os.path.basename(j["path"])
+    video_url = f"{IG_PUBLIC_BASE}/{fname}"
+    mt = "STORIES" if (req.media_type or "").upper() == "STORIES" else "REELS"
+
+    # 1) create the media container
+    params = {"media_type": mt, "video_url": video_url}
+    if mt == "REELS" and req.caption:
+        params["caption"] = req.caption[:2200]      # IG caption hard limit
+    cj = _graph("POST", f"{IG_USER_ID}/media", params)
+    cid = cj.get("id")
+    if not cid:
+        raise HTTPException(502, f"container error: {cj.get('error')}")
+
+    # 2) poll until Instagram has fetched + processed the video
+    status = None
+    for _ in range(45):                              # ~6 min ceiling
+        st = _graph("GET", cid, {"fields": "status_code"}, timeout=30)
+        status = st.get("status_code")
+        if status == "FINISHED":
+            break
+        if status in ("ERROR", "EXPIRED"):
+            raise HTTPException(502, f"media processing {status}: {st}")
+        time.sleep(8)
+    if status != "FINISHED":
+        raise HTTPException(504, f"media not ready in time (last status {status})")
+
+    if req.dry_run:
+        # plumbing validated (Meta fetched + processed our public URL); don't post
+        print(f"[ig] DRY-RUN ok {mt} {fname} container {cid} FINISHED", flush=True)
+        return {"ok": True, "dry_run": True, "container_id": cid, "video_url": video_url}
+
+    # 3) publish
+    pub = _graph("POST", f"{IG_USER_ID}/media_publish", {"creation_id": cid})
+    pid = pub.get("id")
+    if not pid:
+        raise HTTPException(502, f"publish error: {pub.get('error')}")
+    print(f"[ig] published {mt} {fname} -> media {pid}", flush=True)
+    return {"ok": True, "ig_post_id": pid, "media_type": mt}
 
 
 @app.get("/")
