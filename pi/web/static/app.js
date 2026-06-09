@@ -203,6 +203,7 @@ function toggleFavorite(tg, tag) {
 }
 
 async function refreshFavorites() {
+  if (window.JAFO_IS_HUB) return;          // favorites strip is edge-only (the Pi)
   const favs = getFavorites();
   const strip = document.getElementById("favorites-strip");
   const root  = document.getElementById("favorites-cards");
@@ -1856,12 +1857,16 @@ function renderTalkgroupItem(tg) {
   const icon = serviceIcon(tg.talkgroup_tag, tg.tag, null);
   const iconPart = icon ? `${icon} ` : "";
   const fav = isFavorite(tg.talkgroup, tg.talkgroup_tag);
+  // Favorites are an edge-only (Pi) feature; the public hub omits the star.
+  const favBtn = window.JAFO_IS_HUB ? "" :
+    `<button class="fav-star${fav ? " active" : ""}" title="${fav ? "Unfavorite" : "Add to favorites"}" aria-pressed="${fav}">${fav ? "★" : "☆"}</button>`;
   li.innerHTML = `
-    <button class="fav-star${fav ? " active" : ""}" title="${fav ? "Unfavorite" : "Add to favorites"}" aria-pressed="${fav}">${fav ? "★" : "☆"}</button>
+    ${favBtn}
     <span class="tg-label">${iconPart}${escapeHtml(label)}${enc ? '<span class="enc-tag" title="Encrypted">🔒</span>' : ""}</span>
     <span class="count">${tg.n}</span>
   `;
-  li.querySelector(".fav-star").onclick = (e) => {
+  const favStar = li.querySelector(".fav-star");
+  if (favStar) favStar.onclick = (e) => {
     e.stopPropagation();
     toggleFavorite(tg.talkgroup, tg.talkgroup_tag);
     refreshTalkgroups();
