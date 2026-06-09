@@ -54,6 +54,21 @@ PIPER_PY    = os.environ.get("JAFO_OTTER_PIPER_PY", sys.executable)
 # jobs). The reaper never touches the _frames shape cache.
 TTL_HOURS         = float(os.environ.get("JAFO_OTTER_TTL_HOURS", "12"))
 REAP_INTERVAL_MIN = float(os.environ.get("JAFO_OTTER_REAP_INTERVAL_MIN", "30"))
+
+# --- Wav2Lip backend (optional, for the hourly rundown / featured Reels) ---
+# OFF by default: when disabled the renderer behaves exactly as before (Piper ->
+# Rhubarb visemes -> mouth-PNG swap). When JAFO_OTTER_WAV2LIP=1, jobs whose
+# media_type is in JAFO_OTTER_WAV2LIP_MEDIA are lip-synced with Wav2Lip against a
+# fixed 1080x1920 otter still instead, then sharpened + given synthetic breathing
+# and the SAME lower-third banner. CPU-heavy (~minutes/clip) so scope it narrow.
+W2L_ENABLE = os.environ.get("JAFO_OTTER_WAV2LIP", "0") == "1"
+W2L_MEDIA  = {m.strip().upper() for m in
+             os.environ.get("JAFO_OTTER_WAV2LIP_MEDIA", "REELS").split(",") if m.strip()}
+W2L_PY     = os.environ.get("JAFO_OTTER_W2L_PY",   "/var/jafo/otter/wav2lip/venv-w2l/bin/python")
+W2L_DIR    = os.environ.get("JAFO_OTTER_W2L_DIR",  "/var/jafo/otter/wav2lip/Wav2Lip")
+W2L_CKPT   = os.environ.get("JAFO_OTTER_W2L_CKPT", "/var/jafo/otter/wav2lip/Wav2Lip/checkpoints/wav2lip_gan.pth")
+W2L_BASE   = os.environ.get("JAFO_OTTER_W2L_BASE", "/var/jafo/otter/w2l-assets/base.png")
+W2L_BOX    = os.environ.get("JAFO_OTTER_W2L_BOX",  "540 862 405 690")  # top bottom left right @1080x1920
 # ======================================================================
 
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -217,6 +232,43 @@ class RenderReq(BaseModel):
     media_type: str = "REELS"
 
 
+def _wav2lip_render(job_id, wav, jdir):
+    """Lip-sync the fixed otter still to `wav` with Wav2Lip (CPU, low priority),
+    then sharpen + add synthetic breathing + the same lower-third banner. Returns
+    the finished mp4 path; raises on failure so _run_job marks the job errored."""
+    raw = os.path.join(jdir, "w2l_raw.mp4")
+    cmd = ["nice", "-n", "15", "ionice", "-c", "3",
+           W2L_PY, "inference.py",
+           "--checkpoint_path", W2L_CKPT,
+           "--face", W2L_BASE, "--audio", wav,
+           "--static", "True", "--fps", str(FPS),
+           "--box"] + W2L_BOX.split() + ["--nosmooth", "--outfile", raw]
+    p = subprocess.run(cmd, cwd=W2L_DIR, capture_output=True)
+    if p.returncode != 0 or not os.path.exists(raw):
+        raise RuntimeError("Wav2Lip failed: " + p.stderr.decode()[:500])
+    out = os.path.join(jdir, "out.mp4")
+    # sharpen + denoise, gentle synthetic breathing/sway, then the SAME banner.
+    vf = ("[0:v]unsharp=5:5:0.7:5:5:0.0,hqdn3d=1.5:1.5:6:6,scale=iw*1.06:ih*1.06,"
+          "zoompan=z='1.04+0.018*sin(on/25*1.1)':d=1:"
+          "x='iw/2-(iw/zoom/2)+21*sin(on/25*0.5)':"
+          "y='ih/2-(ih/zoom/2)+15*sin(on/25*0.8)':s=1080x1920:fps=" + str(FPS) + "[ob]")
+    inputs = ["-i", raw]
+    if LOWER_THIRD:
+        lt = os.path.join(jdir, "lower_third.png")
+        make_lower_third(JOBS[job_id]["title"], lt)
+        inputs += ["-i", lt]
+        filt = vf + ";[ob][1:v]overlay=0:0[v]"
+    else:
+        filt = vf[:-4] + "[v]"
+    cmd2 = (["ffmpeg", "-y"] + inputs +
+            ["-filter_complex", filt, "-map", "[v]", "-map", "0:a",
+             "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", "-shortest", out])
+    p = subprocess.run(cmd2, capture_output=True)
+    if p.returncode != 0 or not os.path.exists(out):
+        raise RuntimeError("Wav2Lip compositing failed: " + p.stderr.decode()[:600])
+    return out
+
+
 def _run_job(job_id: str, text: str):
     try:
         JOBS[job_id]["status"] = "processing"
@@ -233,6 +285,16 @@ def _run_job(job_id: str, text: str):
                            input=text.encode(), capture_output=True)
         if p.returncode != 0:
             raise RuntimeError("Piper failed: " + p.stderr.decode()[:400])
+
+        # 1b) Optional Wav2Lip backend for selected media types (e.g. REELS
+        #     rundown). When it applies, lip-sync the fixed otter still and skip
+        #     the Rhubarb viseme path entirely.
+        if W2L_ENABLE and JOBS[job_id].get("media_type", "").upper() in W2L_MEDIA:
+            out = _wav2lip_render(job_id, wav, jdir)
+            final = os.path.join(OUTPUT_DIR, f"final_{job_id}.mp4")
+            shutil.copy(out, final)
+            JOBS[job_id].update(status="done", path=final)
+            return
 
         # 2) Rhubarb -> mouth cues (dialog file improves accuracy)
         p = subprocess.run([RHUBARB_BIN, "-f", "json", "--extendedShapes", "GHX",
