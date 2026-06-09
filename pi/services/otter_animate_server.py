@@ -69,6 +69,9 @@ W2L_DIR    = os.environ.get("JAFO_OTTER_W2L_DIR",  "/var/jafo/otter/wav2lip/Wav2
 W2L_CKPT   = os.environ.get("JAFO_OTTER_W2L_CKPT", "/var/jafo/otter/wav2lip/Wav2Lip/checkpoints/wav2lip_gan.pth")
 W2L_BASE   = os.environ.get("JAFO_OTTER_W2L_BASE", "/var/jafo/otter/w2l-assets/base.png")
 W2L_BOX    = os.environ.get("JAFO_OTTER_W2L_BOX",  "540 862 405 690")  # top bottom left right @1080x1920
+# Only ONE Wav2Lip render at a time — each holds ~1.9 GB and two would OOM the
+# 3.7 GB hub. A second concurrent render waits here instead of running in parallel.
+_W2L_LOCK = threading.Lock()
 # ======================================================================
 
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -172,12 +175,14 @@ def _purge_job(job_id: str) -> list[str]:
     if os.path.isdir(jdir):
         shutil.rmtree(jdir, ignore_errors=True)
         removed.append(jdir)
-    fin = os.path.join(OUTPUT_DIR, f"final_{job_id}.mp4")
-    if os.path.isfile(fin):
-        try:
-            os.remove(fin); removed.append(fin)
-        except FileNotFoundError:
-            pass
+    # delete the actual stored output (slug-named) AND the legacy job-id name
+    stored = (JOBS.get(job_id, {}) or {}).get("path")
+    for fin in {stored, os.path.join(OUTPUT_DIR, f"final_{job_id}.mp4")}:
+        if fin and os.path.isfile(fin):
+            try:
+                os.remove(fin); removed.append(fin)
+            except FileNotFoundError:
+                pass
     JOBS.pop(job_id, None)
     return removed
 
@@ -230,6 +235,16 @@ class RenderReq(BaseModel):
     title: str = "The News Otter"
     caption: str = ""
     media_type: str = "REELS"
+    slug: str = ""           # name the output mp4 for its intended upload slot
+
+
+def _final_path(job_id: str) -> str:
+    """Path for the finished mp4. Named for the intended upload slot when the
+    caller passed a slug (e.g. 'REELS_20260609-1400') so a human / the reaper can
+    see at a glance what each clip is; falls back to the job id."""
+    slug = (JOBS.get(job_id, {}) or {}).get("slug", "") or ""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", slug.strip())
+    return os.path.join(OUTPUT_DIR, f"final_{safe or job_id}.mp4")
 
 
 def _wav2lip_render(job_id, wav, jdir):
@@ -288,10 +303,13 @@ def _run_job(job_id: str, text: str):
 
         # 1b) Optional Wav2Lip backend for selected media types (e.g. REELS
         #     rundown). When it applies, lip-sync the fixed otter still and skip
-        #     the Rhubarb viseme path entirely.
+        #     the Rhubarb viseme path entirely. Serialize with _W2L_LOCK: each
+        #     render holds ~1.9 GB, so two at once would OOM the 3.7 GB box — the
+        #     lock queues a second render instead of running it concurrently.
         if W2L_ENABLE and JOBS[job_id].get("media_type", "").upper() in W2L_MEDIA:
-            out = _wav2lip_render(job_id, wav, jdir)
-            final = os.path.join(OUTPUT_DIR, f"final_{job_id}.mp4")
+            with _W2L_LOCK:
+                out = _wav2lip_render(job_id, wav, jdir)
+            final = _final_path(job_id)
             shutil.copy(out, final)
             JOBS[job_id].update(status="done", path=final)
             return
@@ -334,8 +352,8 @@ def _run_job(job_id: str, text: str):
         if p.returncode != 0 or not os.path.exists(out):
             raise RuntimeError("ffmpeg failed: " + p.stderr.decode()[:600])
 
-        # Save a copy to the output folder (named by job id), then mark done
-        final = os.path.join(OUTPUT_DIR, f"final_{job_id}.mp4")
+        # Save a copy to the output folder (named for its upload slot), mark done
+        final = _final_path(job_id)
         shutil.copy(out, final)
         JOBS[job_id].update(status="done", path=final)
     except Exception as e:
@@ -351,7 +369,7 @@ def render(req: RenderReq):
     job_id = uuid.uuid4().hex
     JOBS[job_id] = {"status": "queued", "error": None, "path": None,
                     "title": req.title, "caption": req.caption or req.title,
-                    "media_type": req.media_type}
+                    "media_type": req.media_type, "slug": req.slug}
     threading.Thread(target=_run_job, args=(job_id, req.text), daemon=True).start()
     return {"job_id": job_id}
 
