@@ -2541,6 +2541,19 @@ _NEWS_LEAD_STYLES = (
     "Lead with a short, vivid action verb sentence — no preamble — then attribute and expand.",
 )
 
+# Rotating openers for the aggregate digest/rundown so consecutive roundups don't
+# all start with the same "here's what's moving across the Valley" line.
+_DIGEST_LEAD_STYLES = (
+    "Open by greeting viewers warmly, then go straight into the first item.",
+    "Lead with the single biggest item, then 'and there's more' into the rest.",
+    "Open with the time window or 'in the last little while', then the roundup.",
+    "Start with a quick scene-set of the Valley, then run the items.",
+    "Open on how busy (or quiet) it's been out there, then the items.",
+    "Lead with the place that saw the most action, then widen to the others.",
+    "Open with a short, friendly otter line (only if the whole block is light), then the news.",
+    "Jump straight into the first item with no preamble, then string the rest together.",
+)
+
 
 def _news_synth_json(system: str, user_msg: str, backend: str,
                      max_tokens: int = NEWS_MAX_TOKENS) -> tuple[dict, str] | None:
@@ -2619,6 +2632,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         for c in cluster if c.get("transcript")
     ) or "(no transcripts)"
     units = sorted({u.strip() for c in cluster for u in (c.get("incident_units") or "").split(",") if u.strip()})
+    # Broadcast-safe WHERE: take the most detailed incident_location in the cluster
+    # and generalize it (precise street number -> block, PII scrubbed) so the otter
+    # can tell listeners roughly where it's happening.
+    _locs = [(c.get("incident_location") or "").strip() for c in cluster if (c.get("incident_location") or "").strip()]
+    rough_loc = _generalize_location(max(_locs, key=len)) if _locs else ""
     first_t = _fmt_local(min(c["start_time"] for c in cluster), "%-I:%M %p")
     last_t  = _fmt_local(max(c["start_time"] for c in cluster), "%-I:%M %p")
     context = _load_rgv_context()
@@ -2661,6 +2679,14 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "as'. For anyone accused, use 'suspected', 'alleged', or 'reportedly' — "
         "never state a person did something. No one is guilty; charges are not "
         "convictions.\n"
+        "- LOCATION (tell people WHERE — this is what makes the report useful): "
+        "always say roughly where it is happening when a location is known — the "
+        "city plus the block, area, neighborhood, intersection, or nearby "
+        "landmark. Use the ROUGH LOCATION field if given, otherwise any place "
+        "named in the transcripts. 'A crash in McAllen' is far weaker than 'a "
+        "crash near the 1200 block of North 10th in McAllen' — name the WHERE "
+        "early. If no location is known at all, name the city or say the exact "
+        "spot is 'not yet clear' rather than dropping place entirely.\n"
         "- ADDRESSES: never read a specific street address or house number. "
         "Generalize to the block or area only (say 'the 100 block of Main Street' "
         "or 'a McAllen neighborhood'), never '123 Main Street'. Do not pinpoint a "
@@ -2757,6 +2783,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"STORY HEADLINE (already written): {story.get('title','')}\n"
         f"INCIDENT TYPE: {primary.get('incident_type')}\n"
         f"SEVERITY: {primary.get('incident_severity') or 'unknown'}\n"
+        f"ROUGH LOCATION (broadcast-safe, already generalized to block/area — "
+        f"tell listeners this WHERE when present): {rough_loc or 'not stated in the radio traffic'}\n"
         f"TALKGROUP (source channel): {primary.get('talkgroup_tag') or primary.get('talkgroup')}\n"
         f"UNITS HEARD: {', '.join(units) if units else 'unknown'}\n"
         f"WINDOW: {first_t} to {last_t}, {len(cluster)} transmission(s)\n"
@@ -3011,6 +3039,7 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         )
     source = "\n".join(items)
     any_serious = any((s.get("severity") or "").lower() in ("critical", "high") for s in stories)
+    digest_lead = random.choice(_DIGEST_LEAD_STYLES)
 
     system = (
         "You are OTTER, a charming river-otter news anchor for a Rio Grande "
@@ -3021,10 +3050,11 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         "aired this block. Summarize them into ONE cohesive read. Use ONLY facts "
         "present in those scripts — add NO new details, numbers, names, or "
         "specifics. These are unconfirmed scanner reports; never assert guilt.\n"
-        "SHAPE: open with a quick 'here's what's moving across the Valley' style "
-        f"line, then hit the {n_lo} to {n_hi} most notable items, one tight "
-        f"sentence each, then a brief otter sign-off. UNDER {max_words} words "
-        f"total so it reads in {dur_phrase}.\n"
+        f"SHAPE: {digest_lead} Then hit the {n_lo} to {n_hi} most notable items, "
+        "one tight sentence each, then a brief otter sign-off. VARY THE OPENING "
+        "every time — do NOT start with 'Here's what's moving across the Valley' "
+        "or any near-copy of that stock phrase; it has become repetitive. "
+        f"UNDER {max_words} words total so it reads in {dur_phrase}.\n"
         "TONE GUARD: match the heaviest item in the mix. If anything involves a "
         "crash, fire, injury, or death, keep the WHOLE read measured and warm — "
         "no jokes. Save playful river/otter wordplay for blocks that are entirely "
