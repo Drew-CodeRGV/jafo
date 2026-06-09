@@ -46,6 +46,35 @@ Clips are deleted two ways (belt + suspenders):
 
 Config via env (`JAFO_OTTER_*`); the systemd unit sets voice, rhubarb, bind, TTL.
 
+## Wav2Lip backend (optional, for Reels)
+
+The default animation is Piper → Rhubarb visemes → mouth-PNG swap (fast, the
+flat 2D otter). A **Wav2Lip** neural lip-sync backend is available for the
+hourly rundown / featured **Reels** only — it animates a fixed **3D otter still**
+and is **CPU-heavy (~minutes/clip)**, so it is intentionally scoped narrow and is
+**OFF by default**.
+
+- Toggle: `JAFO_OTTER_WAV2LIP=1` (and `JAFO_OTTER_WAV2LIP_MEDIA=REELS`, the
+  default). Jobs with that `media_type` take the Wav2Lip path; everything else
+  stays on the fast viseme renderer. The HTTP contract and n8n are unchanged.
+- Engine lives outside the repo at `/var/jafo/otter/wav2lip/` (its own
+  `venv-w2l`, Python 3.10, `Wav2Lip/checkpoints/wav2lip_gan.pth` + `s3fd.pth`
+  from the camenduru HF mirror). Runs `nice`/`ionice` low-priority.
+- Fixed base still + calibrated mouth box (Wav2Lip's face detector can't find the
+  otter, so the box is supplied manually):
+  - `JAFO_OTTER_W2L_BASE` = `/var/jafo/otter/w2l-assets/base.png` — a **1080×1920**
+    otter frame with a **slightly-open** mouth (closed = invisible movement; a
+    self-talking source = out-of-sync gapes, so use a still, not a clip).
+  - `JAFO_OTTER_W2L_BOX` = `540 862 405 690` (`top bottom left right`) — must hug
+    **only the mouth incl. teeth**; too low paints a phantom chin-mouth, too high
+    smears the nose.
+- Output is sharpened, given synthetic breathing/sway (static base = no real
+  blink), and gets the same lower-third banner.
+
+Rebuild the base still from a source video frame, e.g.:
+`ffmpeg -ss <t> -i src.mp4 -frames:v 1 f.png` then scale to 1080×1920; pick a
+frame with a gently-parted mouth. Scale the box ×1.5 if measured at 720×1280.
+
 ## n8n workflow
 
 Exported (secret-scrubbed) to `n8n/news-otter-pipeline.workflow.json`. Triggers:
