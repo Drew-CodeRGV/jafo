@@ -1921,6 +1921,10 @@ STORY_MODEL                = "claude-haiku-4-5-20251001"
 # blocks) so there's no historical backfill cost spike on deploy.
 DIGEST_BLOCK_SEC           = int(os.environ.get("JAFO_DIGEST_BLOCK_SEC", str(20 * 60)))
 DIGEST_ENABLED             = os.environ.get("JAFO_DIGEST_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+# The 20-min Story digest is no longer posted (IG Stories now come from the
+# single best-story /api/news/posts feed), so its generation is OFF by default —
+# it was burning a Groq call every 20 min for nothing. Flip to 1 to revive it.
+DIGEST_20M_ENABLED         = os.environ.get("JAFO_DIGEST_20M_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 DIGEST_MAX_NEW_PER_PASS    = 2           # bound Sonnet calls per leader pass
 DIGEST_LOOKBACK_BLOCKS     = 2           # only digest the last N closed blocks lacking one
 DIGEST_MAX_WORDS           = int(os.environ.get("JAFO_DIGEST_MAX_WORDS", "110"))   # ~44s read
@@ -1942,10 +1946,10 @@ NEWS_SCRIPT_BACKEND        = os.environ.get("JAFO_NEWS_SCRIPT_BACKEND",  "groq")
 NEWS_DIGEST_BACKEND        = os.environ.get("JAFO_NEWS_DIGEST_BACKEND",  "groq").strip().lower()       # short 20-min IG-Story digests
 NEWS_RUNDOWN_BACKEND       = os.environ.get("JAFO_NEWS_RUNDOWN_BACKEND", "anthropic").strip().lower()  # hourly <90s reels rundown
 NEWS_MAX_TOKENS            = 700
-# Every script must read in UNDER 30 seconds. At an anchor pace of ~2.5 words/sec
-# (≈150 wpm) that's ~75 words; we target a bit under and HARD-trim to the budget
-# so a long generation can't slip a >30s read into the feed.
-NEWS_MAX_WORDS             = int(os.environ.get("JAFO_NEWS_MAX_WORDS", "70"))
+# Stories read like a full ~35-45s broadcast package. At an anchor pace of ~2.5
+# words/sec (≈150 wpm) that's ~110 words; we HARD-trim to the budget so a long
+# generation can't run away. Bump JAFO_NEWS_MAX_WORDS to lengthen, lower to clip.
+NEWS_MAX_WORDS             = int(os.environ.get("JAFO_NEWS_MAX_WORDS", "110"))
 NEWS_WORDS_PER_SEC         = 2.5
 # Strict "no guessing" confidence gate. transcript_confidence is the mean
 # segment avg_logprob (closer to 0 = more confident); transcript_no_speech is
@@ -2297,6 +2301,52 @@ def _current_weather() -> str | None:
     return txt
 
 
+_WEATHER_BRIEF_CACHE = {"at": 0, "data": None}
+def _weather_brief() -> dict | None:
+    """Short-term weather for the top-of-hour reel bumper: current temp +
+    conditions and a near-term precip outlook from the NWS hourly forecast. NWS
+    has no true minute-by-minute nowcast, so 'soon' is derived from the upcoming
+    hourly periods (honest, not fabricated). Returns a dict with a ready 'line' of
+    FACTS the anchor phrases itself, or None on failure."""
+    now = int(time.time())
+    if now - _WEATHER_BRIEF_CACHE["at"] < 1800:
+        return _WEATHER_BRIEF_CACHE["data"]
+    _WEATHER_BRIEF_CACHE["at"] = now
+    data = None
+    try:
+        import requests as _r
+        hdr = {"User-Agent": "jafo-news (https://jafo.live)"}
+        pts = _r.get("https://api.weather.gov/points/26.2034,-98.2300", headers=hdr, timeout=5).json()
+        fc_url = pts["properties"]["forecastHourly"]
+        periods = _r.get(fc_url, headers=hdr, timeout=5).json()["properties"]["periods"]
+        cur = periods[0]
+        city = REGION.split(",")[0].strip() or "the area"
+        def _pop(p):
+            return ((p.get("probabilityOfPrecipitation") or {}).get("value")) or 0
+        def _is_wet(p):
+            sf = (p.get("shortForecast") or "").lower()
+            return _pop(p) >= 50 or any(w in sf for w in
+                ("rain", "shower", "storm", "thunder", "drizzle"))
+        wet_idx = next((i for i, p in enumerate(periods[:6]) if _is_wet(p)), None)
+        if wet_idx is None:
+            outlook = f"No rain expected in {city} for the next several hours."
+        elif wet_idx == 0:
+            pct = _pop(cur)
+            outlook = (f"Rain is likely in {city} within the hour"
+                       + (f", around {pct} percent chance" if pct else "")
+                       + " — worth a quick stay-dry note.")
+        else:
+            outlook = (f"Dry right now, but showers are possible in {city} in "
+                       f"about {wet_idx} hour{'s' if wet_idx != 1 else ''}.")
+        line = f"{cur['temperature']} degrees {cur['temperatureUnit']} and {cur['shortForecast']} in {city}. {outlook}"
+        data = {"city": city, "temp": cur["temperature"], "unit": cur["temperatureUnit"],
+                "conditions": cur["shortForecast"], "outlook": outlook, "line": line}
+    except Exception as e:
+        print(f"[news] weather brief failed: {e}", file=sys.stderr)
+    _WEATHER_BRIEF_CACHE["data"] = data
+    return data
+
+
 # Deterministic PII backstop. The prompt forbids names + plates, but this is a
 # hard requirement, so we also strip known person names (from the enricher's
 # persons_mentioned) and license-plate patterns after generation.
@@ -2328,7 +2378,7 @@ _STREET_SUFFIX = (r'(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|'
 # phone tail ("...0142 from 1200 Pecan Blvd").
 _STREET_WORD = r'(?:[A-Za-z][A-Za-z0-9]*|\d{1,3}(?:st|nd|rd|th))\.?'
 _ADDRESS_RE = re.compile(
-    r'\b(\d{2,5})\s+((?:[NSEW]\.?\s+)?(?:' + _STREET_WORD + r'\s+){1,3}'
+    r'\b(\d{2,5})\s+(?!block\b)((?:[NSEW]\.?\s+)?(?:' + _STREET_WORD + r'\s+){1,3}'
     + _STREET_SUFFIX + r')\b\.?', re.IGNORECASE)
 
 
@@ -2370,6 +2420,119 @@ def _generalize_location(text: str) -> str:
     return _redact_pii(text, [])
 
 
+# --- Location mining --------------------------------------------------------
+# The enricher's `incident_location` is often vague ("McAllen"); the precise
+# WHERE — a block or an intersection — is usually spoken across the call cluster.
+# These patterns pull the most specific, broadcast-safe place out of the raw
+# transcripts so the otter can say "the 1600 block of 10th Street" or "near the
+# corner of Nolana and 10th" instead of just naming the city.
+_ORD = r'\d{1,3}(?:st|nd|rd|th)'
+# "1600 block of 10th Street", "200 block of North Main Avenue"
+_BLOCKOF_RE = re.compile(
+    r'\b\d{1,5}\s+block\s+of\s+(?:[NSEW]\.?\s+)?(?:' + _STREET_WORD + r'\s+){0,3}'
+    + _STREET_SUFFIX + r'\b', re.I)
+# Explicit "corner of / intersection of A and B" — high-confidence intersection.
+_CORNER_RE = re.compile(
+    r'\b(?:corner|intersection)\s+of\s+'
+    r'([A-Za-z0-9][\w.\']*(?:\s+[A-Za-z0-9][\w.\']*){0,2})\s+(?:and|&|/)\s+'
+    r'([A-Za-z0-9][\w.\']*(?:\s+[A-Za-z0-9][\w.\']*){0,2})', re.I)
+# "Nolana and 10th [Street]" / "10th and Nolana" — accepted ONLY when at least
+# one side is a numbered street or carries a street suffix (keeps "Fire and
+# Rescue", "Smith and Jones" out).
+_SIDE = r'(?:[NSEW]\.?\s+)?(?:' + _ORD + r'|[A-Z][\w.\']*)(?:\s+' + _STREET_SUFFIX + r')?'
+_AND_INT_RE = re.compile(r'\b(' + _SIDE + r')\s+(?:and|&)\s+(' + _SIDE + r')\b')
+
+
+def _side_is_streetish(s: str) -> bool:
+    return bool(re.search(_ORD + r'$', s, re.I) or
+               re.search(_STREET_SUFFIX + r'$', s, re.I))
+
+
+def _extract_location_candidates(cluster: list[dict]) -> list[str]:
+    """Scan every transcript in the cluster (the first call AND follow-ups) for
+    the most specific broadcast-safe location: a house-number block, a street
+    address (generalised to its block), or an intersection. Returns a deduped
+    list, most-specific first, each already block/PII-safe."""
+    cands: list[str] = []
+    def add(s: str) -> None:
+        s = re.sub(r'\s+', ' ', (s or '')).strip().strip('.,;:')
+        if not s or len(s) > 80:
+            return
+        g = _generalize_location(s)
+        if not g:
+            return
+        gl = g.lower()
+        # Substring-dedup: keep the most complete phrasing ("Nolana and 10th
+        # Street" absorbs "Nolana and 10th"), never two near-copies.
+        for i, existing in enumerate(cands):
+            el = existing.lower()
+            if gl == el or gl in el:
+                return                      # already covered by a fuller entry
+            if el in gl:
+                cands[i] = g                # new entry is the fuller one
+                return
+        cands.append(g)
+    for c in cluster:                                  # blocks + addresses first
+        t = c.get("transcript") or ""
+        for m in _BLOCKOF_RE.finditer(t):
+            add(m.group(0))
+        for m in _ADDRESS_RE.finditer(t):
+            add(_addr_block_repl(m))
+    for c in cluster:                                  # then intersections
+        t = c.get("transcript") or ""
+        for m in _CORNER_RE.finditer(t):
+            add(f"{m.group(1)} and {m.group(2)}")
+        for m in _AND_INT_RE.finditer(t):
+            a, b = m.group(1), m.group(2)
+            if _side_is_streetish(a) or _side_is_streetish(b):
+                add(f"{a} and {b}")
+    for c in cluster:                                  # enriched field last
+        add(c.get("incident_location") or "")
+    return cands
+
+
+# --- Ten-code decoding ------------------------------------------------------
+# Widely-standardised APCO / Texas ten-codes heard on LRGVRRS. Only unambiguous,
+# broadly-shared meanings are decoded; agency-specific signal codes are left for
+# the model to read from context. The raw code is always surfaced to the caption.
+_TEN_CODES = {
+    "10-0": "use caution", "10-4": "acknowledged", "10-6": "busy",
+    "10-7": "out of service", "10-8": "in service", "10-9": "say again",
+    "10-13": "weather/road conditions", "10-15": "prisoner in custody",
+    "10-16": "domestic disturbance", "10-18": "urgent", "10-19": "return to station",
+    "10-20": "location", "10-22": "disregard", "10-23": "on scene / stand by",
+    "10-27": "license check", "10-28": "registration check", "10-29": "wants/warrant check",
+    "10-32": "person with a gun", "10-33": "emergency, hold the air",
+    "10-50": "traffic crash", "10-52": "ambulance needed", "10-53": "road blocked",
+    "10-54": "livestock on the road", "10-55": "intoxicated driver",
+    "10-56": "intoxicated pedestrian", "10-70": "fire alarm", "10-76": "en route",
+    "10-80": "pursuit in progress", "10-97": "arrived on scene",
+    "10-98": "assignment complete", "10-99": "officer needs help",
+}
+# Match coded forms: "10-50", "10 50" (kept only if a known code), "10-50A".
+_TEN_CODE_RE = re.compile(r'\b10([-\s])(\d{1,3})[A-Za-z]?\b')
+
+
+def _extract_ten_codes(cluster: list[dict]) -> list[dict]:
+    """Find ten-codes spoken across the cluster. Returns ordered unique
+    [{code, meaning}] (meaning '' when not in the glossary). A bare, un-hyphenated
+    '10 20' is only treated as a code when it's a known one — otherwise it's
+    probably an address/number, not radio code."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in cluster:
+        for m in _TEN_CODE_RE.finditer(c.get("transcript") or ""):
+            code = f"10-{m.group(2)}"
+            known = code in _TEN_CODES
+            if m.group(1) != "-" and not known:        # "10 20" w/ no glossary hit
+                continue
+            if code in seen:
+                continue
+            seen.add(code)
+            out.append({"code": code, "meaning": _TEN_CODES.get(code, "")})
+    return out
+
+
 # --- Child-safety gate -----------------------------------------------------
 # Stories that appear to involve a minor are HELD for manual review before they
 # can reach any public feed or the social posting endpoints. Detection is
@@ -2387,12 +2550,38 @@ _CHILD_TERMS = [
 _CHILD_TERM_RE = re.compile(r"(?i)\b(" + "|".join(re.escape(t) for t in _CHILD_TERMS) + r")\b")
 # Standalone CPS (case-sensitive to avoid matching words like "cpsy...").
 _CPS_RE = re.compile(r"\bCPS\b")
-# "a minor" but NOT "minor injuries / minor crash / minor damage / minor delay".
-_MINOR_RE = re.compile(
-    r"(?i)\bminor\b(?!\s+(?:injur|crash|collision|accident|damage|fender|"
-    r"wound|laceration|incident|delay|repair|issue|problem|cut|bruis))")
+# "minor" is flagged ONLY when it clearly means a child (the noun): "a minor",
+# "the minor", "is a minor", "minor child/male/female". It is NOT flagged in the
+# adjective sense ("minor crash / minor injuries / minor delay / minor fire"),
+# which was the dominant false positive clogging the review queue.
+_MINOR_WORD_RE = re.compile(r"(?i)\bminors?\b")
+# adjectival nouns that follow "minor" when it means "small", not "a child".
+_MINOR_ADJ_RE = re.compile(
+    r"(?i)\s+(?:injur|crash|collision|accident|wreck|damage|fender|wound|"
+    r"laceration|incident|delay|repair|issue|problem|cut|bruis|fire|leak|flood|"
+    r"spill|setback|league|infraction|violation|traffic|disturbance|scrape|dent|"
+    r"surgery|adjustment|detail|flare|burn|abrasion|complaint|hazard|inconvenience)")
+# personal context immediately BEFORE "minor" (so it reads as a person).
+_MINOR_PERSON_BEFORE_RE = re.compile(
+    r"(?i)\b(?:a|an|the|this|that|one|another|unaccompanied|juvenile|is|was|are|"
+    r"were|with|involving|missing|the\s+other)\s*$")
+# child-noun immediately AFTER "minor" ("minor child / minor male").
+_MINOR_PERSON_AFTER_RE = re.compile(
+    r"(?i)\s+(?:child|children|male|female|boy|girl|victim|passenger|occupant)\b")
 # "<n> year old" / "<n>-yr-old" with n < 18.
 _YOUNG_AGE_RE = re.compile(r"(?i)\b(\d{1,2})[\s-]*(?:year|yr)s?[\s-]*old\b")
+
+
+def _is_minor_noun(text: str) -> bool:
+    """True only if 'minor' appears as a child-noun, not the 'small' adjective."""
+    for m in _MINOR_WORD_RE.finditer(text):
+        after = text[m.end():m.end() + 18]
+        if _MINOR_ADJ_RE.match(after):
+            continue                                   # "minor crash/injury/..."
+        before = text[max(0, m.start() - 16):m.start()]
+        if _MINOR_PERSON_BEFORE_RE.search(before) or _MINOR_PERSON_AFTER_RE.match(after):
+            return True
+    return False
 
 
 def _child_flag(text: str) -> str | None:
@@ -2406,7 +2595,7 @@ def _child_flag(text: str) -> str | None:
             hits.append(t)
     if _CPS_RE.search(text) and "cps" not in hits:
         hits.append("CPS")
-    if _MINOR_RE.search(text) and "minor" not in hits:
+    if _is_minor_noun(text) and "minor" not in hits:
         hits.append("minor")
     for m in _YOUNG_AGE_RE.finditer(text):
         try:
@@ -2637,6 +2826,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     # can tell listeners roughly where it's happening.
     _locs = [(c.get("incident_location") or "").strip() for c in cluster if (c.get("incident_location") or "").strip()]
     rough_loc = _generalize_location(max(_locs, key=len)) if _locs else ""
+    # Mine ALL transcripts in the cluster for the most specific WHERE (block /
+    # intersection), and pull any ten-codes spoken so we can decode them properly
+    # and put the raw code in the caption.
+    loc_candidates = _extract_location_candidates(cluster)
+    ten_codes = _extract_ten_codes(cluster)
     first_t = _fmt_local(min(c["start_time"] for c in cluster), "%-I:%M %p")
     last_t  = _fmt_local(max(c["start_time"] for c in cluster), "%-I:%M %p")
     context = _load_rgv_context()
@@ -2680,13 +2874,25 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "never state a person did something. No one is guilty; charges are not "
         "convictions.\n"
         "- LOCATION (tell people WHERE — this is what makes the report useful): "
-        "always say roughly where it is happening when a location is known — the "
-        "city plus the block, area, neighborhood, intersection, or nearby "
-        "landmark. Use the ROUGH LOCATION field if given, otherwise any place "
-        "named in the transcripts. 'A crash in McAllen' is far weaker than 'a "
-        "crash near the 1200 block of North 10th in McAllen' — name the WHERE "
-        "early. If no location is known at all, name the city or say the exact "
-        "spot is 'not yet clear' rather than dropping place entirely.\n"
+        "the single most valuable thing you give a viewer is WHERE it is "
+        "happening, so be specific. Mine ALL the transcripts — the first call AND "
+        "every follow-up — for the most precise broadcast-safe spot: a "
+        "house-number block ('the 1600 block of 10th Street'), an intersection or "
+        "corner ('near the corner of Nolana and 10th Street'), a highway and "
+        "cross-street, or a named landmark. Lead with the best one in the "
+        "LOCATION CANDIDATES list; if that list is empty, hunt the transcripts "
+        "yourself. ALWAYS prefer a block or intersection over a bare city when one "
+        "is anywhere in the traffic — 'a crash in McAllen' is far weaker than 'a "
+        "crash near the corner of Nolana and 10th in McAllen'. Only fall back to "
+        "just the city (or 'the exact spot is not yet clear') when truly no "
+        "street, block, or intersection is mentioned. Never read a full house "
+        "number — the block is already generalised for you.\n"
+        "- TEN-CODES (decode them correctly): the radio uses ten-codes — e.g. "
+        "10-50 is a traffic crash, 10-4 is acknowledged, 10-97 is arrived on "
+        "scene, 10-20 is location. Use the TEN-CODES HEARD list plus context to "
+        "understand what happened, then SPEAK PLAINLY to viewers — say 'a traffic "
+        "crash', NEVER 'a 10-50' in the script. Do not guess at a code's meaning "
+        "if it is not given and not obvious; describe what you can confirm.\n"
         "- ADDRESSES: never read a specific street address or house number. "
         "Generalize to the block or area only (say 'the 100 block of Main Street' "
         "or 'a McAllen neighborhood'), never '123 Main Street'. Do not pinpoint a "
@@ -2709,11 +2915,26 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "- UNINTELLIGIBLE AUDIO: if the transcript is garbled, partial, or you are "
         "unsure what was said, say the detail is 'unclear' or omit it. NEVER guess "
         "at words, numbers, or names to fill a gap.\n"
-        f"LENGTH (hard limit): the ENTIRE anchor_body MUST read aloud in UNDER "
-        f"30 seconds. That means NO MORE THAN ABOUT {NEWS_MAX_WORDS} WORDS total "
-        "— including your otter line and the color sentence. Be tight: one short "
-        "paragraph, 2–4 sentences. Lead with what happened; cut everything "
-        "non-essential. A short, punchy read beats a complete one.\n"
+        f"LENGTH (a full report, not a clip): the anchor_body should read aloud "
+        f"in roughly 35 to 45 seconds — about {NEWS_MAX_WORDS} words, and never "
+        f"more. Give it room to breathe: 4 to 6 sentences with a real beginning, "
+        "middle, and end. This is a complete little news package, not a one-line "
+        "headline — but every sentence must earn its place, with no padding, "
+        "filler, or repeated facts.\n"
+        "REPORTER CRAFT (make it sound like a real newscast): you are a seasoned "
+        "broadcast anchor delivering a live report, not reading a list. Build a "
+        "natural arc: (1) a strong LEAD that hooks with the headline fact and the "
+        "place; (2) the BODY filling in what happened, exactly where (the block or "
+        "intersection), when, and who is responding, with attribution woven in; "
+        "(3) the CURRENT STATUS — what crews are doing right now, whether roads or "
+        "the area are affected, and what is still unknown; and (4) a brief "
+        "FORWARD-LOOKING CLOSE — e.g. 'crews remain on scene', 'this is a "
+        "developing situation', 'we'll keep you posted as we learn more', or a "
+        "gentle safety note. Use smooth anchor transitions ('here's what we know "
+        "so far', 'authorities say', 'meanwhile', 'as of right now') and vary your "
+        "sentence length for rhythm. It should feel like a polished, authoritative "
+        "40-second package — fuller than a clipped scanner blurb — while still in "
+        "OTTER's warm voice.\n"
         "OTTER VOICE (this is the whole point — don't read like a robot "
         "dispatcher): you are a CHARACTER, not a police scanner. On LIGHT, "
         "no-harm stories you MUST land at least one genuine otter touch — a bit "
@@ -2755,6 +2976,10 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "fires, injuries, or death use serious, respectful emojis (🚨🚑🚒🙏) and "
         "NEVER celebratory/laughing ones (no 🎉😂🔥-as-cool). Same no-guessing + "
         "no-names/plates rules apply to the title and caption.\n"
+        "TEN-CODE IN CAPTION: if a ten-code was actually used in the radio "
+        "traffic (see TEN-CODES HEARD), include the raw code (e.g. '10-50') in "
+        "the social_caption as a scanner-fan nod — but NEVER put the bare code in "
+        "the anchor_body (the script always speaks the plain meaning).\n"
         "PRIVACY (hard rule): NEVER include any person's name or any license-"
         "plate / tag / registration number, even if it appears in the "
         "transcripts. Refer to people generically (a driver, a man, a woman, a "
@@ -2783,8 +3008,13 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"STORY HEADLINE (already written): {story.get('title','')}\n"
         f"INCIDENT TYPE: {primary.get('incident_type')}\n"
         f"SEVERITY: {primary.get('incident_severity') or 'unknown'}\n"
-        f"ROUGH LOCATION (broadcast-safe, already generalized to block/area — "
-        f"tell listeners this WHERE when present): {rough_loc or 'not stated in the radio traffic'}\n"
+        f"LOCATION CANDIDATES (parsed from the transcripts, most specific first; "
+        f"already block/PII-safe — USE THE MOST SPECIFIC ONE, a block or "
+        f"intersection, not just the city): "
+        f"{'; '.join(loc_candidates) if loc_candidates else (rough_loc or 'none parsed — read the transcripts yourself for any block, intersection, highway cross-street, or landmark')}\n"
+        f"TEN-CODES HEARD (decode these for your own understanding, then SPEAK "
+        f"PLAINLY on air — say the plain meaning, never the number): "
+        f"{', '.join((tc['code'] + ' = ' + tc['meaning']) if tc['meaning'] else (tc['code'] + ' (decode from context)') for tc in ten_codes) if ten_codes else 'none detected'}\n"
         f"TALKGROUP (source channel): {primary.get('talkgroup_tag') or primary.get('talkgroup')}\n"
         f"UNITS HEARD: {', '.join(units) if units else 'unknown'}\n"
         f"WINDOW: {first_t} to {last_t}, {len(cluster)} transmission(s)\n"
@@ -2796,10 +3026,11 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         f"Write the anchor script. Output strict JSON with these keys:\n"
         f'  "slug": short ALL-CAPS slug line, e.g. "MCALLEN STRUCTURE FIRE" '
         f'(no names or plate numbers)\n'
-        f'  "anchor_body": the words the anchor reads — ONE tight paragraph, '
-        f'2-4 short sentences, UNDER ~{NEWS_MAX_WORDS} words so it reads in less '
-        f'than 30 seconds; ear-friendly, no stage directions, ending with the '
-        f'single tone-matched color sentence only if a relevant fact exists\n'
+        f'  "anchor_body": the words the anchor reads — a full broadcast report '
+        f'of about 4 to 6 sentences, ~{NEWS_MAX_WORDS} words, reading in roughly '
+        f'35 to 45 seconds, with a strong lead, the key facts and WHERE, the '
+        f'current status, and a brief forward-looking close; ear-friendly, no '
+        f'stage directions\n'
         f'  "sources_line": e.g. "{primary.get("talkgroup_tag") or "Dispatch"} · '
         f'{len(cluster)} transmissions · {first_t}–{last_t}"\n'
         f'  "confidence": "high" if the core facts are corroborated across '
@@ -2829,8 +3060,8 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     # model slipped them in despite the prompt.
     persons = _cluster_persons(cluster)
     body = _redact_pii(body, persons)
-    # Hard length guarantee: trim to the word budget at a sentence boundary so
-    # every script reads in under 30 seconds, no matter how long the model went.
+    # Hard length guarantee: trim to the word budget at a sentence boundary so a
+    # runaway generation can't blow past the ~35-45s broadcast target.
     body = _fit_to_word_budget(body, NEWS_MAX_WORDS)
     # The script is fed straight into TTS — strip anything it reads badly
     # (em dashes voiced as "circumflex", emoji, middots) and normalise punctuation.
@@ -2838,6 +3069,16 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     slug = _redact_pii((data.get("slug") or story.get("title") or "").strip(), persons)
     social_title = _redact_pii((data.get("social_title") or story.get("title") or "").strip(), persons)
     social_caption = _redact_pii((data.get("social_caption") or "").strip(), persons)
+    # TTS form is taken BEFORE the code tag so the caption voice never reads
+    # "ten dash fifty" aloud.
+    caption_tts = _caption_for_tts(social_caption)[:400]
+    # Deterministic backstop: make sure any ten-code that was actually used shows
+    # up in the visible caption, even if the model left it out.
+    _missing = [tc for tc in ten_codes if tc["code"].lower() not in social_caption.lower()]
+    if _missing:
+        tag = "📟 " + " · ".join(
+            tc["code"] + (f" {tc['meaning']}" if tc["meaning"] else "") for tc in _missing)
+        social_caption = (social_caption + ("\n" if social_caption else "") + tag).strip()
     conf = (data.get("confidence") or "medium").strip().lower()
     if conf not in ("high", "medium"):
         conf = "medium"
@@ -2848,7 +3089,7 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "slug":         slug[:120],
         "title":        social_title[:160],
         "caption":      social_caption[:400],
-        "caption_tts":  _caption_for_tts(social_caption)[:400],
+        "caption_tts":  caption_tts,
         "anchor_body":  body,
         "sources_line": (data.get("sources_line") or "").strip()[:200],
         "confidence":   conf,
@@ -3040,6 +3281,20 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
     source = "\n".join(items)
     any_serious = any((s.get("severity") or "").lower() in ("critical", "high") for s in stories)
     digest_lead = random.choice(_DIGEST_LEAD_STYLES)
+    # Top-of-hour reel gets a quick weather bumper (current temp + near-term rain).
+    wx = _weather_brief() if is_rundown else None
+    weather_rule = (
+        "WEATHER BUMPER (this is the top-of-the-hour reel): include ONE short, "
+        "natural weather line built from the WEATHER facts below — the current "
+        "temperature, and if rain is expected soon a quick heads-up plus a brief, "
+        "friendly 'stay dry' style note. One sentence, plain and warm; put it "
+        "either right at the top before the news, or as the closing line. Use ONLY "
+        "the provided weather facts — never invent conditions. If a serious "
+        "incident leads the block, keep the weather note brief and low-key.\n"
+        if (is_rundown and wx) else ""
+    )
+    weather_user = (f"WEATHER (facts for the bumper — use these exact conditions, "
+                    f"do not invent): {wx['line']}\n") if (is_rundown and wx) else ""
 
     system = (
         "You are OTTER, a charming river-otter news anchor for a Rio Grande "
@@ -3073,6 +3328,7 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         "specific street addresses (block or area only), no graphic medical "
         "detail, no phone numbers or record IDs, and no real-time locations of "
         "any active pursuit or tactical operation.\n"
+        + weather_rule +
         "Output STRICT JSON only, no markdown."
     )
     avoid_block = ""
@@ -3086,6 +3342,7 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
     user_msg = (
         f"REGION: {REGION}\n"
         f"WINDOW: {win} ({len(stories)} stories this block)\n"
+        f"{weather_user}"
         f"---\nVERIFIED STORY SCRIPTS (your ONLY source):\n{source}\n---\n"
         f"{avoid_block}"
         "Write the roundup. Strict JSON keys:\n"
@@ -3225,9 +3482,12 @@ def _stories_leader_loop():
         except Exception as e:
             print(f"[stories] refresh failed: {e}", file=sys.stderr)
         try:
-            # 20-min IG-Story digests + the hourly reels/posts rundown. Same
-            # generator, different length/breadth budgets per block size.
-            made = _refresh_digests_once(DIGEST_BLOCK_SEC, DIGEST_MAX_WORDS, 8)
+            # The hourly reels/posts rundown (60m). The 20-min Story digest is
+            # generated only when DIGEST_20M_ENABLED — it's no longer posted, so
+            # by default we skip it and save a Groq call every 20 min.
+            made = 0
+            if DIGEST_20M_ENABLED:
+                made += _refresh_digests_once(DIGEST_BLOCK_SEC, DIGEST_MAX_WORDS, 8)
             made += _refresh_digests_once(RUNDOWN_BLOCK_SEC, RUNDOWN_MAX_WORDS,
                                           RUNDOWN_MAX_ITEMS)
             if made:
