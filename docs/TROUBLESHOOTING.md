@@ -334,3 +334,45 @@ chmod +x SDRplay_RSP_API-Linux-3.15.2.run
 sudo ./SDRplay_RSP_API-Linux-3.15.2.run
 # Press space to scroll license, type 'y' to accept and 'y' to install
 ```
+
+## News Otter hub (jafo.live) issues
+
+### Otter renders every hour but Instagram never updates
+
+**Symptom:** `jafo-otter` logs show a fresh render every cycle (`POST /render` →
+`GET /video`), n8n executions all say `success`, but `@the.news.otter` keeps
+showing an old post. Nothing new publishes for hours, across n8n restarts.
+
+**Root cause (the trap):** **n8n 2.x executes the *published* workflow version,
+not the editor draft you see in the UI or read from the DB.** The engine runs the
+snapshot referenced by `workflow_entity.activeVersionId` (a row in the
+`workflow_history` table). If the workflow was rewired by editing
+`~/.n8n/database.sqlite` directly (e.g. swapping a dead `Post to Upload-Post` node
+for `Publish to Instagram`), only the *draft* changed — the active version still
+points at the old snapshot, so every run quietly executes the old, broken path.
+`sqlite3` queries **and** `n8n export:workflow` both read the draft, so the
+workflow looks correct while the engine runs something else. A plain
+`systemctl restart n8n` does **not** fix it.
+
+**Diagnose:** look at which nodes a recent execution actually ran (not the draft):
+
+```bash
+LID=$(sqlite3 ~/.n8n/database.sqlite "SELECT id FROM execution_entity ORDER BY id DESC LIMIT 1;")
+sqlite3 ~/.n8n/database.sqlite "SELECT data FROM execution_data WHERE executionId=$LID;" \
+  | python3 -c "import sys,json;a=json.load(sys.stdin);c=next(e for e in a if isinstance(e,dict) and 'Done?' in e);print(list(c.keys()))"
+# If you see 'Post to Upload-Post'/'Get Video' here but the draft has
+# 'Publish to Instagram', the published version is stale.
+sqlite3 ~/.n8n/database.sqlite "SELECT activeVersionId FROM workflow_entity WHERE id='<wfid>';"
+```
+
+**Fix (the right way):** open the workflow in the **n8n UI and hit Save/Publish**
+(or update via the REST API). That snapshots the current draft into
+`workflow_history` and repoints `activeVersionId`. Then test once.
+
+**Emergency fix with no UI/API access** — republish atomically in SQLite (n8n
+stopped): insert a new `workflow_history` row (new UUID `versionId`, current
+`nodes`/`connections`), set `workflow_entity.activeVersionId = versionId = <new>`,
+upsert `workflow_published_version`, add an `activated` row to
+`workflow_publish_history`, then start n8n. (Don't `DELETE FROM workflow_history`
+blindly — the `sqlite3` CLI has foreign keys **off** by default, so it will orphan
+`activeVersionId` and every trigger then 404s with "Active version not found.")

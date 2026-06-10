@@ -77,14 +77,33 @@ frame with a gently-parted mouth. Scale the box ×1.5 if measured at 720×1280.
 
 ## n8n workflow
 
-Exported (secret-scrubbed) to `n8n/news-otter-pipeline.workflow.json`. Triggers:
-webhook, manual backfill, a 20-min Stories schedule, a 30-min Posts schedule, and
-a manual test form — all funnel into `Render Submit → Wait → Status → Done? →
-Get Video → Post to Upload-Post → Cleanup Video`.
+Exported to `n8n/news-otter-pipeline.workflow.json` (no secrets — every node calls
+either `127.0.0.1:8000` or the public `jafo.live` API). Triggers: webhook, manual
+backfill, a `:30` Stories schedule, a `:00` Posts schedule, and a manual test form
+— all funnel into `Render Submit → Wait → Status → Done? → Publish to Instagram →
+Cleanup Video`.
 
-**Importing:** replace `__UPLOAD_POST_API_KEY__` in the `Post to Upload-Post`
-node's `Authorization` header with the real upload-post.com Apikey (kept out of
-git). Keep the workflow inactive until an end-to-end test passes.
+**Publishing goes direct to the Meta / Instagram Graph API** (as of 2026-06-09),
+replacing the retired upload-post.com service. The `Publish to Instagram` node just
+POSTs `{job_id, caption, media_type}` to the renderer's `POST /publish`; the
+renderer (`otter_animate_server.py`) builds the media container, polls it to
+`FINISHED`, and publishes. The IG token + IDs live in `/var/jafo/.env.instagram`
+(chmod 600, outside the repo), loaded into `jafo-otter` via a systemd
+`EnvironmentFile` drop-in. Meta fetches the rendered MP4 over HTTPS from
+`https://jafo.live/m/<file>` (nginx `location /m/` → `/var/jafo/otter/output/`).
+
+> ⚠️ **n8n 2.x runs the PUBLISHED workflow version, not the editor draft.** Editing
+> the workflow rows in `~/.n8n/database.sqlite` directly (or `n8n import:workflow`)
+> changes only the draft — the engine keeps executing the snapshot pointed to by
+> `workflow_entity.activeVersionId` (a row in `workflow_history`). **Always change
+> this workflow in the n8n UI and hit Save/Publish** (or use the REST API); a bare
+> `systemctl restart n8n` does **not** republish. This bit us hard on 2026-06-09
+> (renders kept posting via the dead upload-post node for hours). See
+> TROUBLESHOOTING.md → "Otter renders every hour but Instagram never updates."
+
+**Importing:** import the JSON in the n8n UI, then **Save/Publish** it (don't just
+flip it active in the DB). Confirm `Publish to Instagram` is wired after `Done?`,
+then run one end-to-end test before relying on the schedule.
 
 ## One-time hub setup (already done; recorded for rebuilds)
 
