@@ -147,15 +147,9 @@
       <button id="stories-next" class="stories-arrow" type="button" aria-label="Next stories">›</button>
     </div>
   </section>
-  {% if not is_hub %}
-  <section id="favorites-strip" class="favorites-strip" aria-label="Favorite talkgroups">
-    <div class="favorites-header">
-      <h3 class="favorites-title">Favorites <span id="favorites-count" class="favorites-count">—</span></h3>
-      <span class="favorites-hint">Tap ☆ next to any talkgroup in the sidebar to follow it here.</span>
-    </div>
-    <div id="favorites-cards" class="favorites-cards"></div>
-  </section>
-  {% endif %}
+  {# favorites strip removed — reclaims the vertical space above the call feed.
+     Sidebar ☆ stars still work (localStorage); app.js refreshFavorites() no-ops
+     gracefully when these elements are absent (its `if (!root) return`). #}
   <div id="active-filters" class="active-filters"></div>
   <div id="results" class="results"></div>
   <div id="loading" class="loading hidden">Loading…</div>
