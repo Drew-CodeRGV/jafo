@@ -56,6 +56,30 @@ PIPER_PY    = os.environ.get("JAFO_OTTER_PIPER_PY", sys.executable)
 TTL_HOURS         = float(os.environ.get("JAFO_OTTER_TTL_HOURS", "12"))
 REAP_INTERVAL_MIN = float(os.environ.get("JAFO_OTTER_REAP_INTERVAL_MIN", "30"))
 
+# --- Spoken-only pronunciation fixes ---------------------------------------
+# Local place names Piper's espeak phonemizer says wrong. The respelling on the
+# RIGHT is fed to TTS (and the Rhubarb dialog file, so the lip-sync matches the
+# audio) in place of the word on the LEFT — but ONLY for the spoken text. The
+# on-screen banner uses the job title, a separate path, so it keeps the real
+# spelling. Respellings are verified against the bundled espeak phonemes:
+#   "Weslaco"   -> wɛs-lˈɑː-koʊ ("wes-LAH-co", wrong)
+#   "Wesslackoh" -> wˈɛs-lɐ-ˌkoʊ ("WES-luh-co", the correct local pronunciation)
+# Match is whole-word and case-insensitive. Add more as you catch them by ear.
+TTS_PRONUNCIATIONS = {
+    "Weslaco": "Wesslackoh",
+}
+_PRON_RE = (re.compile(r"(?i)\b(" + "|".join(re.escape(k) for k in TTS_PRONUNCIATIONS) + r")\b")
+            if TTS_PRONUNCIATIONS else None)
+
+
+def _apply_pronunciations(text: str) -> str:
+    """Swap display spellings for TTS-friendly respellings in the SPOKEN text
+    only. No-op when the map is empty or the text has none of the words."""
+    if not _PRON_RE or not text:
+        return text
+    lut = {k.lower(): v for k, v in TTS_PRONUNCIATIONS.items()}
+    return _PRON_RE.sub(lambda m: lut[m.group(1).lower()], text)
+
 # --- Wav2Lip backend (optional, for the hourly rundown / featured Reels) ---
 # OFF by default: when disabled the renderer behaves exactly as before (Piper ->
 # Rhubarb visemes -> mouth-PNG swap). When JAFO_OTTER_WAV2LIP=1, jobs whose
@@ -304,11 +328,15 @@ def _run_job(job_id: str, text: str):
         txt  = os.path.join(jdir, "dialog.txt")
         lst  = os.path.join(jdir, "frames.txt")
         out  = os.path.join(jdir, "out.mp4")
-        open(txt, "w", encoding="utf-8").write(text)
+        # Apply spoken-only pronunciation fixes (e.g. Weslaco -> WES-luh-co). The
+        # same respelled text feeds Piper AND the Rhubarb dialog file so the audio
+        # and lip-sync stay in agreement; the on-screen banner is unaffected.
+        spoken = _apply_pronunciations(text)
+        open(txt, "w", encoding="utf-8").write(spoken)
 
         # 1) Piper TTS (invoked as a module; text on stdin)
         p = subprocess.run([PIPER_PY, "-m", "piper", "--model", PIPER_VOICE, "--output_file", wav],
-                           input=text.encode(), capture_output=True)
+                           input=spoken.encode(), capture_output=True)
         if p.returncode != 0:
             raise RuntimeError("Piper failed: " + p.stderr.decode()[:400])
 
