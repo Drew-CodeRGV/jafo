@@ -85,6 +85,32 @@ def _add_no_cache_for_html(resp):
         resp.headers["Cache-Control"] = "no-store, must-revalidate"
     return resp
 
+
+@app.after_request
+def _manage_admin_cookie(resp):
+    """Admin login/logout via cookie so audio plays on the main page.
+
+    - Any request presenting a valid ?token= (or Bearer) sets the login cookie,
+      so subsequent same-origin requests (the /audio/* stream, /api/calls) are
+      authorized automatically — the admin visits jafo.live/?token=… ONCE.
+    - ?logout=1 clears it.
+    The cookie is Secure over https (jafo.live) and derived from the token, not
+    the token itself. No-op when no admin token is configured."""
+    if not _ADMIN_COOKIE_VALUE or not has_request_context():
+        return resp
+    try:
+        if request.args.get("logout"):
+            resp.delete_cookie(_ADMIN_COOKIE_NAME, samesite="Lax")
+        elif _admin_token_in_request(request) and not _admin_cookie_ok(request):
+            secure = (request.is_secure or
+                      request.headers.get("X-Forwarded-Proto", "") == "https")
+            resp.set_cookie(_ADMIN_COOKIE_NAME, _ADMIN_COOKIE_VALUE,
+                            max_age=_ADMIN_COOKIE_MAX_AGE, httponly=True,
+                            secure=secure, samesite="Lax")
+    except RuntimeError:
+        pass  # outside a request context (shouldn't happen in after_request)
+    return resp
+
 # -----------------------------------------------------------------------------
 # Rio Grande Valley city/area coordinates for the live map.
 #
@@ -467,17 +493,44 @@ def talkgroups_editor():
 # -----------------------------------------------------------------------------
 ADMIN_TOKEN = os.environ.get("JAFO_ADMIN_TOKEN", "").strip()
 
+# Admin login cookie. Visiting any page with a valid ?token= sets this cookie
+# (see _set_admin_cookie in after_request), so the admin stays "logged in" and
+# audio players work on the main page without re-pasting the token in every URL.
+# The cookie stores a value DERIVED from the token, never the raw token itself —
+# a leaked cookie grants access but doesn't reveal the secret. httponly + secure.
+_ADMIN_COOKIE_NAME    = "jafo_admin"
+_ADMIN_COOKIE_MAX_AGE = 30 * 24 * 3600     # 30 days
+_ADMIN_COOKIE_VALUE   = (
+    hashlib.sha256(("jafo-admin-v1:" + ADMIN_TOKEN).encode()).hexdigest()
+    if ADMIN_TOKEN else ""
+)
+
+
+def _admin_token_in_request(req) -> bool:
+    """The request carries the raw admin token (query ?token= or Bearer header)."""
+    if not ADMIN_TOKEN:
+        return False
+    qp = (req.args.get("token") or "").strip()
+    if qp and secrets.compare_digest(qp, ADMIN_TOKEN):
+        return True
+    auth = req.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:].strip(), ADMIN_TOKEN):
+        return True
+    return False
+
+
+def _admin_cookie_ok(req) -> bool:
+    """The request carries a valid admin login cookie."""
+    if not _ADMIN_COOKIE_VALUE:
+        return False
+    ck = req.cookies.get(_ADMIN_COOKIE_NAME, "")
+    return bool(ck) and secrets.compare_digest(ck, _ADMIN_COOKIE_VALUE)
+
 
 def _admin_ok(req) -> bool:
     if not ADMIN_TOKEN:
         return False  # no admin token configured = admin disabled
-    qp = (req.args.get("token") or "").strip()
-    if qp and qp == ADMIN_TOKEN:
-        return True
-    auth = req.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and auth[7:].strip() == ADMIN_TOKEN:
-        return True
-    return False
+    return _admin_token_in_request(req) or _admin_cookie_ok(req)
 
 
 def _req_token(req) -> str:
@@ -1914,6 +1967,28 @@ NEWS_FEED_LIMIT            = 24          # /news cards shown (a touch above KEEP
 # light, non-critical cluster to a story (the otter plays it for fun). 0 disables.
 FUN_STORY_INTERVAL_SEC     = int(os.environ.get("JAFO_FUN_STORY_INTERVAL_SEC", str(30 * 60)))
 FUN_STORY_MAX_ATTEMPTS     = 3           # candidate clusters to try before giving up (bounds LLM cost)
+FUN_MAX_WORDS              = int(os.environ.get("JAFO_FUN_MAX_WORDS", "75"))   # light segment ~30s
+# A promoted light/fun story is low-severity by nature, so its raw score could
+# never out-rank medical/incident traffic and win a posting block. Give every
+# fun story a fixed, competitive-but-not-dominant score so the otter actually
+# gets to post a light segment now and then — it still loses to a real fire,
+# chase, or a genuine medical surge. 0 = use the cluster's raw score instead.
+FUN_STORY_SCORE            = float(os.environ.get("JAFO_FUN_STORY_SCORE", "1.8"))
+# Topic balance (the :30 highlight posts the single highest-SCORE story per
+# block, so scoring is what decides which incident the otter leads with).
+# Medical/EMS is important but dominates on sheer call volume, so it carries a
+# gentle score penalty; high-impact incidents (fire, pursuit, rescue, hazmat,
+# weather) get a small boost. Both tunable via env — set MEDICAL_MULT=1.0 to
+# disable the penalty.
+SCORE_MEDICAL_MULT         = float(os.environ.get("JAFO_SCORE_MEDICAL_MULT", "0.7"))
+SCORE_IMPACT_MULT          = float(os.environ.get("JAFO_SCORE_IMPACT_MULT", "1.2"))
+_MEDICAL_TYPE_HINTS = ("medical", "ems", "ambulance", "patient", "sick person",
+                       "overdose", "cardiac", "respiratory", "seizure", "fall ",
+                       "diabetic", "stroke", "unconscious", "mva with injur")
+_IMPACT_TYPE_HINTS  = ("fire", "structure", "pursuit", "chase", "rescue",
+                       "hazmat", "hazardous", "shooting", "shots fired", "weather",
+                       "flood", "storm", "swat", "barricade", "explosion",
+                       "active shooter", "wildfire", "gas leak")
 STORIES_LOCK_PATH          = "/tmp/jafo-stories-leader.lock"
 STORY_MODEL                = "claude-haiku-4-5-20251001"
 # Aggregate digest ("IG Story"): one synthesized roundup of all newsworthy
@@ -2029,6 +2104,19 @@ def _cluster_key(call: dict) -> str:
     return f"{call['talkgroup']}-{bucket}-{inc}"
 
 
+def _incident_type_mult(calls: list[dict]) -> float:
+    """Topic-balance multiplier so the feed isn't wall-to-wall ambulances.
+    High-impact incidents (fire, pursuit, rescue, weather) win the tie; medical
+    takes a gentle penalty; everything else is neutral. Impact is checked first
+    so a medical response AT a fire still scores as impact, not medical."""
+    types = " ".join((c.get("incident_type") or "").lower() for c in calls)
+    if any(h in types for h in _IMPACT_TYPE_HINTS):
+        return SCORE_IMPACT_MULT
+    if any(h in types for h in _MEDICAL_TYPE_HINTS):
+        return SCORE_MEDICAL_MULT
+    return 1.0
+
+
 def _score_cluster(calls: list[dict]) -> float:
     sev = max(
         (SEVERITY_WEIGHT.get((c.get("incident_severity") or "unknown").lower(), 0.5) for c in calls),
@@ -2038,7 +2126,7 @@ def _score_cluster(calls: list[dict]) -> float:
     latest = max((c["start_time"] or 0) for c in calls)
     age_min = max(0.0, (time.time() - latest) / 60.0)
     recency = 1.0 / (1.0 + age_min / 60.0)  # half-life ~1 hour
-    return sev * count_w * (0.4 + 0.6 * recency)
+    return sev * count_w * (0.4 + 0.6 * recency) * _incident_type_mult(calls)
 
 
 def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
@@ -2060,6 +2148,43 @@ def _fetch_recent_enriched_calls(hours: int) -> list[dict]:
         ORDER BY start_time ASC
     """, (cutoff,))
     rows = [dict(r) for r in cur if dict(r)["incident_type"] not in BORING_INCIDENT_TYPES]
+    conn.close()
+    return rows
+
+
+def _fetch_light_chatter_calls(hours: int) -> list[dict]:
+    """Pull the everyday traffic the main news path throws away — the boring
+    types (radio_chatter / status_update) and other low-severity calls — so the
+    fun-story injector can fish a genuinely amusing or human-interest moment out
+    of it (a crew calling out for lunch, friendly banter, an oddball request).
+
+    This is deliberately permissive: it returns lots of mundane chatter. The
+    air-worthiness judgment is the LLM's job in _synthesize_fun_segment, which
+    declines anything that isn't actually fun. We only pre-filter here for
+    seriousness (nothing high/critical is 'fun') and for enough words to be worth
+    a look (one-word '10-8' acknowledgements can't carry a segment)."""
+    cutoff = int(time.time()) - hours * 3600
+    conn = get_db()
+    cur = conn.execute("""
+        SELECT id, talkgroup, talkgroup_tag, start_time, transcript,
+               incident_type, incident_summary, incident_location,
+               incident_units, incident_severity, opus_path,
+               transcript_confidence, transcript_no_speech, transcript_model,
+               incident_json
+        FROM calls
+        WHERE status = 'kept'
+          AND audio_deleted = 0
+          AND transcript IS NOT NULL
+          AND length(transcript) >= 40
+          AND start_time >= ?
+        ORDER BY start_time ASC
+    """, (cutoff,))
+    rows = []
+    for r in cur:
+        d = dict(r)
+        if (d.get("incident_severity") or "unknown").lower() in ("high", "critical"):
+            continue                      # serious traffic is never a 'fun' segment
+        rows.append(d)
     conn.close()
     return rows
 
@@ -2263,6 +2388,21 @@ def _cluster_passes_news_gate(cluster: list[dict]) -> bool:
     return False
 
 
+def _cluster_passes_confidence_gate(cluster: list[dict]) -> bool:
+    """Same confidence/no-speech bar as the news gate but WITHOUT the boring-type
+    exclusion — used for the light/chatter fun path, where the 'boring' types are
+    exactly what we want to mine. At least one transmission must be clearly heard
+    so the otter never riffs on a garbled guess."""
+    for c in cluster:
+        conf = c.get("transcript_confidence")
+        nosp = c.get("transcript_no_speech")
+        conf_ok = (conf is None) or (conf >= NEWS_MIN_CONFIDENCE)
+        nosp_ok = (nosp is None) or (nosp <= NEWS_MAX_NO_SPEECH)
+        if conf_ok and nosp_ok:
+            return True
+    return False
+
+
 # Curated, sourced color/stats facts — the ONLY source the writer may draw
 # statistics or background from (besides rgv-context.txt + live weather).
 _NEWS_CONTEXT_PATH = Path(__file__).parent / "news-context.txt"
@@ -2382,10 +2522,22 @@ _ADDRESS_RE = re.compile(
     + _STREET_SUFFIX + r')\b\.?', re.IGNORECASE)
 
 
+# A route keyword right before a number means the digits are a HIGHWAY number
+# ("Expressway 83", "US 281", "Loop 499", "FM 1015"), not a house number — don't
+# generalize it to a block (that would mangle "Expressway 83 near Ware Road" into
+# "Expressway near Ware Road"). Guards both the candidate miner and the body PII pass.
+_ROUTE_KW_BEFORE_RE = re.compile(
+    r'(?i)\b(?:Highway|Hwy|Expressway|Expwy|Loop|Spur|Interstate|U\.?S\.?|US|FM|SH|'
+    r'Business|State\s+Highway|Farm[-\s]to[-\s]Market|I)\s*-?\s*$')
+
+
 def _addr_block_repl(m: "re.Match") -> str:
     """Replace a street address with its block. House numbers under 100 have no
     sensible block ("the 0 block of..."), so drop the number and keep just the
     street name — still removes the pinpoint."""
+    # Leave highway/route numbers alone (e.g. "Expressway 83", "US 281").
+    if _ROUTE_KW_BEFORE_RE.search(m.string[:m.start()]):
+        return m.group(0)
     street = m.group(2)
     try:
         block = (int(m.group(1)) // 100) * 100
@@ -2443,6 +2595,27 @@ _SIDE = r'(?:[NSEW]\.?\s+)?(?:' + _ORD + r'|[A-Z][\w.\']*)(?:\s+' + _STREET_SUFF
 _AND_INT_RE = re.compile(r'\b(' + _SIDE + r')\s+(?:and|&)\s+(' + _SIDE + r')\b')
 
 
+# RGV highways/expressways/farm roads are how locals actually give a location
+# ("on Expressway 83 near Ware", "US 281 at mile marker 12", "FM 1015"), but the
+# block/intersection patterns above miss them. Catch the named route, optionally
+# with a cross-street or mile marker, so the otter can name a real spot instead
+# of falling back to the city. Broadcast-safe by construction (no house numbers).
+_ROUTE = (r'(?:'
+          r'(?:U\.?S\.?|US)\s*(?:Highway\s*)?\d{1,3}'        # US 83, U.S. 281
+          r'|Interstate\s*\d{1,3}|I-\d{1,2}'                  # Interstate 2, I-2
+          r'|(?:State\s+)?Highway\s*\d{1,3}|SH[-\s]?\d{1,3}'  # Highway 107, SH 336
+          r'|Expressway\s*\d{1,3}|Expwy\s*\d{1,3}'            # Expressway 83
+          r'|(?:Loop|Spur)\s*\d{1,4}'                         # Loop 499
+          r'|FM\s*\d{1,4}|Farm[-\s]to[-\s]Market\s*\d{1,4}'   # FM 1015
+          r'|Business\s*(?:Highway\s*)?\d{1,3}'               # Business 83
+          r')')
+_ROUTE_RE = re.compile(r'(?i)\b' + _ROUTE +
+                       r'(?:\s+(?:at|near|and|&|by)\s+'
+                       r'(?:mile\s*(?:marker|post)\s*\d{1,3}|'
+                       r'(?:[NSEW]\.?\s+)?[A-Z][\w.\']*(?:\s+[A-Z][\w.\']*)?'
+                       r'(?:\s+' + _STREET_SUFFIX + r')?))?')
+
+
 def _side_is_streetish(s: str) -> bool:
     return bool(re.search(_ORD + r'$', s, re.I) or
                re.search(_STREET_SUFFIX + r'$', s, re.I))
@@ -2486,6 +2659,10 @@ def _extract_location_candidates(cluster: list[dict]) -> list[str]:
             a, b = m.group(1), m.group(2)
             if _side_is_streetish(a) or _side_is_streetish(b):
                 add(f"{a} and {b}")
+    for c in cluster:                                  # then named highways/routes
+        t = c.get("transcript") or ""
+        for m in _ROUTE_RE.finditer(t):
+            add(m.group(0))
     for c in cluster:                                  # enriched field last
         add(c.get("incident_location") or "")
     return cands
@@ -2935,6 +3112,14 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
         "sentence length for rhythm. It should feel like a polished, authoritative "
         "40-second package — fuller than a clipped scanner blurb — while still in "
         "OTTER's warm voice.\n"
+        "FLOW (read it aloud in your head): the sentences must CONNECT into one "
+        "continuous thought, each picking up where the last left off, NOT a stack "
+        "of disconnected facts. A choppy 'There was a crash. Units responded. The "
+        "road is closed.' is exactly the disjointed read to avoid, make it 'Crews "
+        "are on scene of a crash that has the road shut down, and according to "
+        "dispatch the cause is still unclear.' Link your beats with connective "
+        "tissue (and, while, after, now, as, meanwhile) so the report glides from "
+        "lead to close as a single spoken paragraph.\n"
         "OTTER VOICE (this is the whole point — don't read like a robot "
         "dispatcher): you are a CHARACTER, not a police scanner. On LIGHT, "
         "no-harm stories you MUST land at least one genuine otter touch — a bit "
@@ -3098,6 +3283,120 @@ def _synthesize_news_script(cluster: list[dict], story: dict) -> dict | None:
     }
 
 
+def _synthesize_fun_segment(cluster: list[dict]) -> tuple[dict, dict] | None:
+    """Write a SHORT, light otter segment from everyday chatter — the human/funny
+    moments the strict news path discards (a crew heading to lunch, good-natured
+    banter). The model is the gate: it must set air_worthy=false for anything
+    routine, boring, sensitive, or not actually fun, in which case we ship
+    nothing. Returns (synthesized {title,body}, news {anchor_body,...}) shaped
+    like the strict path so _insert_story can store it, or None to skip.
+
+    Same TTS / PII / privacy rules as the news script. Runs on the cheap
+    NEWS_SCRIPT_BACKEND (Groq) and is bounded by the fun-injector's attempt cap,
+    so it adds no per-call cost — only a few extra Groq calls ~every 30 min."""
+    if not _cluster_passes_confidence_gate(cluster):
+        return None
+
+    transcripts = "\n".join(
+        f"[{_fmt_local(c['start_time'], '%H:%M:%S')}] {c['transcript'].strip()}"
+        for c in cluster if c.get("transcript")
+    ) or "(no transcripts)"
+    units = sorted({u.strip() for c in cluster for u in (c.get("incident_units") or "").split(",") if u.strip()})
+    loc_candidates = _extract_location_candidates(cluster)
+    first_t = _fmt_local(min(c["start_time"] for c in cluster), "%-I:%M %p")
+    last_t  = _fmt_local(max(c["start_time"] for c in cluster), "%-I:%M %p")
+
+    system = (
+        "You are OTTER, a charming river-otter anchor for a Rio Grande Valley TV "
+        "station, doing a quick, FUN 'and finally...' style segment — the warm, "
+        "lighthearted human-interest beat at the end of a newscast. Your source "
+        "is ordinary, NON-emergency radio chatter (crews going to lunch, friendly "
+        "banter, an odd or charming request). The whole point is personality and "
+        "a smile.\n"
+        "AIR-WORTHINESS (you are the gate): only run this if it is GENUINELY light "
+        "and fun or charming — a real smile. If the chatter is just routine "
+        "logistics, a dry status check, mundane, confusing, garbled, or anything "
+        "sensitive, sad, or serious, set \"air_worthy\": false and stop. A boring "
+        "segment is far worse than no segment. When in doubt, air_worthy=false.\n"
+        "FACTS STILL SACRED: say ONLY what is actually in the chatter — never "
+        "invent an event, a quote, or a punchline of fact. The humor comes from "
+        "YOUR otter voice and framing, not from made-up details. These are "
+        "unverified scanner snippets; keep it gentle and never mock the people on "
+        "the radio — you're laughing WITH them, warmly, never at them.\n"
+        "OTTER VOICE: lean into it — a bit of river/water wordplay or a warm "
+        "ad-libbed aside ('this old otter approves', 'paws for a lunch break', "
+        "'making a splash'), but invent fresh lines, don't paste stock phrases.\n"
+        "FLOW: one connected, gliding little paragraph, not choppy disconnected "
+        "sentences. Keep any real place name from the chatter if there is one.\n"
+        f"LENGTH: SHORT — about {FUN_MAX_WORDS} words, a 25 to 35 second read, a "
+        "couple of sentences. Tight and charming, no padding.\n"
+        "TEXT-TO-SPEECH (anchor_body): plain words and simple punctuation, periods "
+        "and commas only. No dashes, ellipses, slashes, ampersands, emojis, "
+        "hashtags, asterisks, or symbols. Spell things out.\n"
+        "PRIVACY (hard rule): never include any person's name, badge, unit number "
+        "spoken as a person, phone number, address, or plate/tag. Refer to people "
+        "generically (a crew, a deputy, a driver, a dispatcher).\n"
+        "SOCIAL: also give a short, playful social_title (<= 70 chars, the actual "
+        "fun bit, not a vague label) and a social_caption (1-2 lines with light "
+        "emojis like 🦦🌊😄 and 2-4 hashtags).\n"
+        "Output STRICT JSON only, no markdown."
+    )
+    user_msg = (
+        f"REGION: {REGION}\n"
+        f"TALKGROUP (source channel): {(cluster[-1].get('talkgroup_tag') or cluster[-1].get('talkgroup'))}\n"
+        f"PLACE (if any was mentioned, else ignore): "
+        f"{'; '.join(loc_candidates) if loc_candidates else 'none'}\n"
+        f"UNITS HEARD: {', '.join(units) if units else 'unknown'}\n"
+        f"WINDOW: {first_t} to {last_t}, {len(cluster)} transmission(s)\n"
+        f"---\n"
+        f"RADIO CHATTER (your ONLY source — riff on this, invent no facts):\n{transcripts}\n"
+        f"---\n"
+        f"Write the light segment. Strict JSON keys:\n"
+        f'  "air_worthy": true ONLY if this is genuinely fun/charming, else false\n'
+        f'  "slug": short ALL-CAPS slug, e.g. "LUNCH BREAK ON THE AIR"\n'
+        f'  "anchor_body": the words the otter reads (~{FUN_MAX_WORDS} words, '
+        f'TTS-safe, no symbols)\n'
+        f'  "social_title": a playful, specific headline (<= 70 chars)\n'
+        f'  "social_caption": 1-2 lines with light emojis + 2-4 hashtags\n'
+        f"JSON only, no preamble."
+    )
+    out = _news_synth_json(system, user_msg, NEWS_SCRIPT_BACKEND)
+    if not out:
+        return None
+    data, model_used = out
+    if not data.get("air_worthy"):
+        return None
+    body = (data.get("anchor_body") or "").strip()
+    if not body:
+        return None
+    persons = _cluster_persons(cluster)
+    body = _redact_pii(body, persons)
+    body = _fit_to_word_budget(body, FUN_MAX_WORDS)
+    body = _tts_sanitize(body)
+    if len(body.split()) < 8:               # too thin after scrubbing — skip
+        return None
+    slug = _redact_pii((data.get("slug") or "").strip(), persons)
+    social_title = _redact_pii((data.get("social_title") or slug or "").strip(), persons)
+    social_caption = _redact_pii((data.get("social_caption") or "").strip(), persons)
+    runtime = max(4, round(len(body.split()) / NEWS_WORDS_PER_SEC))
+    synthesized = {
+        "title": (social_title or slug or "A lighter moment on the radio")[:160],
+        "body":  body,
+    }
+    news = {
+        "slug":         slug[:120],
+        "title":        social_title[:160],
+        "caption":      social_caption[:400],
+        "caption_tts":  _caption_for_tts(social_caption)[:400],
+        "anchor_body":  body,
+        "sources_line": f"{cluster[-1].get('talkgroup_tag') or 'Scanner'} · {len(cluster)} transmissions · {first_t}–{last_t}"[:200],
+        "confidence":   "medium",
+        "runtime_sec":  runtime,
+        "model":        model_used,
+    }
+    return synthesized, news
+
+
 def _refresh_stories_once() -> tuple[int, int]:
     """One pass. Returns (new_stories, skipped)."""
     calls = _fetch_recent_enriched_calls(STORY_LOOKBACK_HOURS)
@@ -3226,13 +3525,23 @@ def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
         )
         if sev >= SEVERITY_WEIGHT["high"]:   # crashes/fires/etc. aren't "fun"
             continue
+        # Belt-and-suspenders: a fire/pursuit/rescue the enricher under-rated on
+        # severity is still impactful, not "fun" — let it ride the normal ranked
+        # path (with its impact boost) instead of the light sprinkle.
+        if _incident_type_mult(lst) == SCORE_IMPACT_MULT:
+            continue
         if not _cluster_passes_news_gate(lst):
             continue
         cands.append((key, lst, score))
     if not cands:
         return 0
     # Pick randomly among the candidates so the sprinkle feels spontaneous, but
-    # cap attempts to bound LLM cost if synthesis fails.
+    # cap attempts to bound LLM cost if synthesis fails. Fun stories are stored
+    # with a competitive FUN_STORY_SCORE (not their tiny raw score) so they can
+    # actually win a posting block now and then instead of only living in the
+    # browse feed — while still losing to a real fire, chase, or medical surge.
+    fun_score = max((score for _, _, score in cands), default=0.0)
+    fun_score = max(fun_score, FUN_STORY_SCORE) if FUN_STORY_SCORE > 0 else fun_score
     random.shuffle(cands)
     for key, lst, score in cands[:FUN_STORY_MAX_ATTEMPTS]:
         synthesized = _synthesize_story(lst)
@@ -3241,8 +3550,32 @@ def _maybe_inject_fun_story(conn, ranked: list, existing_keys: set) -> int:
         news = _synthesize_news_script(lst, synthesized)
         if not news:           # gate or model hiccup — try the next candidate
             continue
-        if _insert_story(conn, key, lst, synthesized, news, score, is_fun=1):
+        if _insert_story(conn, key, lst, synthesized, news,
+                         max(score, fun_score), is_fun=1):
             print(f"[news] sprinkled in a fun story: {synthesized.get('title','')[:60]}", file=sys.stderr)
+            return 1
+
+    # No light INCIDENT worked — fish the everyday chatter the main path throws
+    # away for a genuinely fun human-interest moment (a crew heading to lunch,
+    # friendly banter). The LLM decides air-worthiness, so most mundane chatter
+    # is declined; this just opens the door so humor can reach the feed.
+    chatter = _fetch_light_chatter_calls(STORY_LOOKBACK_HOURS)
+    if not chatter:
+        return 0
+    chat_clusters: dict[str, list[dict]] = {}
+    for c in chatter:
+        chat_clusters.setdefault(_cluster_key(c), []).append(c)
+    chat_cands = [(k, lst) for k, lst in chat_clusters.items()
+                  if k not in existing_keys and _cluster_passes_confidence_gate(lst)]
+    random.shuffle(chat_cands)
+    for key, lst in chat_cands[:FUN_STORY_MAX_ATTEMPTS]:
+        res = _synthesize_fun_segment(lst)
+        if not res:            # not air-worthy or model hiccup — try the next
+            continue
+        synthesized, news = res
+        seg_score = FUN_STORY_SCORE if FUN_STORY_SCORE > 0 else _score_cluster(lst)
+        if _insert_story(conn, key, lst, synthesized, news, seg_score, is_fun=1):
+            print(f"[news] sprinkled in a fun chatter segment: {synthesized.get('title','')[:60]}", file=sys.stderr)
             return 1
     return 0
 
@@ -3305,11 +3638,26 @@ def _synthesize_digest(stories: list[dict], block_start: int, block_end: int,
         "aired this block. Summarize them into ONE cohesive read. Use ONLY facts "
         "present in those scripts — add NO new details, numbers, names, or "
         "specifics. These are unconfirmed scanner reports; never assert guilt.\n"
-        f"SHAPE: {digest_lead} Then hit the {n_lo} to {n_hi} most notable items, "
-        "one tight sentence each, then a brief otter sign-off. VARY THE OPENING "
-        "every time — do NOT start with 'Here's what's moving across the Valley' "
-        "or any near-copy of that stock phrase; it has become repetitive. "
+        f"SHAPE: {digest_lead} Then cover the {n_lo} to {n_hi} most notable items "
+        "and close with a brief otter sign-off. VARY THE OPENING every time — do "
+        "NOT start with 'Here's what's moving across the Valley' or any near-copy "
+        "of that stock phrase; it has become repetitive. "
         f"UNDER {max_words} words total so it reads in {dur_phrase}.\n"
+        "FLOW (most important — this is a SPOKEN roundup, not a bulleted list): "
+        "weave the items into ONE continuous, connected read that glides from one "
+        "to the next. Do NOT give each item its own isolated 'In X, this. In Y, "
+        "that.' sentence — that staccato list is exactly the disjointed read to "
+        "avoid. Use real anchor segues between stories ('over in Edinburg', "
+        "'meanwhile', 'also tonight', 'on a lighter note', 'staying on the "
+        "roads') and group related items together so it sounds like one person "
+        "talking through the block, not a machine reading headlines. Order the "
+        "items so it builds naturally — lead with the biggest, let lighter items "
+        "land later.\n"
+        "KEEP THE WHERE: the source scripts already name specific spots (a block, "
+        "an intersection, a highway). Carry those exact places through — say 'near "
+        "10th and Nolana' or 'on Expressway 83', not a flattened 'in McAllen'. The "
+        "location is the most useful thing in each item; never sand it down to the "
+        "bare city when the script gives you better.\n"
         "TONE GUARD: match the heaviest item in the mix. If anything involves a "
         "crash, fire, injury, or death, keep the WHOLE read measured and warm — "
         "no jokes. Save playful river/otter wordplay for blocks that are entirely "
