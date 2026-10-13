@@ -1,0 +1,16 @@
+[Unit]
+Description=jafo — bridge remote node readsb feed into hub /run/readsb
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+RuntimeDirectory=readsb
+RuntimeDirectoryMode=0755
+Environment=JAFO_ADSB_SOURCE_URL=http://100.66.142.15:8754/aircraft.json
+ExecStart=/usr/bin/python3 /home/ubuntu/jafo/pi/services/adsb_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

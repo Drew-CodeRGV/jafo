@@ -1,0 +1,15 @@
+[Unit]
+Description=jafo — serve readsb aircraft.json over the tailnet (hub bridge source)
+After=readsb.service tailscaled.service network-online.target
+Wants=readsb.service
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/bin/python3 -m http.server 8754 --bind 100.66.142.15 --directory /run/readsb
+Restart=always
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
