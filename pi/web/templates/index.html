@@ -18,7 +18,7 @@
 <div class="cc-scanlines" aria-hidden="true"></div>
 
 <!-- Cinematic cold-boot overlay (client-only; auto-dismisses, click to skip) -->
-<div id="cc-boot" class="cc-boot"><pre id="cc-boot-text" class="cc-boot-text"></pre><div class="cc-boot-hint">▸ click to skip</div></div>
+<div id="cc-boot" class="cc-boot"><canvas id="cc-boot-globe" class="cc-boot-globe"></canvas><pre id="cc-boot-text" class="cc-boot-text"></pre><div class="cc-boot-hint">▸ click to skip</div></div>
 
 <header class="topbar">
   <button id="menu-btn" class="menu-btn" aria-label="Toggle filters menu" type="button">☰</button>
@@ -39,6 +39,7 @@
     <span class="cc-clocks"><span class="z">Z</span> <b id="cc-zulu">--:--:--</b> <span class="z">L</span> <b id="cc-local">--:--:--</b></span>
   </div>
   <div class="actions">
+    <button id="cc-wall-btn" class="nav-link cc-wall-btn" type="button" title="Enter THE WALL — fullscreen rotating ops display (W / Esc)">⛶ WALL</button>
     <a href="/talkgroups" class="nav-link" title="Edit talkgroup names, cities, types">Talkgroups</a>
     <a href="/cell-network" class="nav-link" title="Cellular network observer">Cell network</a>
     <label class="auto-refresh">
@@ -216,9 +217,14 @@
 <main class="timeline">
   <div class="view-toggle" id="view-toggle" aria-label="Show / hide panels">
     <button class="view-chip" data-view="radar" type="button">◎ Radar</button>
+    <button class="view-chip" data-view="link" type="button">◉ Link graph</button>
     <button class="view-chip" data-view="map" type="button">🗺 Map</button>
     <button class="view-chip" data-view="air" type="button">✈ Air traffic</button>
     <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
+  </div>
+  <div class="cc-link-pane collapsed" id="cc-link-pane" aria-label="Communications link analysis">
+    <span class="cc-link-title">◉ Link Analysis · units ↔ channels · last hour</span>
+    <canvas id="cc-link"></canvas>
   </div>
   <div class="cc-radar-pane collapsed" id="cc-radar-pane" aria-label="Radar scope of recent activity">
     <span class="cc-radar-title">◎ Tactical Radar · recent activity</span>
@@ -365,6 +371,8 @@ window.JAFO_TOMTOM_KEY = {{ tomtom_key | default(none, true) | tojson }};
 window.JAFO_HUB_LINK = {{ hub_link | tojson }};
 </script>
 {% endif %}
+
+<div class="cc-wall-stage" id="cc-wall-stage" aria-hidden="true"></div>
 
 <div class="cc-classbar-bot" aria-hidden="true">
   <span class="cc-cb-left">◤ {{ node_name }} · LRGVRRS P25 PHASE II</span>

@@ -676,7 +676,20 @@ async function initMap() {
   initAirTrafficLayers();
   setupWeatherRadar();
   setupTrafficLayer();
+  setupSatelliteLayer();
   addMapLayerToggles();
+}
+
+// ---- Satellite imagery basemap (Esri World Imagery — free, no key) ----
+// Lives in the default tile pane (above the dark-filtered OSM "basemap" pane),
+// so when toggled on it covers the street map and is NOT colour-inverted.
+function setupSatelliteLayer() {
+  if (!mapState.map) return;
+  mapState.satLayer = L.layerGroup();
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, attribution: "Imagery &copy; Esri" }
+  ).addTo(mapState.satLayer);
 }
 
 // ---- Weather radar overlay (RainViewer — free, no key) ----
@@ -733,6 +746,7 @@ function addMapLayerToggles() {
     const div = L.DomUtil.create("div", "map-layer-toggles");
     const hasTraffic = !!window.JAFO_TOMTOM_KEY;
     div.innerHTML =
+      `<button class="maplayer-btn" data-layer="satellite" type="button">🛰 Satellite</button>` +
       `<button class="maplayer-btn" data-layer="weather" type="button">🌧 Weather</button>` +
       `<button class="maplayer-btn${hasTraffic ? "" : " disabled"}" data-layer="traffic" type="button"` +
       `${hasTraffic ? "" : ' title="Set JAFO_TOMTOM_KEY in .env to enable live traffic"'}>🚦 Traffic</button>`;
@@ -740,7 +754,9 @@ function addMapLayerToggles() {
     div.querySelectorAll(".maplayer-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const which = btn.dataset.layer;
-        const layer = which === "weather" ? mapState.weatherLayer : mapState.trafficLayer;
+        const layer = which === "weather" ? mapState.weatherLayer
+                    : which === "satellite" ? mapState.satLayer
+                    : mapState.trafficLayer;
         if (!layer || (which === "traffic" && !window.JAFO_TOMTOM_KEY)) return;
         if (mapState.map.hasLayer(layer)) { mapState.map.removeLayer(layer); btn.classList.remove("on"); }
         else { layer.addTo(mapState.map); btn.classList.add("on"); }

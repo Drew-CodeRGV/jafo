@@ -123,6 +123,56 @@ body {
 @media (max-width: 900px) { .cc-hud-cluster, .cc-class-chip { display: none; } }
 @media (prefers-reduced-motion: reduce) { .cc-boot { display: none; } }
 
+/* ---------- Boot wireframe globe ---------- */
+.cc-boot-globe { display: block; width: 190px; height: 190px; margin-bottom: 26px; }
+
+/* ---------- Link-analysis graph (toggleable panel) ---------- */
+.cc-link-pane {
+  flex: 0 0 auto; height: 46vh; max-height: 460px;
+  border-bottom: 1px solid var(--border);
+  background: radial-gradient(circle at 50% 45%, #04101a, #02060a 75%);
+  position: relative; display: flex; align-items: center; justify-content: center; padding: 10px;
+}
+.cc-link-pane.collapsed { display: none !important; }
+#cc-link { display: block; width: 100%; height: 100%; }
+.cc-link-title {
+  position: absolute; top: 10px; left: 16px; z-index: 2;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+  color: var(--cc-cyan); text-shadow: 0 0 8px var(--cc-glow); text-transform: uppercase;
+}
+
+/* ---------- THE WALL — fullscreen rotating ops display ---------- */
+.cc-wall-btn { cursor: pointer; background: transparent; }
+body.wall-mode { grid-template-columns: 0 1fr; }
+body.wall-mode .rail,
+body.wall-mode .sidebar,
+body.wall-mode .sidebar-backdrop,
+body.wall-mode .menu-btn,
+body.wall-mode .view-toggle,
+body.wall-mode .actions .nav-link:not(.cc-wall-btn),
+body.wall-mode .auto-refresh,
+body.wall-mode .timeline > .active-filters,
+body.wall-mode .timeline > .results,
+body.wall-mode .timeline > .loading,
+body.wall-mode .timeline > .load-more { display: none !important; }
+/* whichever view panel is open fills the stage */
+body.wall-mode .map-pane,
+body.wall-mode #cc-radar-pane,
+body.wall-mode #cc-link-pane,
+body.wall-mode #air-strip,
+body.wall-mode #stories-strip {
+  height: auto !important; max-height: none !important; flex: 1 1 auto !important; min-height: 0;
+}
+body.wall-mode .cc-wall-btn { color: var(--cc-green); border: 1px solid rgba(55,245,166,0.5); box-shadow: 0 0 10px rgba(55,245,166,0.4); }
+.cc-wall-stage {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em; color: var(--text-dim);
+  z-index: 9000; pointer-events: none; display: none;
+  background: rgba(4,8,12,0.7); padding: 5px 14px; border: 1px solid var(--border); border-radius: 4px;
+}
+body.wall-mode .cc-wall-stage { display: block; }
+body.wall-mode .cc-wall-stage b { color: var(--cc-cyan); }
+
 /* ---------- Spectrum + waterfall split ---------- */
 .cc-spectrum-top { flex: 0 0 40%; min-height: 60px; }
 .cc-waterfall { flex: 1 1 auto; min-height: 60px; margin-top: 4px; }

@@ -685,6 +685,207 @@ function ccMirrorScannerState() {
 }
 
 // ============================================================
+// 5. Link-analysis graph — units <-> talkgroups, force-directed
+// ============================================================
+let ccLinkCv = null, ccLinkNodes = new Map(), ccLinkEdges = [], ccLinkBuilt = 0;
+
+function ccBuildLink() {
+  const now = Math.floor(Date.now() / 1000);
+  const tgCount = new Map(), pairs = [];
+  for (const c of ccRecentCalls) {
+    if (now - c.start_time > 3600) continue;
+    const tg = c.talkgroup_tag; if (!tg) continue;
+    tgCount.set(tg, (tgCount.get(tg) || 0) + 1);
+    for (const u of (c.incident_units || [])) {
+      const unit = (u || "").trim();
+      if (unit) pairs.push([unit, tg, c.incident_severity]);
+    }
+  }
+  const topTg = [...tgCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 22).map((e) => e[0]);
+  const topSet = new Set(topTg);
+  const W = ccLinkCv ? ccLinkCv.clientWidth || 600 : 600;
+  const H = ccLinkCv ? ccLinkCv.clientHeight || 400 : 400;
+  const next = new Map();
+  const ensure = (id, type, label, w, sev) => {
+    const ex = ccLinkNodes.get(id);
+    if (ex) { ex.w = w; ex.label = label; if (sev) ex.sev = sev; next.set(id, ex); return ex; }
+    const n = { id, type, label, w, sev, x: W / 2 + (Math.random() - 0.5) * W * 0.6,
+                y: H / 2 + (Math.random() - 0.5) * H * 0.6, vx: 0, vy: 0 };
+    next.set(id, n); return n;
+  };
+  for (const tg of topTg) ensure("tg:" + tg, "tg", tg, tgCount.get(tg));
+  const edgeKeys = new Set(), edges = [];
+  for (const [unit, tg, sev] of pairs) {
+    if (!topSet.has(tg)) continue;
+    const uid = "u:" + unit;
+    ensure(uid, "unit", unit, 1, sev);
+    const ek = uid + "|tg:" + tg;
+    if (!edgeKeys.has(ek)) { edgeKeys.add(ek); edges.push({ a: uid, b: "tg:" + tg }); }
+    if (next.size > 90) break;
+  }
+  ccLinkNodes = next;
+  ccLinkEdges = edges.filter((e) => next.has(e.a) && next.has(e.b));
+}
+
+function ccDrawLink() {
+  requestAnimationFrame(ccDrawLink);
+  const cv = ccLinkCv; if (!cv) return;
+  const pane = document.getElementById("cc-link-pane");
+  if (!pane || pane.classList.contains("collapsed")) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) ccFitCanvas(cv);
+  const ctx = cv.getContext("2d");
+  const w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+  if (performance.now() - ccLinkBuilt > 8000) { ccBuildLink(); ccLinkBuilt = performance.now(); }
+
+  const nodes = [...ccLinkNodes.values()];
+  const cx = w / 2, cy = h / 2;
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    a.vx += (cx - a.x) * 0.0009; a.vy += (cy - a.y) * 0.0009;
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01, d = Math.sqrt(d2);
+      const rep = 1400 / d2, fx = (dx / d) * rep, fy = (dy / d) * rep;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    }
+  }
+  for (const e of ccLinkEdges) {
+    const a = ccLinkNodes.get(e.a), b = ccLinkNodes.get(e.b); if (!a || !b) continue;
+    let dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+    const f = (d - 72) * 0.0022, fx = (dx / d) * f, fy = (dy / d) * f;
+    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+  }
+  for (const n of nodes) {
+    n.vx *= 0.86; n.vy *= 0.86; n.x += n.vx; n.y += n.vy;
+    n.x = Math.max(16, Math.min(w - 16, n.x)); n.y = Math.max(24, Math.min(h - 14, n.y));
+  }
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(53,227,255,0.16)";
+  for (const e of ccLinkEdges) {
+    const a = ccLinkNodes.get(e.a), b = ccLinkNodes.get(e.b); if (!a || !b) continue;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  ctx.textAlign = "center";
+  for (const n of nodes) {
+    const isTg = n.type === "tg";
+    const r = isTg ? Math.min(17, 6 + Math.sqrt(n.w) * 2) : 4;
+    const col = isTg ? "#35e3ff" : ccSevColor(n.sev);
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.283);
+    ctx.fillStyle = col; ctx.shadowBlur = 8; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0;
+    if (isTg) {
+      ctx.fillStyle = "#cfeefb"; ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText(String(n.label).slice(0, 16), n.x, n.y - r - 4);
+    }
+  }
+}
+
+// ============================================================
+// 6. Boot wireframe globe (canvas, during the cold-boot overlay)
+// ============================================================
+function ccBootGlobe() {
+  const cv = document.getElementById("cc-boot-globe");
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = 190 * dpr; cv.height = 190 * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  const R = 82, cx = 95, cy = 95;
+  let ang = 0;
+  const frame = () => {
+    if (!document.getElementById("cc-boot")) return;   // boot dismissed → stop
+    ang += 0.02;
+    ctx.clearRect(0, 0, 190, 190);
+    ctx.lineWidth = 1; ctx.shadowBlur = 8; ctx.shadowColor = "#35e3ff";
+    ctx.strokeStyle = "rgba(53,227,255,0.55)";
+    // outline
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.283); ctx.stroke();
+    // latitude rings
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const lr = lat * Math.PI / 180;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - R * Math.sin(lr), R * Math.cos(lr), R * Math.cos(lr) * 0.32, 0, 0, 6.283);
+      ctx.stroke();
+    }
+    // rotating meridians
+    ctx.strokeStyle = "rgba(53,227,255,0.35)";
+    for (let k = 0; k < 6; k++) {
+      const phase = ang + k * Math.PI / 6;
+      const sx = Math.abs(R * Math.sin(phase));
+      ctx.beginPath(); ctx.ellipse(cx, cy, sx, R, 0, 0, 6.283); ctx.stroke();
+    }
+    // a bright "lock" blip (RGV)
+    const bl = ang * 1.5;
+    ctx.fillStyle = "#37f5a6"; ctx.shadowColor = "#37f5a6";
+    ctx.beginPath(); ctx.arc(cx + R * 0.5 * Math.cos(bl), cy + R * 0.3 * Math.sin(bl), 2.5, 0, 6.283); ctx.fill();
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(frame);
+  };
+  frame();
+}
+
+// ============================================================
+// 7. THE WALL — fullscreen rotating ops display
+// ============================================================
+const CC_WALL_VIEWS = ["radar", "map", "link", "stories"];
+let ccWallTimer = null, ccWallIdx = 0, ccWallPrev = null;
+
+function ccWallShow() {
+  const view = CC_WALL_VIEWS[ccWallIdx % CC_WALL_VIEWS.length];
+  ccWallIdx++;
+  if (typeof setViewPanel === "function" && typeof VIEW_PANELS !== "undefined") {
+    for (const v of Object.keys(VIEW_PANELS)) setViewPanel(v, v === view, null);
+  }
+  const stage = document.getElementById("cc-wall-stage");
+  if (stage) stage.innerHTML = `THE WALL · now showing <b>${view.toUpperCase()}</b> · auto-rotating · press ESC to exit`;
+}
+
+function ccWallEnter() {
+  // remember current panel states to restore on exit
+  ccWallPrev = {};
+  if (typeof VIEW_PANELS !== "undefined") {
+    for (const [v, sel] of Object.entries(VIEW_PANELS)) {
+      const el = document.querySelector(sel);
+      ccWallPrev[v] = el ? !el.classList.contains("collapsed") : false;
+    }
+  }
+  document.body.classList.add("wall-mode");
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  ccWallIdx = 0; ccWallShow();
+  ccWallTimer = setInterval(ccWallShow, 12000);
+}
+
+function ccWallExit() {
+  if (!document.body.classList.contains("wall-mode")) return;
+  document.body.classList.remove("wall-mode");
+  clearInterval(ccWallTimer); ccWallTimer = null;
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  if (ccWallPrev && typeof setViewPanel === "function") {
+    for (const [v, open] of Object.entries(ccWallPrev)) setViewPanel(v, open, null);
+  }
+}
+
+function ccWallToggle() {
+  document.body.classList.contains("wall-mode") ? ccWallExit() : ccWallEnter();
+}
+
+function ccBindWall() {
+  const btn = document.getElementById("cc-wall-btn");
+  if (btn) btn.addEventListener("click", ccWallToggle);
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName) || "";
+    if (/^(input|textarea|select)$/i.test(tag)) return;
+    if (e.key === "w" || e.key === "W") ccWallToggle();
+    else if (e.key === "Escape" && document.body.classList.contains("wall-mode")) ccWallExit();
+  });
+  // If the user leaves fullscreen by any means, drop out of wall mode too.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) ccWallExit();
+  });
+}
+
+// ============================================================
 // Boot
 // ============================================================
 function ccInit() {
@@ -692,6 +893,7 @@ function ccInit() {
   ccTrafficCv = document.getElementById("cc-traffic");
   ccRadarCv = document.getElementById("cc-radar");
   ccWaterfall = document.getElementById("cc-waterfall");
+  ccLinkCv = document.getElementById("cc-link");
   if (ccSpec) ccSpecCtx = ccFitCanvas(ccSpec);
   if (ccWaterfall) ccFitWaterfall();
 
@@ -705,13 +907,16 @@ function ccInit() {
 
   ccBuildMetrics();
   ccBootSequence();
+  ccBootGlobe();
   ccTickClocks();
   setInterval(ccTickClocks, 1000);
+  ccBindWall();
 
   // kick visuals
   requestAnimationFrame(ccDrawSpectrum);
   requestAnimationFrame(ccAnimateMetrics);
   requestAnimationFrame(ccDrawRadar);
+  requestAnimationFrame(ccDrawLink);
   setInterval(ccMirrorScannerState, 300);
 
   // data pumps — intervals kept gentle so the dashboard doesn't hammer the

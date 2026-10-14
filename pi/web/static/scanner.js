@@ -111,6 +111,7 @@ function scannerInit() {
 // persisted so a reload keeps the user's chosen layout.
 const VIEW_PANELS = {
   radar:   "#cc-radar-pane",
+  link:    "#cc-link-pane",
   map:     ".map-pane",
   air:     "#air-strip",
   stories: "#stories-strip",
