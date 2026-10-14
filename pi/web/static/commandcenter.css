@@ -270,10 +270,11 @@ body.wall-mode .cc-wall-stage b { color: var(--cc-cyan); }
   display: flex; align-items: stretch;
   background: linear-gradient(90deg, rgba(55,245,166,0.05), transparent 40%);
   border-bottom: 1px solid var(--border);
-  min-height: 42px;
+  height: 38px;
 }
 .cc-sitrep-tag {
-  flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px;
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  min-width: 108px; padding: 0 14px;
   font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em; font-weight: 700;
   color: #04120c; background: var(--cc-green); box-shadow: 0 0 16px rgba(55,245,166,0.5);
 }
@@ -499,13 +500,13 @@ body.wall-mode .cc-wall-stage b { color: var(--cc-cyan); }
   display: flex; align-items: stretch;
   background: #05090e;
   border-bottom: 1px solid var(--border);
-  height: 30px;
+  height: 38px;
   overflow: hidden;
 }
 .cc-ticker-tag {
   flex: 0 0 auto;
-  display: flex; align-items: center;
-  padding: 0 14px;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 108px; padding: 0 14px;
   font-family: var(--font-mono);
   font-size: 11px; letter-spacing: 0.16em;
   color: #04090f; font-weight: 700;

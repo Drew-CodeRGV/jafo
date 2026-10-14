@@ -1454,6 +1454,12 @@ def api_aircraft_lookup():
         out["manufacturer"] = ac.get("manufacturer")
         out["operator"] = ac.get("registered_owner")
         out["icao_type"] = ac.get("icao_type")
+        # adsbdb bundles a Planespotters photo in this same response — far more
+        # reliable than a second round-trip to planespotters.net.
+        ph = ac.get("url_photo_thumbnail") or ac.get("url_photo")
+        if ph:
+            out["photo"] = ph
+            out["photo_link"] = ac.get("url_photo") or ph
 
     iata = flight[:2] if (len(flight) >= 3 and flight[:2].isalpha()) else ""
     if iata:
@@ -1488,7 +1494,7 @@ def api_aircraft_lookup():
             out["origin"], out["destination"] = found[0], found[1]
             out["route_source"] = "message text"
 
-    if reg:
+    if reg and "photo" not in out:
         ps = _http_json(f"https://api.planespotters.net/pub/photos/reg/{reg}")
         phs = (ps or {}).get("photos") or []
         if phs:
