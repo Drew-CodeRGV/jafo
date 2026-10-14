@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spectrum Plan — {{ node_name }}</title>
+<link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('commandcenter.css') }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+  body { display:block; height:auto; min-height:100vh; overflow:auto; }
+  .sp-wrap { max-width:1180px; margin:0 auto; padding:18px 20px 60px; position:relative; z-index:1; }
+  .sp-top { display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+  .sp-top a.back { color:var(--cc-cyan); text-decoration:none; font-family:var(--font-mono); font-size:12px; }
+  .sp-top img { height:34px; }
+  .sp-title { font-family:var(--font-mono); font-size:20px; color:#eafaff; letter-spacing:0.04em; }
+  .sp-loc {
+    font-family:var(--font-mono); font-size:13px; color:var(--cc-green);
+    border:1px solid rgba(55,245,166,0.3); background:rgba(55,245,166,0.06);
+    border-radius:6px; padding:10px 14px; margin:12px 0; text-shadow:0 0 8px rgba(55,245,166,0.4);
+  }
+  .sp-loc b { color:#eafff6; }
+  .sp-loc .sub { color:var(--text-dim); text-shadow:none; }
+  .sp-radios { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .sp-radio { font-family:var(--font-mono); font-size:12px; color:var(--text-dim); border:1px solid var(--border); border-radius:5px; padding:6px 10px; }
+  .sp-radio b { color:var(--cc-cyan); }
+  .sp-cathdr { font-family:var(--font-mono); font-size:11px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--cc-cyan); text-shadow:0 0 8px var(--cc-glow); margin:22px 0 10px; border-bottom:1px dashed var(--cc-line); padding-bottom:6px; }
+  .sp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px; }
+  .sp-card { position:relative; background:linear-gradient(180deg, rgba(8,16,24,0.92), rgba(5,10,16,0.92));
+    border:1px solid var(--border); border-radius:6px; padding:12px 14px; }
+  .sp-card::before{content:"";position:absolute;top:-1px;left:-1px;width:12px;height:12px;border-top:2px solid var(--cc-cyan);border-left:2px solid var(--cc-cyan);}
+  .sp-card h3 { margin:0 0 2px; font-size:15px; color:#eafaff; font-family:var(--font-mono); }
+  .sp-meta { font-family:var(--font-mono); font-size:11px; color:var(--text-dim); margin-bottom:8px; }
+  .sp-badge { display:inline-block; font-family:var(--font-mono); font-size:9.5px; letter-spacing:0.08em; padding:1px 6px; border-radius:3px; margin-left:6px; }
+  .sp-badge.ready { color:#04120c; background:var(--cc-green); }
+  .sp-badge.listen { color:var(--cc-amber); border:1px solid rgba(255,176,0,0.4); }
+  .sp-ch { display:flex; justify-content:space-between; gap:10px; font-family:var(--font-mono); font-size:12px; padding:2px 0; border-bottom:1px solid rgba(53,227,255,0.06); }
+  .sp-ch .f { color:var(--cc-green); text-shadow:0 0 6px rgba(55,245,166,0.4); }
+  .sp-ch .l { color:var(--text-dim); text-align:right; }
+  .sp-note { font-size:12px; color:var(--text-faint); margin-top:8px; line-height:1.45; }
+  .sp-decode { color:var(--cc-cyan); }
+  .sp-rr { display:inline-block; margin:16px 0; color:var(--cc-cyan); font-family:var(--font-mono); font-size:13px;
+    border:1px solid rgba(53,227,255,0.4); background:rgba(53,227,255,0.08); border-radius:6px; padding:9px 14px; text-decoration:none; }
+  .sp-rr:hover { box-shadow:0 0 12px var(--cc-glow); }
+  .sp-foot { color:var(--text-faint); font-size:11px; font-family:var(--font-mono); margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="cc-scanlines" aria-hidden="true"></div>
+<div class="sp-wrap">
+  <div class="sp-top">
+    <a class="back" href="/">◂ back</a>
+    <img src="/static/logo.png" alt="jafo">
+    <span class="sp-title">SPECTRUM PLAN · what's receivable here</span>
+  </div>
+
+  <div class="sp-loc" id="sp-loc">◉ locating node via GeoIP…</div>
+  <div class="sp-radios" id="sp-radios"></div>
+  <a class="sp-rr" id="sp-rr" href="#" target="_blank" rel="noopener">◉ Pull local trunked/agency frequencies (RadioReference) →</a>
+
+  <div id="sp-body"></div>
+  <div class="sp-foot" id="sp-foot"></div>
+</div>
+
+<script>
+const CATS = [
+  ["air","◢ Aviation"], ["marine","◢ Maritime"], ["weather","◢ Weather"],
+  ["business","◢ Business · Rail · GMRS"], ["data","◢ Data / Pagers"],
+  ["digital","◢ Trunked digital"], ["ham","◢ Amateur"], ["hf","◢ HF / Shortwave"],
+];
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+(async () => {
+  let d;
+  try { d = await (await fetch("/api/spectrum-plan")).json(); }
+  catch(e){ document.getElementById("sp-loc").textContent = "GeoIP lookup failed."; return; }
+  const L = d.location || {};
+  const loc = document.getElementById("sp-loc");
+  loc.innerHTML = L.fallback
+    ? `◉ GeoIP unavailable — using configured center <b>${L.lat}, ${L.lon}</b>`
+    : `◉ LOCATED <b>${esc(d.place)}</b> · <span class="sub">${L.lat}, ${L.lon} · via GeoIP${L.isp?" · "+esc(L.isp):""}</span>`;
+  const rad = document.getElementById("sp-radios");
+  rad.innerHTML = `<span class="sp-radio">Airspy R2 → <b>${esc(d.radios.airspy)}</b></span>` +
+                  `<span class="sp-radio">RTL-SDR → <b>${esc(d.radios.rtl)}</b></span>` +
+                  `<span class="sp-radio">both busy → a new service needs a free radio / retask</span>`;
+  const rr = document.getElementById("sp-rr"); rr.href = d.radioreference_url;
+  const body = document.getElementById("sp-body");
+  for (const [cat,label] of CATS) {
+    const svs = (d.services||[]).filter(s=>s.cat===cat);
+    if (!svs.length) continue;
+    const h = document.createElement("div"); h.className="sp-cathdr"; h.textContent=label; body.appendChild(h);
+    const grid = document.createElement("div"); grid.className="sp-grid";
+    for (const s of svs) {
+      const card = document.createElement("div"); card.className="sp-card";
+      const badge = s.jafo_ready ? '<span class="sp-badge ready">JAFO-READY</span>' : '<span class="sp-badge listen">LISTEN / ADD-ON</span>';
+      card.innerHTML =
+        `<h3>${esc(s.name)}${badge}</h3>` +
+        `<div class="sp-meta">${esc(s.band)} · ${esc(s.mode)} · decode: <span class="sp-decode">${esc(s.decode)}</span></div>` +
+        (s.channels||[]).map(c=>`<div class="sp-ch"><span class="f">${esc(c[0])}</span><span class="l">${esc(c[1])}</span></div>`).join("") +
+        `<div class="sp-note">${esc(s.note)}</div>`;
+      grid.appendChild(card);
+    }
+    body.appendChild(grid);
+  }
+  document.getElementById("sp-foot").textContent =
+    "National-standard channels (valid anywhere). Local trunked/agency systems: use the RadioReference link above. For demonstration / lawful reception only.";
+})();
+</script>
+</body>
+</html>

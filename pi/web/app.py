@@ -1241,6 +1241,130 @@ def api_analyst():
 
 
 # -----------------------------------------------------------------------------
+# Spectrum plan — "what can I receive here", driven by GeoIP of the node's
+# public IP so it travels when you demo in another city. The frequency catalog
+# is national-standard (ACARS/AIS/marine/NOAA/GMRS/rail/ham are the same
+# everywhere); local trunked/agency systems link out to RadioReference.
+# -----------------------------------------------------------------------------
+_GEOIP_CACHE = {"at": 0, "data": None}
+_GEOIP_TTL = 1800  # re-locate every 30 min so moving cities updates the plan
+
+
+def _geoip():
+    now = int(time.time())
+    if _GEOIP_CACHE["data"] and now - _GEOIP_CACHE["at"] < _GEOIP_TTL:
+        return _GEOIP_CACHE["data"]
+    data = None
+    try:
+        import requests as _r
+        j = _r.get("http://ip-api.com/json/?fields=status,country,regionName,region,city,zip,lat,lon,isp,query",
+                   timeout=8).json()
+        if j.get("status") == "success":
+            data = {"city": j.get("city"), "region": j.get("regionName"), "region_code": j.get("region"),
+                    "country": j.get("country"), "lat": j.get("lat"), "lon": j.get("lon"),
+                    "isp": j.get("isp"), "ip": j.get("query")}
+    except Exception:
+        data = None
+    if not data:
+        # fall back to the configured map center
+        data = {"city": None, "region": None, "lat": 26.2, "lon": -98.0, "country": None, "fallback": True}
+    _GEOIP_CACHE.update(at=now, data=data)
+    return data
+
+
+# National-standard frequency catalog. jafo_ready = jafo has a decoder for it
+# (into the pipeline); else it's listen-only on a tuned radio.
+SPECTRUM_CATALOG = [
+    {"key": "acars", "name": "ACARS — aircraft messages", "cat": "air", "band": "VHF 129–137 MHz",
+     "mode": "AM / MSK", "decode": "acarsdec", "jafo_ready": True,
+     "channels": [["131.550", "Primary US/CA"], ["130.025", "Secondary"], ["129.125", ""],
+                  ["131.725", ""], ["136.700", ""], ["136.750", ""], ["136.800", ""], ["136.975", "VDL-2 data"]],
+     "note": "Decodable text/data. US channels are national-standard."},
+    {"key": "airband", "name": "Air band — ATC voice", "cat": "air", "band": "VHF 118–137 MHz",
+     "mode": "AM", "decode": "voice (record/transcribe)", "jafo_ready": True,
+     "channels": [["118–136.975", "tower / ground / approach / ATIS"], ["121.500", "emergency"], ["122.800", "UNICOM"]],
+     "note": "Tune the nearest airports — tower/ground/approach/ATIS."},
+    {"key": "uat", "name": "UAT — ADS-B (general aviation)", "cat": "air", "band": "978 MHz",
+     "mode": "UAT", "decode": "dump978", "jafo_ready": False,
+     "channels": [["978.000", "GA position/weather (FIS-B/TIS-B)"]],
+     "note": "The other ADS-B band; complements 1090 MHz."},
+    {"key": "milair", "name": "Military air", "cat": "air", "band": "UHF 225–400 MHz",
+     "mode": "AM", "decode": "voice", "jafo_ready": True,
+     "channels": [["243.000", "guard"], ["225–400", "mil ATC / refueling / CBP air"]],
+     "note": "Airspy reaches it; often active near the border."},
+    {"key": "ais", "name": "AIS — ship positions", "cat": "marine", "band": "VHF 162 MHz",
+     "mode": "GMSK", "decode": "AIS-catcher", "jafo_ready": True,
+     "channels": [["161.975", "AIS-1 (ch 87B)"], ["162.025", "AIS-2 (ch 88B)"]],
+     "note": "Ships on the map — like ADS-B for boats. Great near coast/waterways."},
+    {"key": "marine", "name": "Marine VHF — voice", "cat": "marine", "band": "VHF 156–162 MHz",
+     "mode": "FM", "decode": "voice", "jafo_ready": True,
+     "channels": [["156.800", "Ch16 distress/hail"], ["156.450", "Ch9 hail"], ["157.100", "Ch22A USCG"],
+                  ["156.650", "Ch13 bridge"]],
+     "note": "Coast Guard, port/ship-channel traffic, fishing fleet."},
+    {"key": "noaa", "name": "NOAA Weather Radio", "cat": "weather", "band": "VHF 162 MHz",
+     "mode": "FM", "decode": "voice / SAME alerts", "jafo_ready": True,
+     "channels": [["162.400", ""], ["162.425", ""], ["162.450", ""], ["162.475", ""],
+                  ["162.500", ""], ["162.525", ""], ["162.550", ""]],
+     "note": "Continuous NWS broadcast; scan these 7 for the nearest transmitter."},
+    {"key": "wxsat", "name": "Weather satellites (imagery)", "cat": "weather", "band": "VHF 137 MHz",
+     "mode": "APT / LRPT", "decode": "satdump", "jafo_ready": False,
+     "channels": [["137.100", "Meteor-M LRPT"], ["137.620 / 137.912 / 137.100", "NOAA-15/18/19 APT"]],
+     "note": "Decode live cloud imagery from polar orbiters (needs a V-dipole/QFH antenna)."},
+    {"key": "rail", "name": "Railroad (AAR)", "cat": "business", "band": "VHF 160–161 MHz",
+     "mode": "FM", "decode": "voice", "jafo_ready": True,
+     "channels": [["160.215–161.565", "97 AAR channels (15 kHz)"], ["defect detectors", "often 160.xxx"]],
+     "note": "Road/dispatch + automated defect-detector readouts."},
+    {"key": "gmrs", "name": "GMRS / FRS / MURS", "cat": "business", "band": "UHF 462–467 / VHF 151–154",
+     "mode": "FM", "decode": "voice", "jafo_ready": True,
+     "channels": [["462.550–462.725", "GMRS main"], ["467.x", "GMRS repeater inputs"],
+                  ["151.820 / 151.880 / 151.940", "MURS VHF"], ["154.570 / 154.600", "MURS (blue/green dot)"]],
+     "note": "Family/business radios, events, security, stores."},
+    {"key": "business", "name": "Business / itinerant", "cat": "business", "band": "VHF 150–174 / UHF 450–470",
+     "mode": "FM / digital", "decode": "voice", "jafo_ready": True,
+     "channels": [["151–159 / 461–469", "tow, taxi, security, construction, stores"],
+                  ["151.625 / 154.570 / 464.500 / 464.550", "common itinerant"]],
+     "note": "Lots of local activity; scan the band or add known channels."},
+    {"key": "pager", "name": "Pagers — POCSAG / FLEX", "cat": "data", "band": "VHF 152–159 / UHF 929–932",
+     "mode": "POCSAG/FLEX", "decode": "multimon-ng", "jafo_ready": True,
+     "channels": [["929–932", "FLEX/POCSAG"], ["152.x / 157.x", "VHF pagers"]],
+     "note": "Hospital/EMS/utility page text — often very informative."},
+    {"key": "trunked", "name": "Trunked P25 / DMR / NXDN", "cat": "digital", "band": "VHF/UHF/700/800",
+     "mode": "P25 / DMR / NXDN", "decode": "trunk-recorder / sdrtrunk", "jafo_ready": True,
+     "channels": [["local", "see RadioReference for systems in range"]],
+     "note": "jafo already does P25 (LRGVRRS). DMR/NXDN need sdrtrunk/dsd if present."},
+    {"key": "ham", "name": "Amateur radio", "cat": "ham", "band": "VHF 144–148 / UHF 420–450",
+     "mode": "FM / digital", "decode": "voice", "jafo_ready": True,
+     "channels": [["146.520", "2m national calling"], ["446.000", "70cm calling"], ["145.800", "ISS downlink"]],
+     "note": "Repeaters, nets, ARES/RACES (active during storms)."},
+    {"key": "hf", "name": "HF / shortwave", "cat": "hf", "band": "below 30 MHz",
+     "mode": "AM/SSB/CW/digital", "decode": "voice/data", "jafo_ready": False,
+     "channels": [["26.965–27.405", "CB"], ["3–30 MHz", "SW broadcast, ham, marine/air HF"]],
+     "note": "Needs an upconverter (SpyVerter) or RTL direct-sampling."},
+]
+
+
+@app.route("/api/spectrum-plan")
+def api_spectrum_plan():
+    loc = _geoip()
+    place = ", ".join([x for x in (loc.get("city"), loc.get("region_code") or loc.get("region")) if x]) or "Unknown"
+    rr_q = "+".join([x for x in (loc.get("city"), loc.get("region_code"), "scanner", "frequencies") if x])
+    radioref = f"https://www.google.com/search?q=radioreference+{rr_q}" if rr_q else "https://www.radioreference.com/db/"
+    return jsonify({
+        "location": loc,
+        "place": place,
+        "radioreference_url": radioref,
+        "radios": {"airspy": "P25 (LRGVRRS)", "rtl": "ADS-B 1090 MHz"},
+        "services": SPECTRUM_CATALOG,
+        "generated_at": int(time.time()),
+    })
+
+
+@app.route("/spectrum")
+def spectrum_page():
+    return render_template("spectrum.html", node_name=NODE_NAME)
+
+
+# -----------------------------------------------------------------------------
 # Enhance — re-run a single call's audio through Groq for higher-quality
 # transcription. HUB-ONLY: edge nodes refuse this request and tell the
 # caller to go to jafo.live. The original (local) transcript is preserved in
