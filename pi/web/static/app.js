@@ -1626,7 +1626,12 @@ const AI_STAR_SVG = `<svg class="ai-star" viewBox="0 0 24 24" width="14" height=
 
 // Render the icon column on a call card. Optionally wrapped in an external link.
 function renderSvcCol(call, icon) {
-  const inner = icon ? `<span class="svc-emoji">${icon}</span>` : "";
+  // Prefer a generated agency "patch" (SVG shield) for the transmitting agency;
+  // fall back to the service emoji. ccAgencyPatch is defined in hud.js.
+  const cat = serviceCategory(call.talkgroup_tag, call.service_type, call.incident_type, call.icon);
+  const inner = (typeof ccAgencyPatch === "function" && call.talkgroup_tag)
+    ? `<span class="agency-patch">${ccAgencyPatch(call.talkgroup_tag, cat, 36)}</span>`
+    : (icon ? `<span class="svc-emoji">${icon}</span>` : "");
   if (call.link_url) {
     return `<a class="svc-link" href="${escapeHtml(call.link_url)}"
               target="_blank" rel="noopener noreferrer"

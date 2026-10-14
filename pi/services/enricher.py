@@ -62,6 +62,23 @@ OLLAMA_REQUEST_TIMEOUT_SEC = 300
 LOAD_AVG_BACKOFF_THRESHOLD = 6.0
 LOAD_AVG_BACKOFF_SLEEP_SEC = 30
 
+# Compact geographic grounding for the Lower Rio Grande Valley. Fed to the
+# enricher so it can CORRECT phonetic/spelling errors in machine-transcribed
+# place names to the nearest real local city/street/landmark — scoped by the
+# talkgroup's jurisdiction. Keep this concise: it rides on every enrichment.
+GEO_CONTEXT = """Region: Lower Rio Grande Valley (RGV), deep South Texas, on the US-Mexico border.
+Cities (Hidalgo County): McAllen, Edinburg, Pharr, Mission, San Juan, Alamo, Donna, Weslaco, \
+Mercedes, Hidalgo, Alton, Palmview, Penitas, La Joya, Sullivan City, Progreso, Elsa, Edcouch, La Villa.
+Cities (Cameron County): Brownsville, Harlingen, San Benito, La Feria, Los Fresnos, Port Isabel, \
+South Padre Island, Olmito, Combes, Primera, Rio Hondo. Starr County: Rio Grande City, Roma, La Grulla. \
+Willacy County: Raymondville, Lyford, San Perlita.
+Highways: Expressway 83 / I-2 / US-83 (east-west); Expressway 281 / I-69E / US-281 / US-77 (north-south); \
+US-83 Business; Military Hwy (FM 1016); FM 1015, FM 494, FM 2557, FM 88, FM 676.
+McAllen streets: 23rd St, 10th St, 2nd St, Ware Rd, Bicentennial Blvd, Nolana Ave, Trenton Rd, \
+Dove Ave, Pecan Blvd, Business 83, La Vista, Jackson Ave.
+Agencies: HCSO (Hidalgo County SO), MPD (McAllen PD), EPD (Edinburg PD), Pharr PD, Mission PD, DPS, \
+Border Patrol (USBP), McAllen Fire, Hidalgo County fire/EMS."""
+
 SYSTEM_PROMPT = f"""You are an analyst extracting structured incident information from short \
 public-safety radio dispatch transcripts. The region is {REGION}.
 
@@ -69,6 +86,15 @@ You receive one short radio transmission at a time. Many will be fragmentary \
 ("10-4", "show me en route", "copy"). Some will be substantive (a call being dispatched, \
 a status update on an incident). Many will involve units like patrol cars, fire \
 apparatus, or EMS responding to addresses or intersections.
+
+Geographic grounding — use this to clean up machine-transcription errors:
+{GEO_CONTEXT}
+The transcripts are auto-generated and frequently MISSPELL or mishear local place names \
+(e.g. "no lana" -> "Nolana", "mission" the city vs. a mission). Use the Talkgroup/agency \
+given with each message to infer the jurisdiction (which city this unit works), and when a \
+spoken location clearly matches an RGV city/street/landmark above, normalize it to the correct \
+spelling — preferring places within that jurisdiction. Only correct a location that WAS said; \
+never invent one that is absent. The same applies to agency names and well-known landmarks.
 
 Your job: extract structured fields. If a field cannot be determined from the \
 transcript, use null. Do not invent details. Brief acks like "10-4 copy" should \

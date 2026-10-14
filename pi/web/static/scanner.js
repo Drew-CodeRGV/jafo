@@ -110,6 +110,7 @@ function scannerInit() {
 // Feed-first: these panels start collapsed and the user opts them in. State is
 // persisted so a reload keeps the user's chosen layout.
 const VIEW_PANELS = {
+  radar:   "#cc-radar-pane",
   map:     ".map-pane",
   air:     "#air-strip",
   stories: "#stories-strip",
@@ -196,7 +197,7 @@ function renderChannelChips() {
       <span class="scanner-chip-label">${escapeHtml(channelLabel(c))}</span>
       <button class="scanner-chip-rm" title="Remove channel" aria-label="Remove channel">×</button>
     </span>`).join("");
-  const addLabel = scanner.channels.length ? "＋ Add channel" : "＋ Choose a channel";
+  const addLabel = scanner.channels.length ? "＋ Add" : "＋ Channel";
   SB.chips.innerHTML = chips + `<button class="scanner-add" type="button">${addLabel}</button>`;
 }
 
@@ -439,8 +440,12 @@ function renderNowPlaying(call, overrideMsg) {
   }
   const tag = call.talkgroup_tag || `tg-${call.talkgroup}`;
   const icon = serviceIcon(call.talkgroup_tag, call.service_type, call.incident_type, call.icon);
+  // Agency patch of who's transmitting (generated SVG; falls back to the emoji).
+  const patch = (typeof ccAgencyPatch === "function")
+    ? `<span class="scanner-now-patch">${ccAgencyPatch(tag, serviceCategory(call.talkgroup_tag, call.service_type, call.incident_type, call.icon), 26)}</span>`
+    : (icon ? icon + " " : "");
   if (SB.nowLabel) SB.nowLabel.innerHTML =
-    `${icon ? icon + " " : ""}<strong>${escapeHtml(tag)}</strong> <span class="scanner-ago">${escapeHtml(fmtAgo(call.start_time))}</span>`;
+    `${patch}<strong>${escapeHtml(tag)}</strong> <span class="scanner-ago">${escapeHtml(fmtAgo(call.start_time))}</span>`;
   const body = call.incident_summary || call.transcript || "(transcribing…)";
   SB.nowText.textContent = body;
 }

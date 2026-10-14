@@ -65,10 +65,19 @@ NEWS_RETRANSCRIBE_MIN_SPEECH = 1.0   # seconds of detected speech to bother upgr
 # blowing up Groq cost and re-enriching everything. News only needs ~last day.
 NEWS_RETRANSCRIBE_MAX_AGE_SEC = int(os.environ.get("JAFO_NEWS_RETRANSCRIBE_MAX_AGE_SEC", str(24 * 3600)))
 
-# Whisper context prompt — primes the model for our domain
+# Whisper context prompt — primes the model for our domain. Loading it with
+# real local place/agency names biases the decoder toward correct spellings of
+# Rio Grande Valley cities and streets instead of phonetic guesses.
 INITIAL_PROMPT = (
-    "Police, fire, and EMS radio dispatch in McAllen and Hidalgo County, Texas. "
-    "Common agencies: HCSO, MPD, McAllen Fire, Hidalgo EMS, DPS, Border Patrol. "
+    "Police, fire, and EMS radio dispatch in the Lower Rio Grande Valley, Texas "
+    "(Hidalgo and Cameron counties). "
+    "Cities: McAllen, Edinburg, Pharr, Mission, San Juan, Alamo, Donna, Weslaco, "
+    "Mercedes, Hidalgo, Alton, Palmview, Penitas, La Joya, Brownsville, Harlingen, "
+    "San Benito, Los Fresnos, Rio Grande City, Roma, Raymondville. "
+    "Streets and highways: Expressway 83, Expressway 281, US-83, Military Highway, "
+    "Ware Road, Nolana, Bicentennial, 23rd Street, 10th Street, Pecan, Trenton, Dove. "
+    "Agencies: HCSO, MPD, Edinburg PD, Pharr PD, Mission PD, DPS, Border Patrol, "
+    "McAllen Fire, Hidalgo EMS. "
     "Common terms: dispatch, copy, en route, code 3, signal 50, MVA, "
     "complainant, RP, subject, 10-4, 10-50, 10-7, 10-8, 10-97, "
     "ambulance, supervisor, on scene."

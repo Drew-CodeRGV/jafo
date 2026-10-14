@@ -191,9 +191,19 @@
 
 <main class="timeline">
   <div class="view-toggle" id="view-toggle" aria-label="Show / hide panels">
+    <button class="view-chip" data-view="radar" type="button">◎ Radar</button>
     <button class="view-chip" data-view="map" type="button">🗺 Map</button>
     <button class="view-chip" data-view="air" type="button">✈ Air traffic</button>
     <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
+  </div>
+  <div class="cc-radar-pane collapsed" id="cc-radar-pane" aria-label="Radar scope of recent activity">
+    <span class="cc-radar-title">◎ Tactical Radar · recent activity</span>
+    <span class="cc-radar-legend">
+      <b><span class="d" style="background:#ff4d5e"></span>high</b>
+      <b><span class="d" style="background:#ffb000"></span>med</b>
+      <b><span class="d" style="background:#35e3ff"></span>low</b>
+    </span>
+    <canvas id="cc-radar"></canvas>
   </div>
   <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
     <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
