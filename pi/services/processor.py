@@ -39,6 +39,15 @@ SETTLE_SECONDS = 2
 POLL_INTERVAL_SEC = 5
 RETENTION_SWEEP_INTERVAL_SEC = 3600
 
+# Edge device-retention: keep only the last N hours of calls locally (rows +
+# audio), discarding older ones regardless of upload status — the hub is the
+# system of record. 0 = disabled (old audio-only 30d retention stays). Only
+# active on edge nodes (JAFO_HUB_URL set). See HANDOFF for the 4h/72h design.
+DEVICE_RETENTION_HOURS = int(os.environ.get("JAFO_DEVICE_RETENTION_HOURS", "0"))
+IS_EDGE_NODE = bool(os.environ.get("JAFO_HUB_URL", "").strip())
+DEVICE_SWEEP_INTERVAL_SEC = int(os.environ.get("JAFO_DEVICE_SWEEP_SEC", "600"))
+DEVICE_SWEEP_MAX_ROWS = int(os.environ.get("JAFO_DEVICE_SWEEP_MAX_ROWS", "40000"))
+
 # -----------------------------------------------------------------------------
 # Silero VAD — lazy-loaded
 # -----------------------------------------------------------------------------
@@ -280,6 +289,50 @@ def retention_sweep(conn: sqlite3.Connection) -> None:
                 pass
 
 
+def device_retention_sweep(conn: sqlite3.Connection) -> None:
+    """EDGE ONLY: keep just the last DEVICE_RETENTION_HOURS of calls on the
+    device. Deletes rows + audio files older than the cutoff regardless of
+    upload status (the hub is the system of record). Batched + WAL-checkpointed
+    so a large prune doesn't balloon the WAL, and capped per sweep so it never
+    starves live call processing."""
+    if not (IS_EDGE_NODE and DEVICE_RETENTION_HOURS > 0):
+        return
+    cutoff = int(time.time()) - DEVICE_RETENTION_HOURS * 3600
+    pruned_rows = pruned_files = 0
+    while pruned_rows < DEVICE_SWEEP_MAX_ROWS:
+        rows = conn.execute(
+            "SELECT id, opus_path FROM calls WHERE start_time < ? LIMIT 2000", (cutoff,)
+        ).fetchall()
+        if not rows:
+            break
+        for r in rows:
+            if r["opus_path"]:
+                full = CALLS_DIR / r["opus_path"]
+                try:
+                    full.unlink(missing_ok=True)
+                    full.with_suffix(".json").unlink(missing_ok=True)
+                    pruned_files += 1
+                except OSError:
+                    pass
+        ids = [r["id"] for r in rows]
+        conn.execute(f"DELETE FROM calls WHERE id IN ({','.join('?' * len(ids))})", ids)
+        conn.commit()
+        pruned_rows += len(ids)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+    if pruned_rows:
+        log.info("Device retention: pruned %d rows / %d audio files older than %dh",
+                 pruned_rows, pruned_files, DEVICE_RETENTION_HOURS)
+        for d in CALLS_DIR.iterdir():
+            if d.is_dir() and not any(d.iterdir()):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+
+
 # -----------------------------------------------------------------------------
 # Main loop
 # -----------------------------------------------------------------------------
@@ -292,7 +345,12 @@ def main() -> None:
     conn = db_connect()
     vad_load()
 
+    if IS_EDGE_NODE and DEVICE_RETENTION_HOURS > 0:
+        log.info("Device retention active: keeping last %dh locally (edge node)",
+                 DEVICE_RETENTION_HOURS)
+
     last_sweep = 0
+    last_device_sweep = 0
     while True:
         now = time.time()
         for wav in WATCH_DIR.rglob("*.wav"):
@@ -315,6 +373,13 @@ def main() -> None:
             except Exception as e:
                 log.exception("Retention sweep failed: %s", e)
             last_sweep = now
+
+        if now - last_device_sweep > DEVICE_SWEEP_INTERVAL_SEC:
+            try:
+                device_retention_sweep(conn)
+            except Exception as e:
+                log.exception("Device retention sweep failed: %s", e)
+            last_device_sweep = now
 
         time.sleep(POLL_INTERVAL_SEC)
 
