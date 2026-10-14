@@ -666,14 +666,15 @@ function ccParsePos(text) {
   const lon = (+m[4] + (+m[5]) / 60) * (m[6] === "W" ? -1 : 1);
   return { lat: lat.toFixed(3), lon: lon.toFixed(3) };
 }
+const CC_LOCAL_ICAO = { KMFE: "McAllen", KBRO: "Brownsville", KHRL: "Harlingen", KEBG: "Edinburg", KPIL: "Port Isabel" };
 function ccDecodeSquitter(text) {
-  const icao = ((text || "").match(/\b([A-Z]{4})\d/) || [])[1];
+  const icao = ((text || "").match(/([A-Z]{4})\d{3}/) || [])[1];
   const pos = ccParsePos(text);
   const fm = (text || "").match(/V(\d{3})(\d{3})/);
   const net = ((text || "").match(/\/([A-Z]+)\s*$/) || [])[1];
   if (!icao && !pos) return null;
   let s = `${net || "VHF"} ground station`;
-  if (icao) s += ` <b>${ccEsc(icao)}</b>`;
+  if (icao) s += ` <b>${ccEsc(icao)}</b>` + (CC_LOCAL_ICAO[icao] ? ` (${CC_LOCAL_ICAO[icao]})` : "");
   if (pos) s += ` at ${pos.lat}, ${pos.lon}`;
   if (fm) s += ` · ${fm[1]}.${fm[2]} MHz`;
   return s;
