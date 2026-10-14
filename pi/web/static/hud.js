@@ -738,15 +738,30 @@ function ccSelectAcars(idx) {
   });
 }
 
-// A drawn top-down plane silhouette, always available as a fallback/illustration
-// even when no spotter photo exists. Category is inferred from the type string.
+// Real side-view aircraft silhouettes (nose right), picked by aircraft family.
+// Always drawn — a recognizable rendering even when no spotter photo exists.
+const CC_SILHOUETTES = {
+  wide2:    `<path d="M306 40 C322 40 332 48 332 54 C332 60 322 66 306 66 L70 66 L40 56 L40 52 L72 42 Z M74 42 L34 8 L60 8 L104 42 Z M200 66 L120 98 L156 98 L232 68 Z M214 66 Q248 64 250 75 Q250 86 214 83 Q202 75 214 66 Z M68 62 L34 74 L64 66 Z"/>`,
+  wide4:    `<path d="M250 36 C270 30 300 32 316 40 C324 46 326 50 326 56 C326 62 318 66 304 66 L66 66 L38 56 L38 52 L70 44 C120 43 200 42 250 36 Z M72 44 L34 8 L58 8 L102 44 Z M196 66 L116 98 L152 98 L228 68 Z M150 68 Q170 66 172 75 Q172 83 150 81 Q143 75 150 68 Z M196 68 Q218 66 220 75 Q220 83 196 81 Q189 75 196 68 Z M64 62 L32 74 L60 66 Z"/>`,
+  a380:     `<path d="M300 34 C320 34 330 42 330 52 C330 62 320 70 300 70 L62 70 L34 58 L34 48 L64 38 C140 34 220 34 300 34 Z M70 38 L30 4 L56 4 L104 38 Z M200 70 L116 104 L154 104 L232 72 Z M148 72 Q170 70 172 80 Q172 88 148 86 Q141 79 148 72 Z M200 72 Q224 70 226 80 Q226 88 200 86 Q193 79 200 72 Z M60 66 L30 78 L58 70 Z"/>`,
+  narrow:   `<path d="M300 44 C316 44 324 50 324 54 C324 59 316 64 300 64 L96 64 L66 56 L66 52 L96 46 Z M98 46 L62 16 L82 16 L118 46 Z M196 64 L126 92 L158 92 L222 66 Z M208 64 Q236 62 238 71 Q238 80 208 78 Q198 71 208 64 Z M94 60 L58 70 L86 64 Z"/>`,
+  regional: `<path d="M300 48 C314 48 322 52 322 56 C322 61 314 65 300 65 L84 65 L60 58 L60 54 L84 50 Z M92 50 L74 18 L86 18 L110 50 Z M62 14 L96 12 L96 20 L62 22 Z M198 65 L142 86 L170 86 L220 66 Z M112 50 Q98 45 92 53 Q96 62 114 60 Q118 55 112 50 Z"/>`,
+  turbo:    `<path d="M300 52 C312 52 320 56 320 60 C320 65 312 68 300 68 L92 68 L66 61 L66 57 L92 54 Z M100 54 L72 28 L86 28 L120 54 Z M66 26 L98 24 L98 31 L66 31 Z M96 40 L252 40 L252 47 L96 47 Z M150 46 Q150 56 159 58 Q168 56 168 46 Z M196 46 Q196 56 205 58 Q214 56 214 46 Z M168 38 Q175 50 168 62 Q161 50 168 38 Z M214 38 Q221 50 214 62 Q207 50 214 38 Z"/>`,
+  ga:       `<path d="M292 54 C304 54 312 57 312 61 C312 65 304 68 292 68 L124 68 L102 62 L102 58 L124 55 Z M128 55 L108 36 L118 36 L146 55 Z M102 62 L84 66 L104 65 Z M152 42 L250 42 L250 47 L152 47 Z M196 47 L210 47 L210 54 L196 54 Z M312 50 Q319 60 312 72 Q305 60 312 50 Z M170 68 L166 80 L174 80 Z M244 68 L240 80 L248 80 Z M288 68 L286 76 L292 76 Z"/>`,
+  default:  `<path d="M300 46 C314 46 322 51 322 55 C322 60 314 64 300 64 L90 64 L62 56 L62 52 L90 48 Z M94 48 L60 16 L80 16 L116 48 Z M196 64 L128 92 L160 92 L222 66 Z M208 65 Q234 63 236 72 Q236 81 208 79 Z"/>`,
+};
+
 function ccPlaneDrawing(info) {
   const t = ((info.type || "") + " " + (info.manufacturer || "") + " " + (info.icao_type || "")).toUpperCase();
-  let cat = "AIRCRAFT";
-  if (/A380|A3[3-5]0|A300|A310|MD-?11|DC-?10|IL-?96|787|777|767|747/.test(t)) cat = "WIDEBODY";
-  else if (/73[0-9]|A31[89]|A32[01]|A220|757|717|727|MD-?[89]0|BAE|RJ85|RJ1/.test(t)) cat = "NARROWBODY";
-  else if (/DASH|DHC|ATR|Q4|BEECH|CESSNA|CARAVAN|PC-?12|SF34|SAAB|KING|PILATUS|TBM|TURBOPROP|C\d{2,3}|PA-?\d|CRJ|E1?[79][0-5]|EMB|ERJ/.test(t)) cat = "REGIONAL";
-  return `<div class="acd-draw"><svg viewBox="0 0 24 24" class="acd-plane" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg><span class="acd-cat">${ccEsc(cat)}</span></div>`;
+  let key = "default", cat = "AIRCRAFT";
+  if (/A380|A388/.test(t)) { key = "a380"; cat = "A380"; }
+  else if (/B?74[0-9]|A34[0-9]|A340|IL-?96|MD-?11|DC-?10/.test(t)) { key = "wide4"; cat = "WIDEBODY"; }
+  else if (/78[0-9]|B?78|77[0-9]|B?77|76[0-9]|B?76|A3[35]0|A330|A350|A300|A310|L101|DC-?8/.test(t)) { key = "wide2"; cat = "WIDEBODY"; }
+  else if (/CRJ|ERJ|RJ85|RJ1|E13|E14|E17|E19|EMB-?1|F70|F100|DC-?9|MD-?[89]0|717/.test(t)) { key = "regional"; cat = "REGIONAL JET"; }
+  else if (/DH8|DHC|D328|AT[47]|ATR|Q[234]0|SF34|SB20|SAAB|BE(?:C|9|20|D|10)|C208|CARAVAN|PC-?12|TBM|METRO|SW[34]|KING AIR|TURBOPROP/.test(t)) { key = "turbo"; cat = "TURBOPROP"; }
+  else if (/C1[0-9][0-9]|C2[0-9][0-9]|CESSNA|PA-?[0-9]|PIPER|SR2[02]|DA[24]0|DIAMOND|BE3[036]|CIRRUS|RV-?[0-9]/.test(t)) { key = "ga"; cat = "LIGHT"; }
+  else if (/73[0-9]|B?73|A31[89]|A32[01]|A318|A319|A320|A321|A220|BCS|757|75[0-9]|727|72[0-9]|BAE/.test(t)) { key = "narrow"; cat = "NARROWBODY"; }
+  return `<div class="acd-draw"><svg viewBox="0 0 360 120" class="acd-plane" aria-hidden="true">${CC_SILHOUETTES[key]}</svg><span class="acd-cat">${ccEsc(cat)}</span></div>`;
 }
 
 function ccRenderAircraft(info) {
