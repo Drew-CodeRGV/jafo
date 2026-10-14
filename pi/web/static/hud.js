@@ -179,6 +179,59 @@ function ccDrawSpectrum() {
   }
   ctx.stroke();
   ctx.shadowBlur = 0;
+
+  // feed the waterfall spectrogram (throttled so it scrolls at a readable rate)
+  ccWfFrame++;
+  if (ccWfFrame % 2 === 0) ccStepWaterfall(live, t);
+}
+
+// ---- Waterfall spectrogram (time scrolls down; color = intensity) ----
+let ccWaterfall = null, ccWfCtx = null, ccWfFrame = 0;
+
+function ccFitWaterfall() {
+  const cv = ccWaterfall; if (!cv) return;
+  // 1:1 backing store (no DPR) so self-scrolling drawImage stays pixel-exact
+  cv.width = cv.clientWidth || 1;
+  cv.height = cv.clientHeight || 1;
+  ccWfCtx = cv.getContext("2d");
+}
+
+// Classic SIGINT colormap: black → blue → cyan → green → yellow → red → white
+const CC_HEAT_STOPS = [
+  [0.0, [2, 4, 12]], [0.14, [8, 22, 86]], [0.34, [18, 120, 165]],
+  [0.54, [40, 205, 120]], [0.74, [232, 222, 60]], [0.9, [255, 92, 42]], [1.0, [255, 225, 205]],
+];
+function ccHeat(v) {
+  v = v < 0 ? 0 : (v > 1 ? 1 : v);
+  for (let i = 1; i < CC_HEAT_STOPS.length; i++) {
+    if (v <= CC_HEAT_STOPS[i][0]) {
+      const [a0, c0] = CC_HEAT_STOPS[i - 1], [a1, c1] = CC_HEAT_STOPS[i];
+      const f = (v - a0) / ((a1 - a0) || 1);
+      return `rgb(${(c0[0] + (c1[0] - c0[0]) * f) | 0},${(c0[1] + (c1[1] - c0[1]) * f) | 0},${(c0[2] + (c1[2] - c0[2]) * f) | 0})`;
+    }
+  }
+  return "rgb(255,225,205)";
+}
+
+function ccStepWaterfall(live, t) {
+  const cv = ccWaterfall; if (!cv) return;
+  if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight) ccFitWaterfall();
+  const ctx = ccWfCtx; if (!ctx) return;
+  const w = cv.width, h = cv.height; if (!w || !h) return;
+  // scroll everything down by one row
+  ctx.drawImage(cv, 0, 0, w, h - 1, 0, 1, w, h - 1);
+  // paint the newest row at the top
+  for (let x = 0; x < w; x++) {
+    let v;
+    if (live) {
+      const idx = Math.floor((x / w) * ccFreq.length * 0.8);
+      v = ccFreq[idx] / 255;
+    } else {
+      v = 0.12 + 0.11 * Math.sin(x * 0.06 + t * 2.0) + 0.06 * Math.sin(x * 0.013 - t * 1.3);
+    }
+    ctx.fillStyle = ccHeat(v);
+    ctx.fillRect(x, 0, 1, 1);
+  }
 }
 
 // ============================================================
@@ -464,6 +517,42 @@ function ccEsc(s) {
 }
 
 // ============================================================
+// 4. AI Analyst situation assessment (typewriter SITREP strip)
+// ============================================================
+let ccAnalystText = "";
+let ccAnalystTyper = null;
+
+async function ccRefreshAnalyst() {
+  const textEl = document.getElementById("cc-sitrep-text");
+  const metaEl = document.getElementById("cc-sitrep-meta");
+  if (!textEl) return;
+  try {
+    const d = await api("/api/analyst");
+    const txt = (d.assessment || "").trim();
+    if (metaEl) {
+      metaEl.textContent = d.incident_count != null
+        ? `${d.incident_count} incidents · 30m${d.cached ? " · cached" : ""}` : "";
+    }
+    if (txt && txt !== ccAnalystText) {
+      ccAnalystText = txt;
+      ccTypewrite(textEl, txt);
+    } else if (!txt && !ccAnalystText) {
+      textEl.textContent = "assessment unavailable (no AI key on this node)";
+    }
+  } catch (e) { /* keep last */ }
+}
+
+function ccTypewrite(el, text) {
+  if (ccAnalystTyper) clearInterval(ccAnalystTyper);
+  let i = 0;
+  ccAnalystTyper = setInterval(() => {
+    i++;
+    el.innerHTML = ccEsc(text.slice(0, i)) + (i < text.length ? '<span class="cursor">▋</span>' : "");
+    if (i >= text.length) clearInterval(ccAnalystTyper);
+  }, 14);
+}
+
+// ============================================================
 // Scanner-state header mirror
 // ============================================================
 const CC_STATE_TEXT = {
@@ -486,13 +575,16 @@ function ccInit() {
   ccSpec = document.getElementById("cc-spectrum");
   ccTrafficCv = document.getElementById("cc-traffic");
   ccRadarCv = document.getElementById("cc-radar");
+  ccWaterfall = document.getElementById("cc-waterfall");
   if (ccSpec) ccSpecCtx = ccFitCanvas(ccSpec);
+  if (ccWaterfall) ccFitWaterfall();
 
   // Build audio graph + resume on the first user gesture (play click, etc.)
   document.addEventListener("click", () => { ccEnsureAudioGraph(); ccResumeAudio(); }, true);
 
   window.addEventListener("resize", () => {
     if (ccSpec) ccSpecCtx = ccFitCanvas(ccSpec);
+    if (ccWaterfall) ccFitWaterfall();
   });
 
   ccBuildMetrics();
@@ -509,6 +601,7 @@ function ccInit() {
   ccRefreshTraffic();  setInterval(ccRefreshTraffic, 20000);
   ccRefreshAircraft(); setInterval(ccRefreshAircraft, 15000);
   ccRefreshTicker();   setInterval(ccRefreshTicker, 60000);
+  ccRefreshAnalyst();  setInterval(ccRefreshAnalyst, 60000);
 }
 
 ccInit();

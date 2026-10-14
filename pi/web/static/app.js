@@ -1639,6 +1639,43 @@ function popPlaybackMarker(call) {
   return m;
 }
 
+// ---- Target-lock: fly to a new significant incident with a reticle ----
+let _lastTargetLock = 0;
+let _targetLockHide = null;
+function _mapVisible() {
+  const mp = document.querySelector(".map-pane");
+  return mp && !mp.classList.contains("collapsed");
+}
+function targetLock(call) {
+  if (!mapState.map || call.lat == null || call.lng == null || !_mapVisible()) return;
+  const now = Date.now();
+  if (now - _lastTargetLock < 12000) return;   // throttle the drama
+  _lastTargetLock = now;
+  const ret = document.getElementById("map-reticle");
+  if (!ret) return;
+
+  mapState.map.flyTo([call.lat, call.lng], Math.min(13, mapState.map.getMaxZoom()), { duration: 1.4 });
+
+  // Center the reticle on the #map viewport (accounts for the OSINT column).
+  const mapEl = document.getElementById("map");
+  const pane = ret.offsetParent || mapEl.parentElement;
+  if (mapEl && pane) {
+    const pr = pane.getBoundingClientRect(), mr = mapEl.getBoundingClientRect();
+    ret.style.left = `${(mr.left - pr.left) + mr.width / 2}px`;
+    ret.style.top = `${(mr.top - pr.top) + mr.height / 2}px`;
+  }
+  const statusEl = document.getElementById("reticle-status");
+  document.getElementById("reticle-coords").textContent = `${call.lat.toFixed(4)}, ${call.lng.toFixed(4)}`;
+  document.getElementById("reticle-label").textContent =
+    (call.incident_type && call.incident_type !== "radio_chatter" ? call.incident_type + " · " : "") +
+    (call.talkgroup_tag || "");
+  ret.classList.remove("hidden", "locked");
+  if (statusEl) statusEl.textContent = "ACQUIRING";
+  setTimeout(() => { if (statusEl) statusEl.textContent = "● LOCKED"; ret.classList.add("locked"); }, 1500);
+  clearTimeout(_targetLockHide);
+  _targetLockHide = setTimeout(() => ret.classList.add("hidden"), 7000);
+}
+
 function feedMapFromCalls(calls) {
   // First load: prime seenIds without popping markers (avoid animating backlog)
   if (!mapState.primed) {
@@ -1653,6 +1690,12 @@ function feedMapFromCalls(calls) {
     mapState.seenIds.add(c.id);
     popMapMarker(c);
   }
+  // Target-lock the newest significant fresh incident (high/critical, or a
+  // real incident type) when the map is open.
+  const sig = fresh.filter((c) => c.lat != null && (
+    ["critical", "high"].includes(normSeverity(c.incident_severity)) ||
+    (c.incident_type && c.incident_type !== "radio_chatter")));
+  if (sig.length) targetLock(sig[sig.length - 1]);
   // Keep set bounded
   if (mapState.seenIds.size > 2000) {
     const arr = [...mapState.seenIds].slice(-1000);

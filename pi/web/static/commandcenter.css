@@ -58,16 +58,73 @@ body::before {
 .topbar, .cc-console, .cc-ticker, .rail, .timeline,
 .view-toggle { position: relative; z-index: 1; }
 
-/* Add a dedicated ticker row to the feed-first grid (base layout is in style.css). */
+/* Add ticker + analyst rows to the feed-first grid (base layout is in style.css). */
 body {
-  grid-template-rows: 56px auto auto 1fr;
+  grid-template-rows: 56px auto auto auto 1fr;
   grid-template-areas:
     "topbar  topbar"
     "scanner scanner"
     "ticker  ticker"
+    "sitrep  sitrep"
     "rail    timeline";
 }
 .cc-ticker { grid-area: ticker; }
+.cc-sitrep { grid-area: sitrep; }
+
+/* ---------- Spectrum + waterfall split ---------- */
+.cc-spectrum-top { flex: 0 0 40%; min-height: 60px; }
+.cc-waterfall { flex: 1 1 auto; min-height: 60px; margin-top: 4px; }
+
+/* ---------- AI Analyst SITREP strip ---------- */
+.cc-sitrep {
+  display: flex; align-items: stretch;
+  background: linear-gradient(90deg, rgba(55,245,166,0.05), transparent 40%);
+  border-bottom: 1px solid var(--border);
+  min-height: 42px;
+}
+.cc-sitrep-tag {
+  flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em; font-weight: 700;
+  color: #04120c; background: var(--cc-green); box-shadow: 0 0 16px rgba(55,245,166,0.5);
+}
+.cc-sitrep-body { flex: 1 1 auto; display: flex; align-items: center; gap: 12px; padding: 6px 16px; min-width: 0; }
+.cc-sitrep-text {
+  flex: 1 1 auto; color: #d8f5e8; font-size: 13px; line-height: 1.35;
+  font-family: var(--font-mono); overflow: hidden;
+}
+.cc-sitrep-text .cursor { color: var(--cc-green); animation: cc-blink 1s steps(2) infinite; }
+.cc-sitrep-meta { flex: 0 0 auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+
+/* ---------- Target-lock reticle over the map ---------- */
+.map-reticle {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 180px; height: 180px; pointer-events: none; z-index: 650;
+}
+.map-reticle.hidden { display: none; }
+.reticle-ring {
+  position: absolute; inset: 20px; border: 2px solid var(--cc-red);
+  border-radius: 50%; box-shadow: 0 0 20px rgba(255,77,94,0.7), inset 0 0 20px rgba(255,77,94,0.4);
+  animation: reticle-spin 3s linear infinite;
+}
+.reticle-ring::before, .reticle-ring::after {
+  content: ""; position: absolute; background: var(--cc-red); box-shadow: 0 0 8px var(--cc-red);
+}
+.reticle-ring::before { left: -8px; right: -8px; top: 50%; height: 2px; }
+.reticle-ring::after { top: -8px; bottom: -8px; left: 50%; width: 2px; }
+.reticle-cross-h, .reticle-cross-v { position: absolute; background: rgba(255,77,94,0.5); }
+.reticle-cross-h { left: 0; right: 0; top: 50%; height: 1px; }
+.reticle-cross-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+.reticle-readout {
+  position: absolute; left: 50%; bottom: -34px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font-family: var(--font-mono); font-size: 10px; white-space: nowrap;
+  color: var(--cc-red); text-shadow: 0 0 8px rgba(255,77,94,0.8);
+}
+.reticle-readout #reticle-label { color: #ffd0d4; font-size: 11px; }
+@keyframes reticle-spin { to { transform: rotate(360deg); } }
+.map-reticle.locked .reticle-ring { border-color: var(--cc-green); box-shadow: 0 0 20px rgba(55,245,166,0.7); animation-duration: 8s; }
+.map-reticle.locked .reticle-ring::before, .map-reticle.locked .reticle-ring::after { background: var(--cc-green); box-shadow: 0 0 8px var(--cc-green); }
+.map-reticle.locked .reticle-readout { color: var(--cc-green); text-shadow: 0 0 8px rgba(55,245,166,0.8); }
 
 /* ---------- Topbar ---------- */
 .topbar {

@@ -1148,6 +1148,82 @@ def api_osint():
 
 
 # -----------------------------------------------------------------------------
+# AI Analyst Assessment — a rolling "situation assessment" written by Claude
+# from the last 30 min of enriched incidents. Cached ~3 min for cost control.
+# Honest by construction: it only summarizes incidents already extracted.
+# -----------------------------------------------------------------------------
+ANALYST_MODEL = "claude-haiku-4-5-20251001"
+_ANALYST_TTL = 180
+_ANALYST_CACHE = {"text": None, "at": 0, "count": 0}
+
+
+def _analyst_generate() -> dict:
+    from common import ANTHROPIC_API_KEY
+    now = int(time.time())
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT start_time, talkgroup_tag, incident_type, incident_summary,
+               incident_location, incident_severity
+        FROM calls
+        WHERE start_time >= ? AND incident_type IS NOT NULL
+          AND incident_type != 'Radio Chatter' AND incident_summary IS NOT NULL
+        ORDER BY start_time DESC LIMIT 40
+    """, (now - 30 * 60,)).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"text": "No significant incident activity in the last 30 minutes — routine traffic only.", "count": 0}
+    if not ANTHROPIC_API_KEY:
+        return {"text": None, "count": len(rows), "error": "no anthropic key"}
+
+    lines = []
+    for r in rows:
+        t = time.strftime("%H:%M", time.localtime(r["start_time"]))
+        loc = (r["incident_location"] or "").strip()
+        lines.append(f"{t} [{r['incident_severity'] or '?'}] {r['incident_type']}: "
+                     f"{r['incident_summary']}" + (f" @ {loc}" if loc else "")
+                     + f" <{r['talkgroup_tag'] or ''}>")
+    prompt = (
+        f"You are a public-safety watch analyst for the {REGION} area. Below are the last "
+        f"30 minutes of AI-extracted incident summaries from public-safety radio. Write a tight "
+        f"SITUATION ASSESSMENT (2-3 short sentences) a watch officer would want: notable patterns, "
+        f"clusters by area or incident type, severity trends, or anything unusual. If it's quiet or "
+        f"routine, say so plainly. Only use what's below — do not invent specifics. No preamble.\n\n"
+        f"INCIDENTS (newest first):\n" + "\n".join(lines)
+    )
+    try:
+        import requests as _r
+        resp = _r.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY,
+                     "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": ANALYST_MODEL, "max_tokens": 240,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=30)
+        data = resp.json()
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        return {"text": text or None, "count": len(rows)}
+    except Exception as e:
+        return {"text": None, "count": len(rows), "error": str(e)}
+
+
+@app.route("/api/analyst")
+def api_analyst():
+    now = int(time.time())
+    if _ANALYST_CACHE["text"] and now - _ANALYST_CACHE["at"] < _ANALYST_TTL:
+        return jsonify({"assessment": _ANALYST_CACHE["text"], "generated_at": _ANALYST_CACHE["at"],
+                        "incident_count": _ANALYST_CACHE["count"], "window_min": 30, "cached": True})
+    result = _analyst_generate()
+    if result.get("text"):
+        _ANALYST_CACHE.update(text=result["text"], at=now, count=result.get("count", 0))
+    return jsonify({"assessment": _ANALYST_CACHE["text"] or result.get("text"),
+                    "generated_at": _ANALYST_CACHE["at"] or now,
+                    "incident_count": result.get("count", 0), "window_min": 30,
+                    "error": result.get("error")})
+
+
+# -----------------------------------------------------------------------------
 # Enhance — re-run a single call's audio through Groq for higher-quality
 # transcription. HUB-ONLY: edge nodes refuse this request and tell the
 # caller to go to jafo.live. The original (local) transcript is preserved in

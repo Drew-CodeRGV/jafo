@@ -68,8 +68,9 @@
 
   <!-- CENTER: live audio spectrum + oscilloscope (WebAudio FFT on the scanner) -->
   <div class="cc-panel cc-spectrum-panel">
-    <div class="cc-panel-hdr"><span class="cc-led cc-led-cyan"></span>AUDIO SPECTRUM · FFT<span id="cc-spectrum-status" class="cc-hdr-right">STANDBY</span></div>
-    <canvas id="cc-spectrum" class="cc-canvas"></canvas>
+    <div class="cc-panel-hdr"><span class="cc-led cc-led-cyan"></span>AUDIO SPECTRUM · FFT / WATERFALL<span id="cc-spectrum-status" class="cc-hdr-right">STANDBY</span></div>
+    <canvas id="cc-spectrum" class="cc-canvas cc-spectrum-top"></canvas>
+    <canvas id="cc-waterfall" class="cc-canvas cc-waterfall"></canvas>
   </div>
 
   <!-- RIGHT: telemetry readouts + traffic graph -->
@@ -87,6 +88,15 @@
 <div class="cc-ticker" aria-label="Intel ticker">
   <span class="cc-ticker-tag">◣ INTEL</span>
   <div class="cc-ticker-viewport"><div id="cc-ticker-track" class="cc-ticker-track"></div></div>
+</div>
+
+<!-- AI Analyst situation assessment (Claude, from the last 30 min of incidents) -->
+<div class="cc-sitrep" aria-label="Analyst situation assessment">
+  <span class="cc-sitrep-tag">◣ ANALYST</span>
+  <div class="cc-sitrep-body">
+    <span id="cc-sitrep-text" class="cc-sitrep-text">awaiting assessment…</span>
+    <span id="cc-sitrep-meta" class="cc-sitrep-meta"></span>
+  </div>
 </div>
 
 <!-- Channel picker popover (populated from /api/talkgroup-groups by scanner.js) -->
@@ -207,6 +217,16 @@
   </div>
   <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
     <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
+    <div id="map-reticle" class="map-reticle hidden" aria-hidden="true">
+      <div class="reticle-ring"></div>
+      <div class="reticle-cross-h"></div>
+      <div class="reticle-cross-v"></div>
+      <div class="reticle-readout">
+        <span id="reticle-status">ACQUIRING</span>
+        <span id="reticle-coords"></span>
+        <span id="reticle-label"></span>
+      </div>
+    </div>
     {% if osint_demo %}
     <aside class="osint-rail" id="osint-rail" aria-label="Recent names available for OSINT">
       <div class="osint-rail-hdr"><span class="cc-led"></span>OSINT · RECENT NAMES</div>
