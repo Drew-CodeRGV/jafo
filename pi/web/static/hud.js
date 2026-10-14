@@ -738,15 +738,31 @@ function ccSelectAcars(idx) {
   });
 }
 
+// A drawn top-down plane silhouette, always available as a fallback/illustration
+// even when no spotter photo exists. Category is inferred from the type string.
+function ccPlaneDrawing(info) {
+  const t = ((info.type || "") + " " + (info.manufacturer || "") + " " + (info.icao_type || "")).toUpperCase();
+  let cat = "AIRCRAFT";
+  if (/A380|A3[3-5]0|A300|A310|MD-?11|DC-?10|IL-?96|787|777|767|747/.test(t)) cat = "WIDEBODY";
+  else if (/73[0-9]|A31[89]|A32[01]|A220|757|717|727|MD-?[89]0|BAE|RJ85|RJ1/.test(t)) cat = "NARROWBODY";
+  else if (/DASH|DHC|ATR|Q4|BEECH|CESSNA|CARAVAN|PC-?12|SF34|SAAB|KING|PILATUS|TBM|TURBOPROP|C\d{2,3}|PA-?\d|CRJ|E1?[79][0-5]|EMB|ERJ/.test(t)) cat = "REGIONAL";
+  return `<div class="acd-draw"><svg viewBox="0 0 24 24" class="acd-plane" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg><span class="acd-cat">${ccEsc(cat)}</span></div>`;
+}
+
 function ccRenderAircraft(info) {
   const el = document.getElementById("acd-ac"); if (!el) return;
   const logo = info.logo ? `<img class="acd-logo" src="${ccEsc(info.logo)}" alt="" onerror="this.style.display='none'">` : "";
   const op = info.airline_name || info.operator;
   const typ = [info.manufacturer, info.type].filter(Boolean).join(" ");
-  const bits = [`<div class="acd-ac-hdr">${logo}<div class="acd-ac-id"><div class="acd-ac-reg">${ccEsc(info.reg || "—")}</div>${op ? `<div class="acd-ac-op">${ccEsc(op)}</div>` : ""}</div></div>`];
-  if (typ) bits.push(`<div class="acd-ac-type">✈ ${ccEsc(typ)}</div>`);
-  if (info.photo) bits.push(`<a href="${ccEsc(info.photo_link || "#")}" target="_blank" rel="noopener"><img class="acd-photo" src="${ccEsc(info.photo)}" alt="aircraft photo"></a>`);
-  if (!typ && !op && !logo && !info.photo) bits.push(`<div class="acd-none">no aircraft data found</div>`);
+  const idbits = `<div class="acd-ac-reg">${ccEsc(info.reg || "—")}</div>` +
+    (op ? `<div class="acd-ac-op">${ccEsc(op)}</div>` : "") +
+    (typ ? `<div class="acd-ac-type">✈ ${ccEsc(typ)}</div>` : "");
+  const bits = [`<div class="acd-ac-hdr">${logo}<div class="acd-ac-id">${idbits}</div></div>`];
+  // media row: drawn silhouette always, spotter photo alongside when present
+  const photo = info.photo
+    ? `<a class="acd-photo-wrap" href="${ccEsc(info.photo_link || "#")}" target="_blank" rel="noopener"><img class="acd-photo" src="${ccEsc(info.photo)}" alt="aircraft photo"></a>`
+    : "";
+  bits.push(`<div class="acd-media${photo ? " has-photo" : ""}">${ccPlaneDrawing(info)}${photo}</div>`);
   el.innerHTML = bits.join("");
   if (info.origin && info.destination && info.origin.lat != null && info.destination.lat != null) {
     ccAcarsRoute = {
