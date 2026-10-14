@@ -367,7 +367,78 @@ async function ccRefreshTraffic() {
     ccSetMetric("callshr", lastHour);
     ccSetMetric("active", seenTg.size);
     ccRefreshUnits();
+    ccRefreshPosture();
   } catch (e) { /* keep last frame */ }
+}
+
+// ---- Threat posture: severity-weighted incident activity in the last hour ----
+function ccRefreshPosture() {
+  const el = document.getElementById("cc-posture");
+  if (!el) return;
+  const now = Math.floor(Date.now() / 1000);
+  let score = 0;
+  for (const c of ccRecentCalls) {
+    if (now - c.start_time > 3600) continue;
+    const s = (c.incident_severity || "").toLowerCase();
+    if (s === "critical") score += 2;
+    else if (s === "high") score += 1;
+  }
+  let level = "ROUTINE", cls = "";
+  if (score >= 14) { level = "CRITICAL"; cls = "critical"; }
+  else if (score >= 7) { level = "HIGH"; cls = "high"; }
+  else if (score >= 3) { level = "ELEVATED"; cls = "elevated"; }
+  el.textContent = level;
+  const chip = el.closest(".cc-posture-chip");
+  if (chip) chip.className = "cc-posture-chip " + cls;
+  const cb = document.getElementById("cc-cb-right");
+  if (cb) cb.textContent = level === "ROUTINE" ? "● MONITORING" : `● ${level} ACTIVITY`;
+}
+
+// ---- ZULU + local clocks ----
+function ccTickClocks() {
+  const pad = (n) => String(n).padStart(2, "0");
+  const d = new Date();
+  const z = document.getElementById("cc-zulu"), l = document.getElementById("cc-local");
+  if (z) z.textContent = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  if (l) l.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// ---- Cold-boot sequence (client-only theater; skippable) ----
+function ccBootSequence() {
+  const boot = document.getElementById("cc-boot");
+  const out = document.getElementById("cc-boot-text");
+  if (!boot || !out) return;
+  const lines = [
+    { t: "jafo SIGINT ARRAY — cold boot", cls: "hdr" },
+    { t: "" },
+    { t: "> initializing capture subsystem ........... [OK]" },
+    { t: "> SDR lock: Airspy R2 · RTL-SDR ............ [OK]" },
+    { t: "> P25 Phase II trunk decoder .............. [OK]" },
+    { t: "> Silero VAD · Opus encoder ............... [OK]" },
+    { t: "> transcription pipeline (Whisper) ........ [OK]" },
+    { t: "> incident enrichment (Claude) ............ [OK]" },
+    { t: "> ADS-B receiver · cell observer .......... [OK]" },
+    { t: "> link to jafo.live clearing house ........ [OK]" },
+    { t: "" },
+    { t: "SYSTEMS NOMINAL — DEMONSTRATION MODE", cls: "hdr" },
+  ];
+  let i = 0, done = false;
+  const render = () => {
+    out.innerHTML = lines.slice(0, i).map((ln) => {
+      const s = ccEsc(ln.t).replace("[OK]", '<span class="ok">[OK]</span>');
+      return ln.cls ? `<span class="${ln.cls}">${s}</span>` : s;
+    }).join("\n");
+  };
+  const dismiss = () => {
+    if (done) return; done = true;
+    boot.classList.add("done");
+    setTimeout(() => boot.remove(), 700);
+  };
+  const timer = setInterval(() => {
+    i++; render();
+    if (i >= lines.length) { clearInterval(timer); setTimeout(dismiss, 650); }
+  }, 150);
+  boot.addEventListener("click", () => { clearInterval(timer); dismiss(); });
 }
 
 // ---- Active units board: unit IDs seen in the field over the last hour,
@@ -633,6 +704,9 @@ function ccInit() {
   });
 
   ccBuildMetrics();
+  ccBootSequence();
+  ccTickClocks();
+  setInterval(ccTickClocks, 1000);
 
   // kick visuals
   requestAnimationFrame(ccDrawSpectrum);

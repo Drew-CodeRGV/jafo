@@ -17,6 +17,9 @@
 <body>
 <div class="cc-scanlines" aria-hidden="true"></div>
 
+<!-- Cinematic cold-boot overlay (client-only; auto-dismisses, click to skip) -->
+<div id="cc-boot" class="cc-boot"><pre id="cc-boot-text" class="cc-boot-text"></pre><div class="cc-boot-hint">▸ click to skip</div></div>
+
 <header class="topbar">
   <button id="menu-btn" class="menu-btn" aria-label="Toggle filters menu" type="button">☰</button>
   <div class="brand">
@@ -24,11 +27,16 @@
     <span class="sub">{{ node_name }}</span>
   </div>
   <span class="live-indicator" title="Live capture"><span class="dot"></span>LIVE</span>
+  <span class="cc-class-chip" title="For demonstration only">UNCLASS · DEMO</span>
   <div id="stats-bar" class="stats-bar">
     <span class="stat" id="stat-totals">…</span>
     <span class="stat" id="stat-24h">…</span>
     <span class="stat" id="stat-backlog">…</span>
     <span class="stat" id="stat-temp"></span>
+  </div>
+  <div class="cc-hud-cluster">
+    <span class="cc-posture-chip" title="Threat posture from recent incident severity">POSTURE <b id="cc-posture">—</b></span>
+    <span class="cc-clocks"><span class="z">Z</span> <b id="cc-zulu">--:--:--</b> <span class="z">L</span> <b id="cc-local">--:--:--</b></span>
   </div>
   <div class="actions">
     <a href="/talkgroups" class="nav-link" title="Edit talkgroup names, cities, types">Talkgroups</a>
@@ -357,6 +365,12 @@ window.JAFO_TOMTOM_KEY = {{ tomtom_key | default(none, true) | tojson }};
 window.JAFO_HUB_LINK = {{ hub_link | tojson }};
 </script>
 {% endif %}
+
+<div class="cc-classbar-bot" aria-hidden="true">
+  <span class="cc-cb-left">◤ {{ node_name }} · LRGVRRS P25 PHASE II</span>
+  <span class="cc-cb-mid">UNCLASSIFIED · FOR DEMONSTRATION ONLY · SIGINT // COMINT // OSINT FUSION</span>
+  <span class="cc-cb-right" id="cc-cb-right">● MONITORING</span>
+</div>
 
 <script src="{{ static_v('app.js') }}"></script>
 <script src="{{ static_v('scanner.js') }}"></script>

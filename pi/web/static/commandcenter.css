@@ -58,18 +58,70 @@ body::before {
 .topbar, .cc-console, .cc-ticker, .rail, .timeline,
 .view-toggle { position: relative; z-index: 1; }
 
-/* Add ticker + analyst rows to the feed-first grid (base layout is in style.css). */
+/* Add ticker + analyst + bottom classification rows to the grid. */
 body {
-  grid-template-rows: 56px auto auto auto 1fr;
+  grid-template-rows: 56px auto auto auto 1fr 20px;
   grid-template-areas:
     "topbar  topbar"
     "scanner scanner"
     "ticker  ticker"
     "sitrep  sitrep"
-    "rail    timeline";
+    "rail    timeline"
+    "classbot classbot";
 }
 .cc-ticker { grid-area: ticker; }
 .cc-sitrep { grid-area: sitrep; }
+.cc-classbar-bot { grid-area: classbot; z-index: 2; }
+/* bottom bar sits below the drawer */
+.sidebar { bottom: 20px; }
+
+/* ---------- Cold-boot overlay ---------- */
+.cc-boot {
+  position: fixed; inset: 0; z-index: 10000;
+  background: radial-gradient(circle at 50% 45%, #061018, #02060a 70%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.6s ease;
+}
+.cc-boot.done { opacity: 0; pointer-events: none; }
+.cc-boot-text {
+  color: var(--cc-green); font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.65; margin: 0; white-space: pre;
+  text-shadow: 0 0 8px rgba(55,245,166,0.5); min-width: min(440px, 90vw);
+}
+.cc-boot-text .ok { color: var(--cc-cyan); }
+.cc-boot-text .hdr { color: #eafff6; }
+.cc-boot-hint { margin-top: 26px; color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; }
+
+/* ---------- Topbar theater chips ---------- */
+.cc-class-chip {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--cc-amber); border: 1px solid rgba(255,176,0,0.4);
+  background: rgba(255,176,0,0.08); border-radius: 3px; padding: 2px 7px; white-space: nowrap;
+}
+.cc-hud-cluster { display: flex; align-items: center; gap: 16px; margin-left: 18px; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.cc-posture-chip { color: var(--text-dim); letter-spacing: 0.06em; }
+.cc-posture-chip b { color: var(--cc-green); text-shadow: 0 0 8px rgba(55,245,166,0.5); }
+.cc-posture-chip.elevated b { color: var(--cc-amber); text-shadow: 0 0 8px rgba(255,176,0,0.5); }
+.cc-posture-chip.high b     { color: #ff8c3c; text-shadow: 0 0 8px rgba(255,140,60,0.5); }
+.cc-posture-chip.critical b { color: var(--cc-red); text-shadow: 0 0 10px rgba(255,77,94,0.6); animation: cc-blink 1s steps(2) infinite; }
+.cc-clocks { color: var(--text-dim); }
+.cc-clocks b { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
+.cc-clocks .z { color: var(--text-faint); }
+
+/* ---------- Bottom classification bar ---------- */
+.cc-classbar-bot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; height: 20px; overflow: hidden;
+  background: linear-gradient(90deg, rgba(255,176,0,0.10), transparent 28%, transparent 72%, rgba(255,176,0,0.10));
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--text-faint); white-space: nowrap;
+}
+.cc-cb-mid { color: var(--cc-amber); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; }
+.cc-cb-right { color: var(--cc-green); }
+
+@media (max-width: 900px) { .cc-hud-cluster, .cc-class-chip { display: none; } }
+@media (prefers-reduced-motion: reduce) { .cc-boot { display: none; } }
 
 /* ---------- Spectrum + waterfall split ---------- */
 .cc-spectrum-top { flex: 0 0 40%; min-height: 60px; }
