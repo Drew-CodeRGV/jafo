@@ -1154,27 +1154,35 @@ def api_osint():
 # -----------------------------------------------------------------------------
 ANALYST_MODEL = "claude-haiku-4-5-20251001"
 _ANALYST_TTL = 180
-_ANALYST_CACHE = {"text": None, "at": 0, "count": 0}
+_ANALYST_CACHE = {"text": None, "at": 0, "count": 0, "window": 30}
 
 
 def _analyst_generate() -> dict:
     from common import ANTHROPIC_API_KEY
     now = int(time.time())
     conn = get_db()
-    rows = conn.execute("""
-        SELECT start_time, talkgroup_tag, incident_type, incident_summary,
-               incident_location, incident_severity
-        FROM calls
-        WHERE start_time >= ? AND incident_type IS NOT NULL
-          AND incident_type != 'Radio Chatter' AND incident_summary IS NOT NULL
-        ORDER BY start_time DESC LIMIT 40
-    """, (now - 30 * 60,)).fetchall()
+    # Widen the look-back until we find real incidents (keeps the SITREP useful
+    # during quiet stretches); the actual window is reported honestly.
+    rows, win_min = [], 720
+    for w in (30, 120, 360, 720):
+        rows = conn.execute("""
+            SELECT start_time, talkgroup_tag, incident_type, incident_summary,
+                   incident_location, incident_severity
+            FROM calls
+            WHERE start_time >= ? AND incident_type IS NOT NULL
+              AND incident_type != 'Radio Chatter' AND incident_summary IS NOT NULL
+            ORDER BY start_time DESC LIMIT 40
+        """, (now - w * 60,)).fetchall()
+        if rows:
+            win_min = w
+            break
     conn.close()
 
     if not rows:
-        return {"text": "No significant incident activity in the last 30 minutes — routine traffic only.", "count": 0}
+        return {"text": "No significant incident activity on record in the last 12 hours — routine traffic only.", "count": 0, "window": 720}
     if not ANTHROPIC_API_KEY:
-        return {"text": None, "count": len(rows), "error": "no anthropic key"}
+        return {"text": None, "count": len(rows), "window": win_min, "error": "no anthropic key"}
+    win_label = f"{win_min} minutes" if win_min < 120 else f"{win_min // 60} hours"
 
     lines = []
     for r in rows:
@@ -1185,7 +1193,7 @@ def _analyst_generate() -> dict:
                      + f" <{r['talkgroup_tag'] or ''}>")
     prompt = (
         f"You are a public-safety watch analyst for the {REGION} area. Below are the last "
-        f"30 minutes of AI-extracted incident summaries from public-safety radio. Write a tight "
+        f"{win_label} of AI-extracted incident summaries from public-safety radio. Write a tight "
         f"SITUATION ASSESSMENT (2-3 short sentences) a watch officer would want: notable patterns, "
         f"clusters by area or incident type, severity trends, or anything unusual. If it's quiet or "
         f"routine, say so plainly. Only use what's below — do not invent specifics. No preamble.\n\n"
@@ -1203,9 +1211,9 @@ def _analyst_generate() -> dict:
             timeout=30)
         data = resp.json()
         text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-        return {"text": text or None, "count": len(rows)}
+        return {"text": text or None, "count": len(rows), "window": win_min}
     except Exception as e:
-        return {"text": None, "count": len(rows), "error": str(e)}
+        return {"text": None, "count": len(rows), "window": win_min, "error": str(e)}
 
 
 @app.route("/api/analyst")
@@ -1213,13 +1221,16 @@ def api_analyst():
     now = int(time.time())
     if _ANALYST_CACHE["text"] and now - _ANALYST_CACHE["at"] < _ANALYST_TTL:
         return jsonify({"assessment": _ANALYST_CACHE["text"], "generated_at": _ANALYST_CACHE["at"],
-                        "incident_count": _ANALYST_CACHE["count"], "window_min": 30, "cached": True})
+                        "incident_count": _ANALYST_CACHE["count"],
+                        "window_min": _ANALYST_CACHE["window"], "cached": True})
     result = _analyst_generate()
     if result.get("text"):
-        _ANALYST_CACHE.update(text=result["text"], at=now, count=result.get("count", 0))
+        _ANALYST_CACHE.update(text=result["text"], at=now, count=result.get("count", 0),
+                              window=result.get("window", 30))
     return jsonify({"assessment": _ANALYST_CACHE["text"] or result.get("text"),
                     "generated_at": _ANALYST_CACHE["at"] or now,
-                    "incident_count": result.get("count", 0), "window_min": 30,
+                    "incident_count": result.get("count", 0),
+                    "window_min": result.get("window", 30),
                     "error": result.get("error")})
 
 

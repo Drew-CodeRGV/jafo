@@ -530,8 +530,9 @@ async function ccRefreshAnalyst() {
     const d = await api("/api/analyst");
     const txt = (d.assessment || "").trim();
     if (metaEl) {
+      const win = d.window_min >= 120 ? `${Math.round(d.window_min / 60)}h` : `${d.window_min || 30}m`;
       metaEl.textContent = d.incident_count != null
-        ? `${d.incident_count} incidents · 30m${d.cached ? " · cached" : ""}` : "";
+        ? `${d.incident_count} incidents · ${win}${d.cached ? " · cached" : ""}` : "";
     }
     if (txt && txt !== ccAnalystText) {
       ccAnalystText = txt;
