@@ -96,11 +96,12 @@ function ccDrawSpectrum() {
       mag[i] = ccFreq[idx] / 255;
     }
   } else {
-    // idle "standby" sweep — gentle animated noise so the console looks alive
+    // idle "standby" sweep — animated noise so the console always looks alive
     for (let i = 0; i < BARS; i++) {
-      const base = 0.10 + 0.08 * Math.sin(i * 0.35 + t * 1.6);
-      const ripple = 0.05 * Math.sin(i * 0.9 - t * 3.0);
-      mag[i] = Math.max(0.02, base + ripple);
+      const base = 0.18 + 0.14 * Math.sin(i * 0.35 + t * 1.6);
+      const ripple = 0.10 * Math.sin(i * 0.9 - t * 3.0);
+      const shimmer = 0.05 * Math.sin(i * 2.1 + t * 5.0);
+      mag[i] = Math.max(0.04, base + ripple + shimmer);
     }
   }
 

@@ -49,18 +49,18 @@
   <div class="cc-panel cc-scanner-panel">
     <div class="cc-panel-hdr"><span class="cc-led"></span>LIVE INTERCEPT<span id="cc-scanner-state" class="cc-hdr-right">IDLE</span></div>
     <section id="scanner-bar" class="scanner-bar" data-state="idle" aria-label="Listen live scanner">
-      <button id="scanner-toggle" class="scanner-toggle" type="button" aria-label="Play / pause live scanner">▶</button>
-      <div class="scanner-main">
+      <div class="scanner-top">
+        <button id="scanner-toggle" class="scanner-toggle" type="button" aria-label="Play / pause live scanner">▶</button>
         <div id="scanner-channels" class="scanner-channels"></div>
-        <div class="scanner-now">
-          <span id="scanner-now-label" class="scanner-now-label">Listen Live</span>
-          <span id="scanner-now-text" class="scanner-now-text">Select a channel to begin interception…</span>
+        <div class="scanner-controls">
+          <button id="scanner-skip" class="scanner-ctl-btn" type="button" title="Skip to next call" aria-label="Skip">⏭</button>
+          <input id="scanner-vol" class="scanner-vol" type="range" min="0" max="1" step="0.05" value="1" title="Volume" aria-label="Volume">
+          <button id="scanner-stop" class="scanner-ctl-btn" type="button" title="Stop scanner" aria-label="Stop">✕</button>
         </div>
       </div>
-      <div class="scanner-controls">
-        <button id="scanner-skip" class="scanner-ctl-btn" type="button" title="Skip to next call" aria-label="Skip">⏭</button>
-        <input id="scanner-vol" class="scanner-vol" type="range" min="0" max="1" step="0.05" value="1" title="Volume" aria-label="Volume">
-        <button id="scanner-stop" class="scanner-ctl-btn" type="button" title="Stop scanner" aria-label="Stop">✕</button>
+      <div class="scanner-now">
+        <span id="scanner-now-label" class="scanner-now-label">Listen Live</span>
+        <span id="scanner-now-text" class="scanner-now-text">Select a channel to begin interception…</span>
       </div>
       <audio id="scanner-audio" class="scanner-audio" preload="none" crossorigin="anonymous"></audio>
     </section>
