@@ -1196,7 +1196,8 @@ def _analyst_generate() -> dict:
         f"{win_label} of AI-extracted incident summaries from public-safety radio. Write a tight "
         f"SITUATION ASSESSMENT (2-3 short sentences) a watch officer would want: notable patterns, "
         f"clusters by area or incident type, severity trends, or anything unusual. If it's quiet or "
-        f"routine, say so plainly. Only use what's below — do not invent specifics. No preamble.\n\n"
+        f"routine, say so plainly. Only use what's below — do not invent specifics. "
+        f"Plain prose only: no markdown, no title or header, no bullet points.\n\n"
         f"INCIDENTS (newest first):\n" + "\n".join(lines)
     )
     try:

@@ -528,7 +528,11 @@ async function ccRefreshAnalyst() {
   if (!textEl) return;
   try {
     const d = await api("/api/analyst");
-    const txt = (d.assessment || "").trim();
+    // Strip any stray markdown / header and collapse to a single line for the strip.
+    const txt = (d.assessment || "")
+      .replace(/\*\*/g, "").replace(/`/g, "")
+      .replace(/^\s*situation assessment[:\s-]*/i, "")
+      .replace(/\s+/g, " ").trim();
     if (metaEl) {
       const win = d.window_min >= 120 ? `${Math.round(d.window_min / 60)}h` : `${d.window_min || 30}m`;
       metaEl.textContent = d.incident_count != null
