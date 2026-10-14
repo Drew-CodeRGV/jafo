@@ -730,6 +730,9 @@ function ccSelectAcars(idx) {
   const p = new URLSearchParams();
   if (reg) p.set("reg", reg);
   if (flight) p.set("flight", flight);
+  // Candidate ICAO airport codes embedded in the message text (4-letter tokens).
+  const cand = [...new Set((m.text || "").toUpperCase().match(/\b[A-Z]{4}\b/g) || [])].slice(0, 8);
+  if (cand.length) p.set("airports", cand.join(","));
   api(`/api/aircraft-lookup?${p}`).then(ccRenderAircraft).catch(() => {
     const el = document.getElementById("acd-ac"); if (el) el.innerHTML = '<div class="acd-none">lookup failed</div>';
   });
@@ -752,7 +755,8 @@ function ccRenderAircraft(info) {
     };
     const w = document.getElementById("acd-globe-wrap"); if (w) w.style.display = "";
     const rt = document.getElementById("acd-route");
-    if (rt) rt.innerHTML = `<b>${ccEsc(info.origin.iata || info.origin.icao || "?")}</b> → <b>${ccEsc(info.destination.iata || info.destination.icao || "?")}</b>`;
+    if (rt) rt.innerHTML = `<b>${ccEsc(info.origin.iata || info.origin.icao || "?")}</b> → <b>${ccEsc(info.destination.iata || info.destination.icao || "?")}</b>` +
+      (info.route_source ? ` <span class="acd-rtsrc">(${ccEsc(info.route_source)})</span>` : "");
   }
 }
 
@@ -783,29 +787,38 @@ function ccDrawAcarsGlobe() {
   const dpr = window.devicePixelRatio || 1;
   if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) ccFitCanvas(cv);
   const ctx = cv.getContext("2d"), w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
-  const R = Math.min(w, h) / 2 - 18, cx = w / 2, cy = h / 2;
-  ccAcarsGlobeSpin += 0.004;
+  const cx = w / 2, cy = h / 2, D2R = Math.PI / 180, minside = Math.min(w, h);
   const o = ccAcarsRoute.origin, d = ccAcarsRoute.destination;
-  const spin = -((o.lon + d.lon) / 2) * Math.PI / 180 + Math.sin(ccAcarsGlobeSpin) * 0.22;
-  const tilt = 0.35;
+  const arc = ccGreatCircle(o, d, 120);
+  const mid = arc[Math.floor(arc.length / 2)];   // route midpoint [lat,lon]
+  // central angle between endpoints -> zoom factor
+  const vec = (la, lo) => [Math.cos(la * D2R) * Math.cos(lo * D2R), Math.cos(la * D2R) * Math.sin(lo * D2R), Math.sin(la * D2R)];
+  const v1 = vec(o.lat, o.lon), v2 = vec(d.lat, d.lon);
+  let dotp = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]; dotp = Math.max(-1, Math.min(1, dotp));
+  const half = Math.max(Math.acos(dotp) / 2, 0.04);
+  let R = (0.40 * minside) / Math.sin(half);      // zoom so the two points frame nicely
+  R = Math.max(R, minside / 2 - 8);               // never smaller than a full globe
+  R = Math.min(R, minside * 5);                   // cap zoom for very close airports
+  // projection centered on the route midpoint, with a gentle wobble for 3D feel
+  const latM = mid[0], lonM = mid[1];
+  const wob = Math.sin(performance.now() / 1800) * 0.07;
+  const tc = Math.cos(-latM * D2R), ts = Math.sin(-latM * D2R);
   const proj = (lat, lon) => {
-    const la = lat * Math.PI / 180, lo = lon * Math.PI / 180 + spin;
+    const la = lat * D2R, lo = (lon - lonM) * D2R + wob;
     const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
-    return { x: cx + x * R, y: cy - (y * Math.cos(tilt) - z * Math.sin(tilt)) * R, vis: (y * Math.sin(tilt) + z * Math.cos(tilt)) > 0 };
+    return { x: cx + x * R, y: cy - (y * tc - z * ts) * R, vis: (y * ts + z * tc) > 0 };
   };
   ctx.clearRect(0, 0, w, h);
-  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(53,227,255,0.3)"; ctx.shadowBlur = 8; ctx.shadowColor = "#35e3ff";
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.283); ctx.stroke(); ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(53,227,255,0.12)";
-  const grat = (pts) => { ctx.beginPath(); let st = false; for (const [a, b] of pts) { const p = proj(a, b); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else st = false; } ctx.stroke(); };
-  for (let lat = -60; lat <= 60; lat += 30) grat(Array.from({ length: 61 }, (_, k) => [lat, -180 + k * 6]));
-  for (let lon = -180; lon < 180; lon += 30) grat(Array.from({ length: 31 }, (_, k) => [-90 + k * 6, lon]));
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(53,227,255,0.13)";
+  const grat = (pts) => { ctx.beginPath(); let st = false; for (const [a, b] of pts) { const p = proj(a, b); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } } ctx.stroke(); };
+  for (let lat = -80; lat <= 80; lat += 10) grat(Array.from({ length: 73 }, (_, k) => [lat, -180 + k * 5]));
+  for (let lon = -180; lon < 180; lon += 10) grat(Array.from({ length: 37 }, (_, k) => [-90 + k * 5, lon]));
   // great-circle route
-  ctx.strokeStyle = "#37f5a6"; ctx.lineWidth = 2; ctx.shadowBlur = 8; ctx.shadowColor = "#37f5a6";
+  ctx.strokeStyle = "#37f5a6"; ctx.lineWidth = 2.5; ctx.shadowBlur = 10; ctx.shadowColor = "#37f5a6";
   ctx.beginPath(); let st = false;
-  for (const [lat, lon] of ccGreatCircle(o, d, 96)) { const p = proj(lat, lon); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } }
+  for (const [lat, lon] of arc) { const p = proj(lat, lon); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } }
   ctx.stroke(); ctx.shadowBlur = 0;
-  const pt = (ap, col) => { const p = proj(ap.lat, ap.lon); if (!p.vis) return; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, 6.283); ctx.fillStyle = col; ctx.shadowBlur = 10; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#eafaff"; ctx.font = "11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.fillText(ap.iata || ap.icao || "", p.x, p.y - 9); };
+  const pt = (ap, col) => { const p = proj(ap.lat, ap.lon); if (!p.vis) return; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 6.283); ctx.fillStyle = col; ctx.shadowBlur = 12; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#eafaff"; ctx.font = "12px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.fillText(ap.iata || ap.icao || "", p.x, p.y - 11); };
   pt(o, "#37f5a6"); pt(d, "#ff4d5e");
 }
 

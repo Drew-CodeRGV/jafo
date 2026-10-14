@@ -1416,6 +1416,13 @@ IATA_TO_ICAO = {
 }
 
 
+try:
+    with open(Path(__file__).parent / "data" / "airports.json", encoding="utf-8") as _af:
+        AIRPORTS = json.load(_af)   # ICAO -> [lat, lon, iata, name]
+except Exception:
+    AIRPORTS = {}
+
+
 def _http_json(url, timeout=10):
     try:
         import requests as _r
@@ -1464,6 +1471,22 @@ def api_aircraft_lookup():
                 out[who] = {"iata": ap.get("iata_code"), "icao": ap.get("icao_code"),
                             "name": ap.get("name"), "lat": ap.get("latitude"),
                             "lon": ap.get("longitude")}
+
+    # Fallback: if the callsign gave no route, resolve airport codes embedded in
+    # the message text (e.g. "...KBRO,KIAH..."). Candidates come from the client.
+    if "origin" not in out:
+        cand = (request.args.get("airports") or "").upper()
+        found, seen = [], set()
+        for c in re.split(r"[^A-Z0-9]+", cand):
+            if 3 <= len(c) <= 4 and c in AIRPORTS and c not in seen:
+                seen.add(c)
+                a = AIRPORTS[c]
+                found.append({"icao": c, "iata": a[2], "name": a[3], "lat": a[0], "lon": a[1]})
+            if len(found) >= 2:
+                break
+        if len(found) >= 2:
+            out["origin"], out["destination"] = found[0], found[1]
+            out["route_source"] = "message text"
 
     if reg:
         ps = _http_json(f"https://api.planespotters.net/pub/photos/reg/{reg}")

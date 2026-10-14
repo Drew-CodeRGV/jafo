@@ -684,3 +684,5 @@ body.wall-mode .cc-wall-stage b { color: var(--cc-cyan); }
 @media (prefers-reduced-motion: reduce) {
   .cc-led, .cc-ticker-track, .scanner-toggle { animation: none !important; }
 }
+
+.acd-route .acd-rtsrc { color: var(--text-faint); font-size: 10px; }
