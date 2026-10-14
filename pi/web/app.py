@@ -263,6 +263,7 @@ TALKGROUPS_CSV = DATA_DIR / "config" / "talkgroups.csv"
 # which won't collide with real LRGVRRS TGs (those are 60000+).
 EXTRA_TALKGROUPS_CSVS = [
     DATA_DIR / "config" / "uhf-business-talkgroups.csv",
+    DATA_DIR / "config" / "rail-talkgroups.csv",   # VHF rail (voice mode)
 ]
 
 
