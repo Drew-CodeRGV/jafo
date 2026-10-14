@@ -7,6 +7,11 @@
 //
 // Loaded after app.js + scanner.js, so it reuses their globals (api, scanner).
 
+// Fraction of the FFT spectrum (from DC up) that carries voice/radio energy.
+// We map just this band across the full spectrum/waterfall width so the display
+// fills instead of bunching all the content into the leftmost ~quarter.
+const CC_VOICE_BAND = 0.42;
+
 // ============================================================
 // Agency patch — generated SVG "shield" for the transmitting agency
 // ============================================================
@@ -126,8 +131,9 @@ function ccDrawSpectrum() {
   let mag = new Array(BARS);
   if (live) {
     ccAnalyser.getByteFrequencyData(ccFreq);
-    // use the lower ~half of bins (where voice energy lives), map to BARS
-    const usable = Math.floor(ccFreq.length * 0.8);
+    // Voice/radio energy lives in the low bins; map just that band (CC_VOICE_BAND
+    // of the spectrum) across the full width so the bars actually fill the panel.
+    const usable = Math.max(8, Math.floor(ccFreq.length * CC_VOICE_BAND));
     for (let i = 0; i < BARS; i++) {
       const idx = Math.floor((i / BARS) * usable);
       mag[i] = ccFreq[idx] / 255;
@@ -224,7 +230,7 @@ function ccStepWaterfall(live, t) {
   for (let x = 0; x < w; x++) {
     let v;
     if (live) {
-      const idx = Math.floor((x / w) * ccFreq.length * 0.8);
+      const idx = Math.floor((x / w) * ccFreq.length * CC_VOICE_BAND);
       v = ccFreq[idx] / 255;
     } else {
       v = 0.12 + 0.11 * Math.sin(x * 0.06 + t * 2.0) + 0.06 * Math.sin(x * 0.013 - t * 1.3);
@@ -359,7 +365,40 @@ async function ccRefreshTraffic() {
     ccDrawTraffic(buckets);
     ccSetMetric("callshr", lastHour);
     ccSetMetric("active", seenTg.size);
+    ccRefreshUnits();
   } catch (e) { /* keep last frame */ }
+}
+
+// ---- Active units board: unit IDs seen in the field over the last hour,
+//      deduped to their most recent incident (ccRecentCalls is newest-first).
+function ccRefreshUnits() {
+  const list = document.getElementById("cc-units-list");
+  const countEl = document.getElementById("cc-units-count");
+  if (!list) return;
+  const now = Math.floor(Date.now() / 1000);
+  const seen = new Map();
+  for (const c of ccRecentCalls) {
+    if (now - c.start_time > 60 * 60) continue;        // last hour = "active"
+    for (const u of (c.incident_units || [])) {
+      const id = (u || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.set(id, { type: c.incident_type, city: c.city, sev: c.incident_severity, tag: c.talkgroup_tag });
+    }
+  }
+  const rows = [...seen.entries()];
+  if (countEl) countEl.textContent = rows.length ? `${rows.length} in field` : "0";
+  if (!rows.length) { list.innerHTML = '<li class="cc-units-empty">no units active</li>'; return; }
+  list.innerHTML = "";
+  for (const [id, info] of rows.slice(0, 16)) {
+    const sev = (info.sev || "").toLowerCase();
+    const cls = (sev === "critical" || sev === "high") ? "sev-hi" : (sev === "medium" ? "sev-med" : "");
+    const type = (info.type && info.type !== "radio_chatter") ? info.type : (info.tag || "");
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="cc-unit-id ${cls}">${ccEsc(id)}</span>` +
+                   `<span class="cc-unit-type">${ccEsc(type)}</span>` +
+                   `<span class="cc-unit-city">${ccEsc(info.city || "")}</span>`;
+    list.appendChild(li);
+  }
 }
 
 async function ccRefreshStats() {
