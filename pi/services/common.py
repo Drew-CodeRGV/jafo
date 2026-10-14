@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS calls (
 CREATE INDEX IF NOT EXISTS idx_status         ON calls(status);
 CREATE INDEX IF NOT EXISTS idx_processed_at   ON calls(processed_at);
 CREATE INDEX IF NOT EXISTS idx_start_time     ON calls(start_time);
+-- Composite index for the main feed query (WHERE status=? ORDER BY start_time
+-- DESC). Without it SQLite filters by status then sorts every 'kept' row in a
+-- temp B-tree, which gets very slow once the table reaches hundreds of
+-- thousands of rows (the DB keeps call rows forever by design).
+CREATE INDEX IF NOT EXISTS idx_status_start   ON calls(status, start_time DESC);
 CREATE INDEX IF NOT EXISTS idx_talkgroup      ON calls(talkgroup);
 CREATE INDEX IF NOT EXISTS idx_transcript_at  ON calls(transcript_at);
 CREATE INDEX IF NOT EXISTS idx_enriched_at    ON calls(enriched_at);
