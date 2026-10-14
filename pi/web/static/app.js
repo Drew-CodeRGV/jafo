@@ -31,10 +31,17 @@ function persistGroupingPrefs() {
 }
 
 // ---- API ----
-async function api(path) {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
-  return res.json();
+async function api(path, timeoutMs = 20000) {
+  // Abort hung requests so one slow endpoint can't wedge the whole page.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(path, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`${path}: ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---- Share modal ----
@@ -2638,12 +2645,20 @@ async function boot() {
   bindShareModal();
   bindMobileMenu();
   await initMap();
-  await Promise.all([refreshStats(), refreshTalkgroups(), refreshIncidentTypes(), refreshStories(), refreshFavorites(), refreshHeatmap()]);
+  // Load the feed FIRST — it's what matters most and must not be blocked by a
+  // slow secondary endpoint (e.g. /api/stats aggregating a huge table).
   await loadCalls(false);
   startPolling();
   startStoriesRotation();
   attachStoriesSwipe();
   attachStoriesArrows();
+  // Secondary panels — fire without blocking; each tolerates its own slowness.
+  refreshStats();
+  refreshTalkgroups();
+  refreshIncidentTypes();
+  refreshStories().then(() => renderStoriesPage(false)).catch(() => {});
+  refreshFavorites();
+  refreshHeatmap();
 }
 
 boot();
