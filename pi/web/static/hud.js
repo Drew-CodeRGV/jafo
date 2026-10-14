@@ -627,6 +627,101 @@ function ccEsc(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ---- ACARS decode (hover popup turns raw lines into readable data) ----
+const ACARS_LABELS = {
+  "H1": "Management terminal — position, performance, OOOI or free text",
+  "SQ": "Ground-station squitter (station ID, location, VHF frequency)",
+  "RA": "Air→ground request / response",
+  "RB": "Ground→air response",
+  "5Z": "Airline-defined downlink", "20": "Airline-defined downlink",
+  "80": "Aircraft downlink (misc)", "83": "Aircraft downlink (misc)",
+  "4E": "Airline-defined (often weather / ATIS request)",
+  "QQ": "Link management", "Q0": "Link test / no-op",
+  "_d": "No message / demand mode", "00": "Emergency",
+  "10": "Airline-defined", "11": "Airline-defined", "12": "Airline-defined",
+  "13": "Airline-defined", "15": "Network / misc", "16": "Airline-defined",
+  "SA": "Media advisory (link establishment)", "C1": "Uplink to cockpit printer",
+  "H2": "Management terminal", "B1": "CPDLC / ATC", "B2": "CPDLC / ATC",
+  "A6": "ADS-C (automatic position)", "A9": "ATS", "A0": "ATS",
+};
+const ACARS_AIRLINES = {
+  UA: "United", AA: "American", DL: "Delta", WN: "Southwest", B6: "JetBlue",
+  NK: "Spirit", F9: "Frontier", AS: "Alaska", HA: "Hawaiian", G4: "Allegiant",
+  FX: "FedEx", "5X": "UPS", OO: "SkyWest", MQ: "Envoy", OH: "PSA", YX: "Republic",
+  "9E": "Endeavor", AM: "Aeroméxico", Y4: "Volaris", VB: "VivaAerobús",
+};
+function ccRegCountry(tail) {
+  const t = (tail || "").toUpperCase();
+  if (/^N/.test(t)) return "🇺🇸 USA";
+  if (/^C[-F]/.test(t) || /^C/.test(t)) return "🇨🇦 Canada";
+  if (/^XA|^XB|^XC/.test(t)) return "🇲🇽 Mexico";
+  if (/^G-/.test(t)) return "🇬🇧 UK";
+  if (/^D-/.test(t)) return "🇩🇪 Germany";
+  return null;
+}
+function ccParsePos(text) {
+  const m = (text || "").match(/(\d{2})(\d{2}(?:\.\d+)?)([NS])\D{0,4}(\d{3})(\d{2}(?:\.\d+)?)([EW])/);
+  if (!m) return null;
+  const lat = (+m[1] + (+m[2]) / 60) * (m[3] === "S" ? -1 : 1);
+  const lon = (+m[4] + (+m[5]) / 60) * (m[6] === "W" ? -1 : 1);
+  return { lat: lat.toFixed(3), lon: lon.toFixed(3) };
+}
+function ccDecodeSquitter(text) {
+  const icao = ((text || "").match(/\b([A-Z]{4})\d/) || [])[1];
+  const pos = ccParsePos(text);
+  const fm = (text || "").match(/V(\d{3})(\d{3})/);
+  const net = ((text || "").match(/\/([A-Z]+)\s*$/) || [])[1];
+  if (!icao && !pos) return null;
+  let s = `${net || "VHF"} ground station`;
+  if (icao) s += ` <b>${ccEsc(icao)}</b>`;
+  if (pos) s += ` at ${pos.lat}, ${pos.lon}`;
+  if (fm) s += ` · ${fm[1]}.${fm[2]} MHz`;
+  return s;
+}
+function ccAcarsDecode(m) {
+  const row = (k, v) => `<div class="ap-row"><span class="ap-k">${k}</span><span class="ap-v">${v}</span></div>`;
+  const flight = m.flight || "", tail = m.tail || "", label = m.label || "", text = m.text || "";
+  const airline = ACARS_AIRLINES[(flight.slice(0, 2) || "").toUpperCase()];
+  const country = ccRegCountry(tail);
+  let html = "";
+  html += row("Aircraft", ccEsc(tail || "—") + (country ? ` · ${country}` : ""));
+  if (flight) html += row("Flight", ccEsc(flight) + (airline ? ` · ${ccEsc(airline)}` : ""));
+  html += row("Label", `${ccEsc(label)} — ${ccEsc(ACARS_LABELS[label] || "airline / application-defined")}`);
+  html += row("Channel", `${m.freq_mhz || "?"} MHz` + (m.mode ? ` · mode ${ccEsc(m.mode)}` : ""));
+  if (m.block_id || m.msg_no) html += row("Block / Msg", ccEsc([m.block_id, m.msg_no].filter(Boolean).join(" ")));
+  html += row("Received", ccEsc(fmtTime(m.received_at)));
+  const notes = [];
+  if (label === "SQ") { const sq = ccDecodeSquitter(text); if (sq) notes.push(sq); }
+  const pos = ccParsePos(text);
+  if (pos && label !== "SQ") notes.push(`Position: <b>${pos.lat}, ${pos.lon}</b>`);
+  if (notes.length) html += `<div class="ap-decoded">◉ ${notes.join("<br>◉ ")}</div>`;
+  html += `<div class="ap-text"><span class="ap-k">Message</span><pre>${ccEsc(text || "(empty)")}</pre></div>`;
+  return html;
+}
+
+let ccAcarsMsgs = [];
+function ccBindAcarsPopup() {
+  const list = document.getElementById("cc-acars-list");
+  if (!list || document.getElementById("cc-acars-pop")) return;
+  const pop = document.createElement("div");
+  pop.id = "cc-acars-pop"; pop.className = "cc-acars-pop hidden";
+  document.body.appendChild(pop);
+  const place = (e) => {
+    const pad = 14, w = pop.offsetWidth, h = pop.offsetHeight;
+    let x = e.clientX + 16, y = e.clientY + 16;
+    if (x + w > window.innerWidth - pad) x = e.clientX - w - 16;
+    if (y + h > window.innerHeight - pad) y = window.innerHeight - h - pad;
+    pop.style.left = Math.max(pad, x) + "px"; pop.style.top = Math.max(pad, y) + "px";
+  };
+  list.addEventListener("mouseover", (e) => {
+    const r = e.target.closest(".cc-acars-row"); if (!r) return;
+    const m = ccAcarsMsgs[+r.dataset.idx]; if (!m) return;
+    pop.innerHTML = ccAcarsDecode(m); pop.classList.remove("hidden"); place(e);
+  });
+  list.addEventListener("mousemove", (e) => { if (!pop.classList.contains("hidden")) place(e); });
+  list.addEventListener("mouseleave", () => pop.classList.add("hidden"));
+}
+
 // ---- ACARS message feed (only polls while the panel is open) ----
 async function ccRefreshAcars() {
   const pane = document.getElementById("cc-acars-pane");
@@ -638,10 +733,12 @@ async function ccRefreshAcars() {
   if (status) status.textContent = d.active ? "◉ RECEIVING" : (d.count ? `${d.count} msgs` : "mode off");
   const msgs = d.messages || [];
   if (!msgs.length || !list) return;   // keep the "flip to ACARS mode" hint
-  list.innerHTML = msgs.map((m) => {
+  ccAcarsMsgs = msgs;
+  list.innerHTML = msgs.map((m, i) => {
     const id = ccEsc(m.flight || m.tail || "—");
     const txt = (m.text || "").replace(/\s+/g, " ").trim();
-    return `<li class="cc-acars-row"><span class="cc-acars-time">${ccEsc(fmtTime(m.received_at))}</span>` +
+    return `<li class="cc-acars-row" data-idx="${i}" title="hover to decode">` +
+           `<span class="cc-acars-time">${ccEsc(fmtTime(m.received_at))}</span>` +
            `<span class="cc-acars-id">${id}</span>` +
            `<span class="cc-acars-lbl">${ccEsc(m.label || "")}</span>` +
            `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 140))}</span></li>`;
@@ -927,6 +1024,7 @@ function ccInit() {
   });
 
   ccBuildMetrics();
+  ccBindAcarsPopup();
   ccBootSequence();
   ccBootGlobe();
   ccTickClocks();

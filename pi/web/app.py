@@ -1409,7 +1409,7 @@ def api_acars():
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT received_at, freq_mhz, mode, tail, flight, label, text "
+            "SELECT received_at, freq_mhz, mode, tail, flight, label, block_id, msg_no, text "
             "FROM acars_messages ORDER BY received_at DESC LIMIT 60"
         ).fetchall()
     except sqlite3.Error:

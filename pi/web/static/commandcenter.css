@@ -163,6 +163,34 @@ body {
 .cc-acars-txt { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-acars-empty { color: var(--text-faint); font-size: 12px; padding: 12px; font-family: var(--font-mono); line-height: 1.6; }
 .cc-acars-empty code { color: var(--cc-cyan); background: rgba(53,227,255,0.08); padding: 2px 6px; border-radius: 3px; }
+.cc-acars-row { cursor: help; }
+.cc-acars-row:hover { background: rgba(53,227,255,0.06); }
+
+/* ACARS decode hover popup */
+.cc-acars-pop {
+  position: fixed; z-index: 9500; width: 360px; max-width: 90vw;
+  background: linear-gradient(180deg, #0a1520, #060c12);
+  border: 1px solid rgba(53,227,255,0.4); border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6), inset 0 0 24px rgba(53,227,255,0.04);
+  padding: 12px 14px; pointer-events: none;
+}
+.cc-acars-pop.hidden { display: none; }
+.cc-acars-pop .ap-row { display: flex; gap: 10px; font-size: 12px; padding: 2px 0; }
+.cc-acars-pop .ap-k { flex: 0 0 82px; color: var(--cc-cyan); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+.cc-acars-pop .ap-v { flex: 1 1 auto; color: var(--text); font-family: var(--font-mono); }
+.cc-acars-pop .ap-v b, .cc-acars-pop .ap-decoded b { color: var(--cc-green); }
+.cc-acars-pop .ap-decoded {
+  margin: 8px 0; padding: 8px 10px; font-size: 12px; line-height: 1.5;
+  color: #d8f5e8; font-family: var(--font-mono);
+  background: rgba(55,245,166,0.07); border: 1px solid rgba(55,245,166,0.3); border-radius: 5px;
+}
+.cc-acars-pop .ap-text { margin-top: 8px; }
+.cc-acars-pop .ap-text .ap-k { color: var(--cc-cyan); font-size: 10.5px; }
+.cc-acars-pop .ap-text pre {
+  margin: 4px 0 0; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono); font-size: 12px; color: #cfe8f0;
+  background: rgba(0,0,0,0.3); border: 1px solid var(--cc-line); border-radius: 4px; padding: 7px 9px;
+}
 
 /* ---------- THE WALL — fullscreen rotating ops display ---------- */
 .cc-wall-btn { cursor: pointer; background: transparent; }
