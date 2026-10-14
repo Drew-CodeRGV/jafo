@@ -1,0 +1,278 @@
+/* jafo — "command center" skin.
+   Turns the main page into a SIGINT monitoring console: phosphor palette,
+   grid + scanline overlays, glowing panels with corner brackets, live
+   spectrum + telemetry. Loaded LAST so it re-skins everything cohesively. */
+
+:root {
+  /* Re-point the shared theme tokens toward cyan/green phosphor on near-black.
+     Every existing component (feed, sidebar, cards) inherits this. */
+  --bg:        #04070b;
+  --bg-alt:    #080e15;
+  --bg-hover:  #0e1824;
+  --border:    #16323d;
+  --text:      #d3ebf3;
+  --text-dim:  #6f93a3;
+  --text-faint:#486271;
+  --accent:    #35e3ff;
+  --accent-bg: #0a2029;
+  --good:      #37f5a6;
+  --warn:      #ffb000;
+  --bad:       #ff4d5e;
+  --crit:      #ff6b6b;
+
+  /* Command-center specifics */
+  --cc-cyan:   #35e3ff;
+  --cc-green:  #37f5a6;
+  --cc-amber:  #ffb000;
+  --cc-red:    #ff4d5e;
+  --cc-panel:  #070d14;
+  --cc-line:   rgba(53,227,255,0.14);
+  --cc-glow:   rgba(53,227,255,0.45);
+}
+
+/* Global grid + vignette behind everything. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(var(--cc-line) 1px, transparent 1px) 0 0 / 100% 42px,
+    linear-gradient(90deg, var(--cc-line) 1px, transparent 1px) 0 0 / 42px 100%,
+    radial-gradient(130% 90% at 50% 0%, rgba(53,227,255,0.05), transparent 60%),
+    radial-gradient(120% 120% at 50% 120%, rgba(0,0,0,0.6), transparent 55%);
+  opacity: 0.55;
+}
+/* Faint CRT scanlines over the whole UI (non-interactive, very subtle). */
+.cc-scanlines {
+  position: fixed; inset: 0; pointer-events: none; z-index: 9998;
+  background: repeating-linear-gradient(
+    to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,0.11) 3px);
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+/* keep real content above the grid */
+.topbar, .cc-console, .cc-ticker, .rail, .sidebar, .timeline,
+.view-toggle, .channel-picker { position: relative; z-index: 1; }
+
+/* Add a dedicated ticker row to the feed-first grid (base layout is in style.css). */
+body {
+  grid-template-rows: 56px auto auto 1fr;
+  grid-template-areas:
+    "topbar  topbar"
+    "scanner scanner"
+    "ticker  ticker"
+    "rail    timeline";
+}
+.cc-ticker { grid-area: ticker; }
+
+/* ---------- Topbar ---------- */
+.topbar {
+  background: linear-gradient(180deg, #06111a, #04090f);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 var(--cc-line), 0 8px 24px rgba(0,0,0,0.5);
+}
+.brand .sub {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--cc-cyan);
+  text-shadow: 0 0 8px var(--cc-glow);
+}
+.stats-bar { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.live-indicator {
+  color: var(--cc-green);
+  border-color: rgba(55,245,166,0.45);
+  background: rgba(55,245,166,0.08);
+  text-shadow: 0 0 8px rgba(55,245,166,0.6);
+}
+
+/* ---------- Console shell ---------- */
+.cc-console {
+  grid-area: scanner;
+  display: grid;
+  grid-template-columns: minmax(360px, 1.2fr) minmax(280px, 1.4fr) minmax(300px, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+  background:
+    linear-gradient(180deg, rgba(10,22,32,0.6), rgba(4,8,12,0.4));
+  border-bottom: 1px solid var(--border);
+}
+
+/* Panels — glass box with glowing corner brackets. */
+.cc-panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(8,16,24,0.92), rgba(5,10,16,0.92));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px 10px;
+  box-shadow: inset 0 0 24px rgba(53,227,255,0.04), 0 4px 18px rgba(0,0,0,0.4);
+  min-width: 0;
+}
+.cc-panel::before, .cc-panel::after {
+  content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+}
+.cc-panel::before { top: -1px; left: -1px; border-top: 2px solid var(--cc-cyan); border-left: 2px solid var(--cc-cyan); }
+.cc-panel::after  { bottom: -1px; right: -1px; border-bottom: 2px solid var(--cc-cyan); border-right: 2px solid var(--cc-cyan); }
+
+.cc-panel-hdr {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cc-cyan);
+  text-shadow: 0 0 8px var(--cc-glow);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--cc-line);
+}
+.cc-hdr-right { margin-left: auto; color: var(--text-dim); text-shadow: none; letter-spacing: 0.1em; }
+.cc-led {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cc-cyan);
+  box-shadow: 0 0 8px var(--cc-cyan);
+  animation: cc-blink 1.6s ease-in-out infinite;
+}
+.cc-led-green { background: var(--cc-green); box-shadow: 0 0 8px var(--cc-green); }
+.cc-led-cyan  { background: var(--cc-cyan);  box-shadow: 0 0 8px var(--cc-cyan); }
+@keyframes cc-blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* The scanner lives inside the left panel — strip its own chrome. */
+.cc-scanner-panel .scanner-bar {
+  background: none; border: 0; min-height: 0; padding: 0; z-index: auto;
+}
+.cc-scanner-panel .scanner-bar::before { display: none; }
+.cc-scanner-panel .scanner-now-label { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
+
+/* ---------- Spectrum / oscilloscope canvas ---------- */
+.cc-canvas { display: block; width: 100%; height: 100%; }
+.cc-spectrum-panel { display: flex; flex-direction: column; }
+.cc-spectrum-panel #cc-spectrum { flex: 1 1 auto; min-height: 92px; }
+
+/* ---------- Telemetry ---------- */
+.cc-telemetry-panel { display: flex; flex-direction: column; }
+.cc-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.cc-metric {
+  background: rgba(53,227,255,0.03);
+  border: 1px solid var(--cc-line);
+  border-radius: 3px;
+  padding: 5px 7px;
+  position: relative;
+  overflow: hidden;
+}
+.cc-metric-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.cc-metric-val {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--cc-green);
+  text-shadow: 0 0 10px rgba(55,245,166,0.5);
+  font-variant-numeric: tabular-nums;
+}
+.cc-metric-val.cyan  { color: var(--cc-cyan);  text-shadow: 0 0 10px var(--cc-glow); }
+.cc-metric-val.amber { color: var(--cc-amber); text-shadow: 0 0 10px rgba(255,176,0,0.5); }
+.cc-metric-spark { display: block; width: 100%; height: 12px; margin-top: 2px; opacity: 0.8; }
+
+.cc-traffic-wrap { margin-top: 8px; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.cc-traffic-label {
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-dim); margin-bottom: 3px;
+}
+.cc-traffic-label span { color: var(--text-faint); }
+.cc-traffic { flex: 1 1 auto; min-height: 40px; }
+
+/* ---------- Intel ticker ---------- */
+.cc-ticker {
+  display: flex; align-items: stretch;
+  background: #05090e;
+  border-bottom: 1px solid var(--border);
+  height: 30px;
+  overflow: hidden;
+}
+.cc-ticker-tag {
+  flex: 0 0 auto;
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: 0.16em;
+  color: #04090f; font-weight: 700;
+  background: var(--cc-cyan);
+  box-shadow: 0 0 16px var(--cc-glow);
+}
+.cc-ticker-viewport { flex: 1 1 auto; overflow: hidden; position: relative; }
+.cc-ticker-track {
+  position: absolute; top: 0; left: 0; height: 100%;
+  display: flex; align-items: center; gap: 36px;
+  white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  will-change: transform;
+  animation: cc-ticker-scroll 60s linear infinite;
+}
+.cc-ticker:hover .cc-ticker-track { animation-play-state: paused; }
+.cc-ticker-item { display: inline-flex; align-items: center; gap: 8px; }
+.cc-ticker-item b { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
+.cc-ticker-item .sub { color: var(--text-dim); }
+.cc-ticker-sep { color: var(--cc-amber); }
+@keyframes cc-ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* ---------- View toggle + rail restyle ---------- */
+.view-toggle { background: #05090e; border-bottom: 1px solid var(--border); }
+.view-chip { font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; }
+.view-chip.active { box-shadow: 0 0 12px var(--cc-glow); }
+.rail { background: #05090e; }
+.rail-btn:hover { box-shadow: inset 0 0 12px rgba(53,227,255,0.1); }
+
+/* ---------- Feed as "intercept log" ---------- */
+.call {
+  background: linear-gradient(180deg, rgba(8,16,24,0.85), rgba(5,10,16,0.85));
+  box-shadow: inset 0 0 0 1px rgba(53,227,255,0.02);
+}
+.call .when > div:first-child {
+  font-family: var(--font-mono);
+  color: var(--cc-cyan);
+  text-shadow: 0 0 6px var(--cc-glow);
+}
+.call:hover { box-shadow: 0 0 0 1px var(--cc-line), 0 6px 22px rgba(0,0,0,0.5); }
+.call .tag { color: var(--text); }
+.results::-webkit-scrollbar-thumb { background: var(--cc-line); }
+
+/* ---------- Scanner toggle / chips re-glow ---------- */
+.scanner-toggle { background: var(--cc-cyan); border-color: var(--cc-cyan); color: #04090f; }
+.scanner-bar[data-state="playing"] .scanner-toggle { animation: scanner-pulse-cc 1.8s ease-out infinite; }
+@keyframes scanner-pulse-cc {
+  0%   { box-shadow: 0 0 0 0 rgba(55,245,166,0.6); }
+  70%  { box-shadow: 0 0 0 16px rgba(55,245,166,0); }
+  100% { box-shadow: 0 0 0 0 rgba(55,245,166,0); }
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1200px) {
+  .cc-console { grid-template-columns: 1fr 1fr; }
+  .cc-telemetry-panel { grid-column: 1 / -1; }
+  .cc-metrics { grid-template-columns: repeat(6, 1fr); }
+}
+@media (max-width: 760px) {
+  .cc-console {
+    grid-template-columns: 1fr;
+    padding: 10px 12px;
+  }
+  .cc-spectrum-panel { display: none; }          /* keep it feed-first on phones */
+  .cc-metrics { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-led, .cc-ticker-track, .scanner-toggle { animation: none !important; }
+}
