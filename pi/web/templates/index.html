@@ -284,6 +284,8 @@
 // Server-injected role flag: true on jafo.live (hub), false on jafo.local (edge).
 // Gates the "Enhance Call" button — only the hub has the Groq key.
 window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};
+// OSINT exposure demo — edge-only + opt-in; false everywhere else.
+window.JAFO_OSINT_DEMO = {{ 'true' if osint_demo else 'false' }};
 </script>
 
 {% if hub_link %}
@@ -322,5 +324,30 @@ window.JAFO_HUB_LINK = {{ hub_link | tojson }};
 <script src="{{ static_v('app.js') }}"></script>
 <script src="{{ static_v('scanner.js') }}"></script>
 <script src="{{ static_v('hud.js') }}"></script>
+
+{% if osint_demo %}
+<!-- OSINT exposure demo (edge/sandbox only). Gated server-side; assets + modal
+     load ONLY when JAFO_OSINT_DEMO is on. See services/osint.py. -->
+<link rel="stylesheet" href="{{ static_v('osint.css') }}">
+<div id="osint-modal" class="osint-modal hidden" role="dialog" aria-modal="true" aria-label="OSINT exposure demonstration">
+  <div class="osint-backdrop" data-osint-close></div>
+  <div class="osint-card">
+    <button class="osint-close" data-osint-close aria-label="Close">×</button>
+    <div class="osint-hdr">
+      <span class="osint-badge">◈ OSINT EXPOSURE · DEMONSTRATION</span>
+      <h2 id="osint-title">—</h2>
+    </div>
+    <p class="osint-disclaimer">
+      <strong>Demonstration only — unverified.</strong> These are automated username guesses
+      derived from a name heard on open public-safety radio, matched against public platforms.
+      They may be <strong>an entirely different person</strong>. A radio mention implies nothing
+      about involvement or guilt — people named on scanners are frequently callers, victims,
+      witnesses, or bystanders. Runs sandboxed on this device only.
+    </p>
+    <div id="osint-body" class="osint-body"></div>
+  </div>
+</div>
+<script src="{{ static_v('osint.js') }}"></script>
+{% endif %}
 </body>
 </html>

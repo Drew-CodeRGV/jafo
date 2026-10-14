@@ -1,0 +1,101 @@
+/* jafo — OSINT exposure demo styles (loads only when the demo is enabled). */
+
+/* Card button on a call */
+.osint-flag {
+  border: 1px solid rgba(53,227,255,0.5);
+  background: rgba(53,227,255,0.08);
+  color: var(--cc-cyan, #35e3ff);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+.osint-flag:hover { background: rgba(53,227,255,0.18); box-shadow: 0 0 10px rgba(53,227,255,0.4); }
+
+/* Modal shell */
+.osint-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; }
+.osint-modal.hidden { display: none; }
+.osint-backdrop { position: absolute; inset: 0; background: rgba(2,6,10,0.78); backdrop-filter: blur(3px); }
+.osint-card {
+  position: relative;
+  width: min(760px, 94vw);
+  max-height: 88vh; overflow-y: auto;
+  background: linear-gradient(180deg, #081019, #050a10);
+  border: 1px solid rgba(53,227,255,0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7), inset 0 0 40px rgba(53,227,255,0.05);
+  padding: 20px 22px 24px;
+}
+.osint-close {
+  position: absolute; top: 10px; right: 12px;
+  background: transparent; border: 0; color: var(--text-dim, #8b949e);
+  font-size: 26px; line-height: 1; cursor: pointer;
+}
+.osint-close:hover { color: #fff; }
+
+.osint-hdr { margin-bottom: 12px; }
+.osint-badge {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
+  color: #04090f; font-weight: 700;
+  background: var(--cc-cyan, #35e3ff);
+  padding: 3px 10px; border-radius: 3px;
+  box-shadow: 0 0 16px rgba(53,227,255,0.5);
+}
+.osint-hdr h2 {
+  margin: 10px 0 0; font-size: 20px; color: #eafaff;
+  font-family: var(--font-mono);
+}
+
+.osint-disclaimer {
+  font-size: 12.5px; line-height: 1.5;
+  color: #ffd9a0;
+  background: rgba(255,176,0,0.07);
+  border: 1px solid rgba(255,176,0,0.3);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 16px;
+}
+.osint-disclaimer strong { color: #ffc661; }
+
+.osint-person { border-top: 1px dashed rgba(53,227,255,0.18); padding: 14px 0; }
+.osint-person:first-child { border-top: 0; }
+.osint-person-hdr { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.osint-subj { display: flex; align-items: center; gap: 10px; font-size: 16px; color: #eafaff; font-family: var(--font-mono); }
+.osint-subj .osint-silhouette { width: 26px; height: 30px; flex: 0 0 auto; }
+.osint-status { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim, #8b949e); }
+.osint-status.hit { color: #37f5a6; text-shadow: 0 0 8px rgba(55,245,166,0.5); }
+
+.osint-loading { font-family: var(--font-mono); font-size: 12px; color: var(--cc-cyan,#35e3ff); opacity: 0.8; padding: 8px 0; }
+.osint-loading::after { content: " ▋"; animation: osint-blink 1s steps(2) infinite; }
+@keyframes osint-blink { 50% { opacity: 0.2; } }
+
+.osint-none { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 10px; color: var(--text-dim,#8b949e); }
+.osint-none .osint-silhouette { width: 60px; height: 70px; opacity: 0.8; }
+.osint-none p { margin: 2px 0; font-size: 13px; }
+.osint-cands { color: var(--text-faint,#6e7681); font-family: var(--font-mono); font-size: 12px; }
+.osint-note { font-size: 11.5px; color: var(--text-faint,#6e7681); margin-top: 8px; }
+.osint-note strong { color: #ffc661; }
+
+.osint-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.osint-match {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(53,227,255,0.04);
+  border: 1px solid rgba(53,227,255,0.2);
+  border-radius: 6px; padding: 8px 10px;
+  text-decoration: none; color: var(--text,#e6edf3);
+}
+.osint-match:hover { border-color: var(--cc-cyan,#35e3ff); box-shadow: 0 0 14px rgba(53,227,255,0.25); }
+.osint-avatar, .osint-avatar-fallback {
+  width: 42px; height: 42px; border-radius: 50%;
+  flex: 0 0 auto; object-fit: cover;
+  border: 1.5px solid rgba(53,227,255,0.5);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background: #061018;
+}
+.osint-avatar-fallback .osint-silhouette { width: 28px; height: 32px; }
+.osint-match-meta { display: flex; flex-direction: column; min-width: 0; }
+.osint-platform { font-size: 13px; font-weight: 600; color: #eafaff; }
+.osint-handle { font-size: 11px; color: var(--text-dim,#8b949e); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }

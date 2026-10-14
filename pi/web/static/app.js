@@ -2138,6 +2138,12 @@ function renderCall(c) {
       `<span class="units">units: ${c.incident_units.map(escapeHtml).join(", ")}</span>`
     );
   }
+  // OSINT exposure demo (edge-only; persons only present when gated server-side).
+  if (window.JAFO_OSINT_DEMO && c.persons && c.persons.length) {
+    headerBits.push(
+      `<button class="osint-flag" title="OSINT exposure demonstration for named person(s)">◈ OSINT · ${c.persons.length}</button>`
+    );
+  }
 
   const summary = c.incident_summary
     ? `<div class="summary">${escapeHtml(c.incident_summary)}</div>`
@@ -2219,6 +2225,16 @@ function renderCall(c) {
       e.stopPropagation();
       const title = c.incident_summary || c.talkgroup_tag || `Call #${c.id}`;
       openSharePopover(shareBtn, "call", c.id, title);
+    });
+  }
+
+  // OSINT exposure demo — opens the modal for the named person(s). openOsint is
+  // defined in osint.js, which only loads when the demo is enabled.
+  const osintBtn = div.querySelector(".osint-flag");
+  if (osintBtn) {
+    osintBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (window.openOsint) window.openOsint(c.persons, c);
     });
   }
 

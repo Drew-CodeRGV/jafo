@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "services"))
 from common import (
     ANTHROPIC_API_KEY, CALLS_DIR, DATA_DIR, DB_PATH, db_connect, NODE_NAME, REGION,
 )
+import osint  # edge/sandbox-only OSINT exposure demo (gated; see _osint_viewer)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -322,6 +323,8 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
                      overrides: dict[int, dict] | None = None) -> dict:
     # Only owner-viewers (local edge operator or admin) see playable audio.
     _audio_viewer = has_request_context() and _viewer_is_owner(request)
+    # Names are exposed ONLY to the edge-only, opt-in OSINT demo viewer.
+    _osint_v = has_request_context() and _osint_viewer(request)
     tg = r["talkgroup"]
     csv_meta = (tg_meta or {}).get(tg, {}) if tg else {}
     ov = (overrides or {}).get(tg, {}) if tg else {}
@@ -377,6 +380,9 @@ def call_row_to_dict(r: sqlite3.Row, tg_meta: dict | None = None,
         "link_url": ov.get("link_url") or "",
         "lat": lat,
         "lng": lng,
+        # OSINT demo (edge-only, opt-in): civilian names from the enrichment.
+        "persons": (osint.extract_persons(r["incident_json"])
+                    if _osint_v and "incident_json" in r.keys() else []),
     }
 
 
@@ -427,7 +433,8 @@ def index():
         return render_template("index.html", node_name=NODE_NAME,
                                region_slug=None, node_slug=None,
                                hub_link=_hub_link_for_this_node(),
-                               is_hub=not _is_edge_node())
+                               is_hub=not _is_edge_node(),
+                               osint_demo=_osint_viewer(request))
     return render_template("fleet.html", node_name=NODE_NAME)
 
 
@@ -584,6 +591,13 @@ def _viewer_is_owner(req) -> bool:
     local edge operator (jafo.local) or an admin-token holder on the hub. Public
     hub viewers get no player at all — audio is shared only via explicit links."""
     return _is_edge_node() or _admin_ok(req)
+
+
+def _osint_viewer(req) -> bool:
+    """Gate for the OSINT exposure demo. EDGE-ONLY and opt-in: never on the
+    public hub (jafo.live), and only when the node operator set JAFO_OSINT_DEMO.
+    This is a sandboxed capabilities demonstration, not a production feature."""
+    return _is_edge_node() and osint.enabled() and _viewer_is_owner(req)
 
 
 def _grant_covers_call(grant, call_id: int) -> bool:
@@ -1052,6 +1066,84 @@ def call_detail(call_id: int):
     if not row:
         abort(404)
     return jsonify(call_row_to_dict(row, load_talkgroup_metadata(), load_overrides()))
+
+
+# -----------------------------------------------------------------------------
+# OSINT exposure demo — EDGE-ONLY, opt-in (JAFO_OSINT_DEMO). See services/osint.py.
+# Looks a spoken name up against a curated set of public platforms in a
+# background thread; results are cached. Never reachable on the public hub
+# (the _osint_viewer gate returns 404 there).
+# -----------------------------------------------------------------------------
+import threading as _threading
+
+_OSINT_INFLIGHT: set = set()
+_OSINT_LOCK = _threading.Lock()
+
+
+def _osint_cache_init(conn) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS osint_cache (
+            name_key    TEXT PRIMARY KEY,
+            name        TEXT,
+            status      TEXT,
+            result_json TEXT,
+            updated_at  INTEGER
+        )
+    """)
+    conn.commit()
+
+
+def _osint_store(name_key, name, status, result) -> None:
+    try:
+        conn = get_db()
+        _osint_cache_init(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO osint_cache (name_key, name, status, result_json, updated_at)"
+            " VALUES (?,?,?,?,?)",
+            (name_key, name, status, json.dumps(result), int(time.time())))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _osint_worker(name: str, name_key: str) -> None:
+    try:
+        result = osint.lookup_name(name)
+        status = "done"
+    except Exception as e:
+        result, status = {"name": name, "candidates": [], "matches": [], "error": str(e)}, "error"
+    _osint_store(name_key, name, status, result)
+    with _OSINT_LOCK:
+        _OSINT_INFLIGHT.discard(name_key)
+
+
+@app.route("/api/osint")
+def api_osint():
+    if not _osint_viewer(request):
+        abort(404)
+    name = (request.args.get("name") or "").strip()
+    if not name or not osint.looks_like_name(name):
+        return jsonify({"status": "invalid", "name": name, "matches": []})
+    name_key = name.lower()
+
+    conn = get_db()
+    _osint_cache_init(conn)
+    row = conn.execute("SELECT status, result_json FROM osint_cache WHERE name_key = ?",
+                       (name_key,)).fetchone()
+    conn.close()
+    if row and row["status"] in ("done", "error"):
+        payload = json.loads(row["result_json"])
+        payload["status"] = row["status"]
+        return jsonify(payload)
+
+    # Not cached (or still pending) → ensure exactly one background scan runs.
+    with _OSINT_LOCK:
+        if name_key not in _OSINT_INFLIGHT:
+            _OSINT_INFLIGHT.add(name_key)
+            _osint_store(name_key, name, "pending", {"name": name, "matches": []})
+            _threading.Thread(target=_osint_worker, args=(name, name_key), daemon=True).start()
+    return jsonify({"status": "pending", "name": name, "matches": []})
 
 
 # -----------------------------------------------------------------------------
