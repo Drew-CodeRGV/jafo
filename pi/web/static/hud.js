@@ -679,6 +679,61 @@ function ccDecodeSquitter(text) {
   if (fm) s += ` · ${fm[1]}.${fm[2]} MHz`;
   return s;
 }
+// Dictionary that turns raw ACARS downlink field codes into plain English.
+// Keys are the field mnemonics airlines pack into free-text; meta flags format:
+// b=boolean(Y/N), t=time(HHMMSS/HHMM), u=unit suffix.
+const ACARS_FIELDS = {
+  AIR: { l: "Airborne", b: 1 }, GND: { l: "On ground", b: 1 }, GRND: { l: "On ground", b: 1 },
+  STRUT_TM: { l: "Weight-on-wheels time", t: 1 }, PRE_AIR_FLAG: { l: "Pre-airborne flag", b: 1 },
+  TAS: { l: "True airspeed", u: "kt" }, TAS_SIM_STRUT_ACTIVE: { l: "Airspeed sim (via strut)", b: 1 },
+  TAS_SIM_TM: { l: "Airspeed-sim time", t: 1 }, IAS: { l: "Indicated airspeed", u: "kt" },
+  GS: { l: "Ground speed", u: "kt" }, GSPD: { l: "Ground speed", u: "kt" }, MACH: { l: "Mach" },
+  ALT: { l: "Altitude", u: "ft" }, ALTD: { l: "Altitude", u: "ft" }, FL: { l: "Flight level" },
+  HDG: { l: "Heading", u: "°" }, TRK: { l: "Track", u: "°" },
+  SAT: { l: "Static air temp", u: "°C" }, TAT: { l: "Total air temp", u: "°C" },
+  FOB: { l: "Fuel on board" }, GW: { l: "Gross weight" }, TOW: { l: "Takeoff weight" }, ZFW: { l: "Zero-fuel weight" },
+  ETA: { l: "Est. arrival", t: 1 }, ETD: { l: "Est. departure", t: 1 }, ETE: { l: "Est. time enroute" },
+  OUT: { l: "OUT — left gate", t: 1 }, OFF: { l: "OFF — wheels up", t: 1 },
+  ON: { l: "ON — wheels down", t: 1 }, IN: { l: "IN — at gate", t: 1 },
+  LAT: { l: "Latitude" }, LON: { l: "Longitude" }, LONG: { l: "Longitude" },
+  WIND: { l: "Wind" }, WD: { l: "Wind direction", u: "°" }, WS: { l: "Wind speed", u: "kt" },
+  DEP: { l: "Departure" }, DES: { l: "Destination" }, DEST: { l: "Destination" },
+  ORIG: { l: "Origin" }, ARR: { l: "Arrival" }, ARPT: { l: "Airport" },
+  FLT: { l: "Flight" }, REG: { l: "Registration" }, DATE: { l: "Date" },
+  UTC: { l: "UTC time", t: 1 }, TM: { l: "Time", t: 1 }, TIME: { l: "Time", t: 1 },
+  SEQ: { l: "Sequence" }, FUEL: { l: "Fuel" }, TEMP: { l: "Temperature", u: "°C" },
+};
+function ccFmtAcarsVal(v, meta) {
+  v = (v || "").trim();
+  if (!v || /^[*_/\s-]+$/.test(v)) return "—";
+  if (meta && meta.b) return /^(Y|1|T|TRUE)$/i.test(v) ? "yes" : (/^(N|0|F|FALSE)$/i.test(v) ? "no" : v);
+  if (meta && meta.t) {
+    const d = v.replace(/\D/g, "");
+    if (d.length === 6) return `${d.slice(0, 2)}:${d.slice(2, 4)}:${d.slice(4, 6)} UTC`;
+    if (d.length === 4) return `${d.slice(0, 2)}:${d.slice(2, 4)} UTC`;
+    return v;
+  }
+  if (meta && meta.u && /^-?[\d.]/.test(v)) return `${v} ${meta.u}`;
+  return v;
+}
+// Extract KEY VALUE / KEY=VALUE pairs from a message into readable {k,v} rows.
+function ccHumanizeAcars(text) {
+  if (!text) return [];
+  const out = [], seen = new Set();
+  for (let raw of text.replace(/\r/g, "").split(/[,\n;]+/)) {
+    raw = raw.trim(); if (!raw) continue;
+    const mm = raw.match(/^([A-Z][A-Z0-9_]{1,23})\s*[=:\s]\s*(.+)$/);
+    if (!mm) continue;
+    const k = mm[1], v = mm[2].trim();
+    const meta = ACARS_FIELDS[k];
+    if (!meta && !/_/.test(k)) continue;   // skip prose like "OPS NORMAL"
+    if (seen.has(k)) continue; seen.add(k);
+    const label = meta ? meta.l : k.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    out.push({ k: label, v: ccFmtAcarsVal(v, meta) });
+  }
+  return out;
+}
+
 function ccAcarsDecode(m) {
   const row = (k, v) => `<div class="ap-row"><span class="ap-k">${k}</span><span class="ap-v">${v}</span></div>`;
   const flight = m.flight || "", tail = m.tail || "", label = m.label || "", text = m.text || "";
@@ -696,7 +751,14 @@ function ccAcarsDecode(m) {
   const pos = ccParsePos(text);
   if (pos && label !== "SQ") notes.push(`Position: <b>${pos.lat}, ${pos.lon}</b>`);
   if (notes.length) html += `<div class="ap-decoded">◉ ${notes.join("<br>◉ ")}</div>`;
-  html += `<div class="ap-text"><span class="ap-k">Message</span><pre>${ccEsc(text || "(empty)")}</pre></div>`;
+  // Plain-language breakdown of packed field codes (AIR N, GND Y, TAS 108, …).
+  const fields = ccHumanizeAcars(text);
+  if (fields.length >= 2) {
+    html += `<div class="ap-fields"><div class="ap-fields-h">◈ PLAIN LANGUAGE</div>` +
+      fields.map((f) => `<div class="ap-frow"><span class="ap-fk">${ccEsc(f.k)}</span><span class="ap-fv">${ccEsc(f.v)}</span></div>`).join("") +
+      `</div>`;
+  }
+  html += `<div class="ap-text"><span class="ap-k">Raw message</span><pre>${ccEsc(text || "(empty)")}</pre></div>`;
   return html;
 }
 
@@ -751,16 +813,34 @@ const CC_SILHOUETTES = {
   default:  `<path d="M300 46 C314 46 322 51 322 55 C322 60 314 64 300 64 L90 64 L62 56 L62 52 L90 48 Z M94 48 L60 16 L80 16 L116 48 Z M196 64 L128 92 L160 92 L222 66 Z M208 65 Q234 63 236 72 Q236 81 208 79 Z"/>`,
 };
 
+// Classify to a silhouette. Prefer the clean ICAO type designator (e.g. "B737",
+// "A388") — the free-text "type" field carries Boeing customer codes like
+// "737NG 724/W" where the "724" would false-match a 747.
+function ccClassifyAircraft(info) {
+  const ic = (info.icao_type || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (ic) {
+    if (/^A38/.test(ic)) return ["a380", "A380"];
+    if (/^(B74|A34|IL96|MD11|DC10|L101|A124|AN12|A225)/.test(ic)) return ["wide4", "WIDEBODY"];
+    if (/^(B76|B77|B78|A30|A31[01]|A33|A35|DC8|IL86|A306|A332|A333|A338|A339|A359|A35K)/.test(ic)) return ["wide2", "WIDEBODY"];
+    if (/^(CRJ|CR[1-9]|E1[0-9][0-9]|E7[05]|E29|RJ[0-9]|RJ1H|RJ85|F70|F100|F28|DC9|MD8|MD9|B71[27]|SU95|A748)/.test(ic)) return ["regional", "REGIONAL JET"];
+    if (/^(DH8|DHC|AT[0-9]|ATR|SF3|SB20|SW[0-9]|JS[0-9]|BE[0-9]|C208|C212|PC12|D328|E120|F27|F50|SH36|L410)/.test(ic)) return ["turbo", "TURBOPROP"];
+    if (/^(C1[0-9][0-9]|C2[0-9][0-9]|P28|PA[0-9]|SR2|DA[24]|DV20|BE3[0-9]|BE58|BE55|RV[0-9]|M20|TBM|COL[0-9]|GLF no)/.test(ic)) return ["ga", "LIGHT"];
+    if (/^(B73|B72|B75|A318|A319|A320|A321|A19|A20|A21|BCS|E75[LS])/.test(ic)) return ["narrow", "NARROWBODY"];
+  }
+  // Fall back to free text, but strip trailing customer/variant codes first.
+  const t = ((info.type || "") + " " + (info.manufacturer || "")).toUpperCase();
+  if (/A380|A388/.test(t)) return ["a380", "A380"];
+  if (/\b7[0-9]?47|A340|IL-?96|MD-?11|DC-?10/.test(t)) return ["wide4", "WIDEBODY"];
+  if (/\b787|\b777|\b767|A330|A350|A300|A310|L1011|DC-?8/.test(t)) return ["wide2", "WIDEBODY"];
+  if (/CRJ|ERJ|EMBRAER|RJ85|E-?JET|F-?70|F-?100|DC-?9|MD-?[89]0|\b717/.test(t)) return ["regional", "REGIONAL JET"];
+  if (/DASH ?8|DHC|ATR|TURBOPROP|SAAB|CARAVAN|KING AIR|METRO|PILATUS|TBM|\bPC-?12/.test(t)) return ["turbo", "TURBOPROP"];
+  if (/CESSNA|PIPER|CIRRUS|DIAMOND|\bSR2|\bDA[24]0|\bRV-?[0-9]/.test(t)) return ["ga", "LIGHT"];
+  if (/\b737|\b727|\b757|A318|A319|A320|A321|A220|BOMBARDIER C|BAE 146|\bRJ1/.test(t)) return ["narrow", "NARROWBODY"];
+  return ["default", "AIRCRAFT"];
+}
+
 function ccPlaneDrawing(info) {
-  const t = ((info.type || "") + " " + (info.manufacturer || "") + " " + (info.icao_type || "")).toUpperCase();
-  let key = "default", cat = "AIRCRAFT";
-  if (/A380|A388/.test(t)) { key = "a380"; cat = "A380"; }
-  else if (/B?74[0-9]|A34[0-9]|A340|IL-?96|MD-?11|DC-?10/.test(t)) { key = "wide4"; cat = "WIDEBODY"; }
-  else if (/78[0-9]|B?78|77[0-9]|B?77|76[0-9]|B?76|A3[35]0|A330|A350|A300|A310|L101|DC-?8/.test(t)) { key = "wide2"; cat = "WIDEBODY"; }
-  else if (/CRJ|ERJ|RJ85|RJ1|E13|E14|E17|E19|EMB-?1|F70|F100|DC-?9|MD-?[89]0|717/.test(t)) { key = "regional"; cat = "REGIONAL JET"; }
-  else if (/DH8|DHC|D328|AT[47]|ATR|Q[234]0|SF34|SB20|SAAB|BE(?:C|9|20|D|10)|C208|CARAVAN|PC-?12|TBM|METRO|SW[34]|KING AIR|TURBOPROP/.test(t)) { key = "turbo"; cat = "TURBOPROP"; }
-  else if (/C1[0-9][0-9]|C2[0-9][0-9]|CESSNA|PA-?[0-9]|PIPER|SR2[02]|DA[24]0|DIAMOND|BE3[036]|CIRRUS|RV-?[0-9]/.test(t)) { key = "ga"; cat = "LIGHT"; }
-  else if (/73[0-9]|B?73|A31[89]|A32[01]|A318|A319|A320|A321|A220|BCS|757|75[0-9]|727|72[0-9]|BAE/.test(t)) { key = "narrow"; cat = "NARROWBODY"; }
+  const [key, cat] = ccClassifyAircraft(info);
   return `<div class="acd-draw"><svg viewBox="0 0 360 120" class="acd-plane" aria-hidden="true">${CC_SILHOUETTES[key]}</svg><span class="acd-cat">${ccEsc(cat)}</span></div>`;
 }
 
@@ -826,13 +906,14 @@ function ccDrawAcarsGlobe() {
   const vec = (la, lo) => [Math.cos(la * D2R) * Math.cos(lo * D2R), Math.cos(la * D2R) * Math.sin(lo * D2R), Math.sin(la * D2R)];
   const v1 = vec(o.lat, o.lon), v2 = vec(d.lat, d.lon);
   let dotp = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]; dotp = Math.max(-1, Math.min(1, dotp));
-  const half = Math.max(Math.acos(dotp) / 2, 0.04);
-  let R = (0.40 * minside) / Math.sin(half);      // zoom so the two points frame nicely
+  const half = Math.max(Math.acos(dotp) / 2, 0.05);
+  let R = (0.32 * minside) / Math.sin(half);      // zoom so both points sit well inside the rim
   R = Math.max(R, minside / 2 - 8);               // never smaller than a full globe
-  R = Math.min(R, minside * 5);                   // cap zoom for very close airports
-  // projection centered on the route midpoint, with a gentle wobble for 3D feel
+  R = Math.min(R, minside * 4);                   // cap zoom for very close airports
+  // projection centered on the route midpoint, with a gentle wobble for 3D feel.
+  // Shrink the wobble when zoomed in so endpoints don't swing off-screen.
   const latM = mid[0], lonM = mid[1];
-  const wob = Math.sin(performance.now() / 1800) * 0.07;
+  const wob = Math.sin(performance.now() / 2200) * 0.05 * Math.min(1, (minside * 0.5) / R);
   const tc = Math.cos(-latM * D2R), ts = Math.sin(-latM * D2R);
   const proj = (lat, lon) => {
     const la = lat * D2R, lo = (lon - lonM) * D2R + wob;
@@ -849,8 +930,29 @@ function ccDrawAcarsGlobe() {
   ctx.beginPath(); let st = false;
   for (const [lat, lon] of arc) { const p = proj(lat, lon); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } }
   ctx.stroke(); ctx.shadowBlur = 0;
-  const pt = (ap, col) => { const p = proj(ap.lat, ap.lon); if (!p.vis) return; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 6.283); ctx.fillStyle = col; ctx.shadowBlur = 12; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#eafaff"; ctx.font = "12px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.fillText(ap.iata || ap.icao || "", p.x, p.y - 11); };
-  pt(o, "#37f5a6"); pt(d, "#ff4d5e");
+  // Endpoints, drawn last and on top: glowing marker + ringed outline + a
+  // dark label pill (clamped inside the canvas) so codes are never obscured.
+  const endpoint = (ap, col, tag, below) => {
+    const p = proj(ap.lat, ap.lon); if (!p.vis) return;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5.5, 0, 6.283);
+    ctx.fillStyle = col; ctx.shadowBlur = 16; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#eafaff"; ctx.stroke();
+    const txt = `${tag} ${ap.iata || ap.icao || ""}`.trim();
+    ctx.font = "bold 12px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const pw = ctx.measureText(txt).width + 14;
+    const lx = Math.max(pw / 2 + 2, Math.min(w - pw / 2 - 2, p.x));
+    let ly = below ? p.y + 20 : p.y - 20; ly = Math.max(12, Math.min(h - 12, ly));
+    ctx.beginPath();
+    (ctx.roundRect ? ctx.roundRect(lx - pw / 2, ly - 9, pw, 18, 4)
+                   : ctx.rect(lx - pw / 2, ly - 9, pw, 18));
+    ctx.fillStyle = "rgba(4,10,16,0.85)"; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = col; ctx.stroke();
+    ctx.fillStyle = "#eafaff"; ctx.fillText(txt, lx, ly);
+  };
+  const po = proj(o.lat, o.lon), pd = proj(d.lat, d.lon);
+  // put each label on the outer side so the two pills don't collide
+  endpoint(o, "#37f5a6", "DEP", po.y >= pd.y);
+  endpoint(d, "#ff4d5e", "ARR", pd.y > po.y);
 }
 
 // ---- ACARS message feed (only polls while the panel is open) ----
@@ -875,7 +977,10 @@ async function ccRefreshAcars() {
   list.innerHTML = order.map((key) => {
     const idxs = groups.get(key), first = ccAcarsMsgs[idxs[0]];
     const airline = ACARS_AIRLINES[(first.flight || "").slice(0, 2).toUpperCase()];
-    const sub = (first.tail && first.flight) ? first.tail : "";
+    const tail = first.tail || "", flight = first.flight || "";
+    const sub = (tail && flight) ? tail : "";
+    // candidate airport ICAO codes from every message in the group
+    const ap = [...new Set(idxs.flatMap((i) => ((ccAcarsMsgs[i].text || "").toUpperCase().match(/\b[A-Z]{4}\b/g) || [])))].slice(0, 8).join(",");
     const rows = idxs.map((i) => {
       const m = ccAcarsMsgs[i], txt = (m.text || "").replace(/\s+/g, " ").trim();
       return `<div class="cc-acars-row" data-idx="${i}" title="click to decode + look up">` +
@@ -885,9 +990,41 @@ async function ccRefreshAcars() {
     }).join("");
     return `<div class="acg"><div class="acg-hdr">✈ <b>${ccEsc(key)}</b>` +
            `${airline ? ` · ${ccEsc(airline)}` : ""}${sub ? ` · ${ccEsc(sub)}` : ""}` +
-           `<span class="acg-n">${idxs.length}</span></div>${rows}</div>`;
+           `<span class="acg-n">${idxs.length}</span></div>` +
+           `<div class="acg-sub" data-pending="1" data-flight="${ccEsc(flight)}" data-tail="${ccEsc(tail)}" data-ap="${ccEsc(ap)}"></div>` +
+           `${rows}</div>`;
   }).join("");
   ccBindAcarsClick();
+  ccEnrichAcarsGroups();
+}
+
+// Fill each group's sub-line with route (origin → dest) + aircraft type.
+// Lookups are cached client-side (and 24h server-side) so the poll is cheap.
+const ccAcEnrich = new Map();
+function ccEnrichAcarsGroups() {
+  document.querySelectorAll(".acg-sub[data-pending]").forEach((el) => {
+    el.removeAttribute("data-pending");
+    const flight = el.dataset.flight || "", tail = el.dataset.tail || "", ap = el.dataset.ap || "";
+    if (!flight && !tail) return;
+    const ck = `${tail}|${flight}|${ap}`;
+    const paint = (info) => {
+      if (!info) return;
+      const bits = [];
+      if (info.origin && info.destination) {
+        const o = info.origin.iata || info.origin.icao, d = info.destination.iata || info.destination.icao;
+        bits.push(`<span class="acg-route">${ccEsc(o)} → ${ccEsc(d)}</span>`);
+      }
+      const typ = [info.manufacturer, info.type].filter(Boolean).join(" ");
+      if (typ) bits.push(`<span class="acg-type">${ccEsc(typ)}</span>`);
+      el.innerHTML = bits.join('<span class="acg-dot">·</span>');
+    };
+    if (ccAcEnrich.has(ck)) { paint(ccAcEnrich.get(ck)); return; }
+    const p = new URLSearchParams();
+    if (tail) p.set("reg", tail);
+    if (flight) p.set("flight", flight);
+    if (ap) p.set("airports", ap);
+    api(`/api/aircraft-lookup?${p}`).then((info) => { ccAcEnrich.set(ck, info); paint(info); }).catch(() => {});
+  });
 }
 
 // ============================================================

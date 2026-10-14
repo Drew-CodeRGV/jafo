@@ -1455,11 +1455,12 @@ def api_aircraft_lookup():
         out["operator"] = ac.get("registered_owner")
         out["icao_type"] = ac.get("icao_type")
         # adsbdb bundles a Planespotters photo in this same response — far more
-        # reliable than a second round-trip to planespotters.net.
-        ph = ac.get("url_photo_thumbnail") or ac.get("url_photo")
-        if ph:
-            out["photo"] = ph
-            out["photo_link"] = ac.get("url_photo") or ph
+        # reliable than a second round-trip to planespotters.net. Prefer the
+        # full-resolution image (the thumbnail is tiny and pixelated).
+        full = ac.get("url_photo")
+        if full or ac.get("url_photo_thumbnail"):
+            out["photo"] = full or ac.get("url_photo_thumbnail")
+            out["photo_link"] = full or ac.get("url_photo_thumbnail")
 
     iata = flight[:2] if (len(flight) >= 3 and flight[:2].isalpha()) else ""
     if iata:
