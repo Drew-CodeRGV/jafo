@@ -241,10 +241,17 @@
     <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
   </div>
   <div class="cc-acars-pane collapsed" id="cc-acars-pane" aria-label="ACARS aircraft messages">
-    <div class="cc-acars-hdr"><span class="cc-led cc-led-cyan"></span>ACARS · AIRCRAFT MESSAGES<span id="cc-acars-status" class="cc-hdr-right">—</span></div>
-    <ul class="cc-acars-list" id="cc-acars-list">
-      <li class="cc-acars-empty">No ACARS yet. Flip the RTL to ACARS mode: <code>sudo bash ~/jafo/scripts/sdr-mode.sh acars</code></li>
-    </ul>
+    <div class="cc-acars-split">
+      <div class="cc-acars-left">
+        <div class="cc-acars-hdr"><span class="cc-led cc-led-cyan"></span>ACARS · BY FLIGHT<span id="cc-acars-status" class="cc-hdr-right">—</span></div>
+        <div class="cc-acars-list" id="cc-acars-list">
+          <div class="cc-acars-empty">No ACARS yet. Flip the RTL to ACARS mode: <code>sudo bash ~/jafo/scripts/sdr-mode.sh acars</code></div>
+        </div>
+      </div>
+      <div class="cc-acars-right" id="cc-acars-detail">
+        <div class="cc-acars-detail-empty">▸ click a message to decode it + look up the aircraft, photo &amp; route</div>
+      </div>
+    </div>
   </div>
   <div class="cc-link-pane collapsed" id="cc-link-pane" aria-label="Communications link analysis">
     <span class="cc-link-title">◉ Link Analysis · units ↔ channels · last hour</span>

@@ -1403,6 +1403,80 @@ def api_sdr_mode():
     return jsonify({"mode": _sdr_current_mode(), "modes": SDR_MODES})
 
 
+# Aircraft lookup for the ACARS detail panel — type/operator (ADSBdb), route
+# (ADSBdb callsign), carrier logo (avs.io), best-effort photo (Planespotters).
+# All keyless + free. Cached a day (airframe data is static).
+_ACLOOKUP_CACHE: dict = {}
+_ACLOOKUP_TTL = 86400
+IATA_TO_ICAO = {
+    "UA": "UAL", "AA": "AAL", "DL": "DAL", "WN": "SWA", "B6": "JBU", "NK": "NKS",
+    "F9": "FFT", "AS": "ASA", "HA": "HAL", "G4": "AAY", "FX": "FDX", "5X": "UPS",
+    "OO": "SKW", "MQ": "ENY", "OH": "JIA", "YX": "RPA", "9E": "EDV", "AM": "AMX",
+    "Y4": "VOI", "VB": "VIV", "4O": "AIJ", "AC": "ACA", "WS": "WJA",
+}
+
+
+def _http_json(url, timeout=10):
+    try:
+        import requests as _r
+        r = _r.get(url, headers={"User-Agent": "jafo-scanner/1.0 (hobby ACARS display)"}, timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+
+@app.route("/api/aircraft-lookup")
+def api_aircraft_lookup():
+    reg = (request.args.get("reg") or "").strip().upper()
+    flight = (request.args.get("flight") or "").strip().upper()
+    if not reg and not flight:
+        return jsonify({})
+    key = f"{reg}|{flight}"
+    now = int(time.time())
+    cached = _ACLOOKUP_CACHE.get(key)
+    if cached and now - cached[0] < _ACLOOKUP_TTL:
+        return jsonify(cached[1])
+
+    out = {"reg": reg, "flight": flight}
+    if reg:
+        a = _http_json(f"https://api.adsbdb.com/v0/aircraft/{reg}")
+        ac = ((a or {}).get("response") or {}).get("aircraft") or {}
+        out["type"] = ac.get("type")
+        out["manufacturer"] = ac.get("manufacturer")
+        out["operator"] = ac.get("registered_owner")
+        out["icao_type"] = ac.get("icao_type")
+
+    iata = flight[:2] if (len(flight) >= 3 and flight[:2].isalpha()) else ""
+    if iata:
+        out["airline_iata"] = iata
+        out["logo"] = f"https://pics.avs.io/120/120/{iata}.png"
+
+    if iata in IATA_TO_ICAO:
+        callsign = IATA_TO_ICAO[iata] + flight[2:]
+        rt = _http_json(f"https://api.adsbdb.com/v0/callsign/{callsign}")
+        fr = ((rt or {}).get("response") or {}).get("flightroute") or {}
+        out["airline_name"] = (fr.get("airline") or {}).get("name")
+        for who in ("origin", "destination"):
+            ap = fr.get(who) or {}
+            if ap:
+                out[who] = {"iata": ap.get("iata_code"), "icao": ap.get("icao_code"),
+                            "name": ap.get("name"), "lat": ap.get("latitude"),
+                            "lon": ap.get("longitude")}
+
+    if reg:
+        ps = _http_json(f"https://api.planespotters.net/pub/photos/reg/{reg}")
+        phs = (ps or {}).get("photos") or []
+        if phs:
+            p = phs[0]
+            out["photo"] = (p.get("thumbnail_large") or p.get("thumbnail") or {}).get("src")
+            out["photo_link"] = p.get("link")
+
+    _ACLOOKUP_CACHE[key] = (now, out)
+    return jsonify(out)
+
+
 @app.route("/api/acars")
 def api_acars():
     """Recent ACARS messages (populated by jafo-acars when in ACARS mode)."""

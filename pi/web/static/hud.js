@@ -701,26 +701,112 @@ function ccAcarsDecode(m) {
 }
 
 let ccAcarsMsgs = [];
-function ccBindAcarsPopup() {
+let ccAcarsGlobeCv = null, ccAcarsRoute = null, ccAcarsGlobeSpin = 0;
+
+function ccBindAcarsClick() {
   const list = document.getElementById("cc-acars-list");
-  if (!list || document.getElementById("cc-acars-pop")) return;
-  const pop = document.createElement("div");
-  pop.id = "cc-acars-pop"; pop.className = "cc-acars-pop hidden";
-  document.body.appendChild(pop);
-  const place = (e) => {
-    const pad = 14, w = pop.offsetWidth, h = pop.offsetHeight;
-    let x = e.clientX + 16, y = e.clientY + 16;
-    if (x + w > window.innerWidth - pad) x = e.clientX - w - 16;
-    if (y + h > window.innerHeight - pad) y = window.innerHeight - h - pad;
-    pop.style.left = Math.max(pad, x) + "px"; pop.style.top = Math.max(pad, y) + "px";
-  };
-  list.addEventListener("mouseover", (e) => {
+  if (!list || list._acbound) return;
+  list._acbound = true;
+  list.addEventListener("click", (e) => {
     const r = e.target.closest(".cc-acars-row"); if (!r) return;
-    const m = ccAcarsMsgs[+r.dataset.idx]; if (!m) return;
-    pop.innerHTML = ccAcarsDecode(m); pop.classList.remove("hidden"); place(e);
+    list.querySelectorAll(".cc-acars-row.sel").forEach((x) => x.classList.remove("sel"));
+    r.classList.add("sel");
+    ccSelectAcars(+r.dataset.idx);
   });
-  list.addEventListener("mousemove", (e) => { if (!pop.classList.contains("hidden")) place(e); });
-  list.addEventListener("mouseleave", () => pop.classList.add("hidden"));
+}
+
+function ccSelectAcars(idx) {
+  const m = ccAcarsMsgs[idx]; if (!m) return;
+  const d = document.getElementById("cc-acars-detail"); if (!d) return;
+  ccAcarsRoute = null;
+  d.innerHTML =
+    `<div class="acd-decode">${ccAcarsDecode(m)}</div>` +
+    `<div class="acd-ac" id="acd-ac"><div class="acd-loading">◈ looking up aircraft…</div></div>` +
+    `<div class="acd-globe-wrap" id="acd-globe-wrap" style="display:none">` +
+    `<div class="acd-route" id="acd-route">—</div><canvas id="cc-acars-globe" class="acd-globe"></canvas></div>`;
+  ccAcarsGlobeCv = document.getElementById("cc-acars-globe");
+  const reg = m.tail || "", flight = m.flight || "";
+  if (!reg && !flight) { document.getElementById("acd-ac").innerHTML = '<div class="acd-none">no tail / flight on this message</div>'; return; }
+  const p = new URLSearchParams();
+  if (reg) p.set("reg", reg);
+  if (flight) p.set("flight", flight);
+  api(`/api/aircraft-lookup?${p}`).then(ccRenderAircraft).catch(() => {
+    const el = document.getElementById("acd-ac"); if (el) el.innerHTML = '<div class="acd-none">lookup failed</div>';
+  });
+}
+
+function ccRenderAircraft(info) {
+  const el = document.getElementById("acd-ac"); if (!el) return;
+  const logo = info.logo ? `<img class="acd-logo" src="${ccEsc(info.logo)}" alt="" onerror="this.style.display='none'">` : "";
+  const op = info.airline_name || info.operator;
+  const typ = [info.manufacturer, info.type].filter(Boolean).join(" ");
+  const bits = [`<div class="acd-ac-hdr">${logo}<div class="acd-ac-id"><div class="acd-ac-reg">${ccEsc(info.reg || "—")}</div>${op ? `<div class="acd-ac-op">${ccEsc(op)}</div>` : ""}</div></div>`];
+  if (typ) bits.push(`<div class="acd-ac-type">✈ ${ccEsc(typ)}</div>`);
+  if (info.photo) bits.push(`<a href="${ccEsc(info.photo_link || "#")}" target="_blank" rel="noopener"><img class="acd-photo" src="${ccEsc(info.photo)}" alt="aircraft photo"></a>`);
+  if (!typ && !op && !logo && !info.photo) bits.push(`<div class="acd-none">no aircraft data found</div>`);
+  el.innerHTML = bits.join("");
+  if (info.origin && info.destination && info.origin.lat != null && info.destination.lat != null) {
+    ccAcarsRoute = {
+      origin: { ...info.origin, lat: +info.origin.lat, lon: +info.origin.lon },
+      destination: { ...info.destination, lat: +info.destination.lat, lon: +info.destination.lon },
+    };
+    const w = document.getElementById("acd-globe-wrap"); if (w) w.style.display = "";
+    const rt = document.getElementById("acd-route");
+    if (rt) rt.innerHTML = `<b>${ccEsc(info.origin.iata || info.origin.icao || "?")}</b> → <b>${ccEsc(info.destination.iata || info.destination.icao || "?")}</b>`;
+  }
+}
+
+// Great-circle (slerp) interpolation -> [lat,lon] points.
+function ccGreatCircle(o, d, n) {
+  const R = Math.PI / 180;
+  const vec = (la, lo) => [Math.cos(la * R) * Math.cos(lo * R), Math.cos(la * R) * Math.sin(lo * R), Math.sin(la * R)];
+  const v1 = vec(o.lat, o.lon), v2 = vec(d.lat, d.lon);
+  let dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+  dot = Math.max(-1, Math.min(1, dot));
+  const om = Math.acos(dot);
+  if (om < 1e-6) return [[o.lat, o.lon]];
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const a = Math.sin((1 - t) * om) / Math.sin(om), b = Math.sin(t * om) / Math.sin(om);
+    const x = a * v1[0] + b * v2[0], y = a * v1[1] + b * v2[1], z = a * v1[2] + b * v2[2];
+    pts.push([Math.asin(z) / R, Math.atan2(y, x) / R]);
+  }
+  return pts;
+}
+
+function ccDrawAcarsGlobe() {
+  requestAnimationFrame(ccDrawAcarsGlobe);
+  const cv = ccAcarsGlobeCv; if (!cv || !ccAcarsRoute) return;
+  const pane = document.getElementById("cc-acars-pane");
+  if (!pane || pane.classList.contains("collapsed")) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) ccFitCanvas(cv);
+  const ctx = cv.getContext("2d"), w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+  const R = Math.min(w, h) / 2 - 18, cx = w / 2, cy = h / 2;
+  ccAcarsGlobeSpin += 0.004;
+  const o = ccAcarsRoute.origin, d = ccAcarsRoute.destination;
+  const spin = -((o.lon + d.lon) / 2) * Math.PI / 180 + Math.sin(ccAcarsGlobeSpin) * 0.22;
+  const tilt = 0.35;
+  const proj = (lat, lon) => {
+    const la = lat * Math.PI / 180, lo = lon * Math.PI / 180 + spin;
+    const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
+    return { x: cx + x * R, y: cy - (y * Math.cos(tilt) - z * Math.sin(tilt)) * R, vis: (y * Math.sin(tilt) + z * Math.cos(tilt)) > 0 };
+  };
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(53,227,255,0.3)"; ctx.shadowBlur = 8; ctx.shadowColor = "#35e3ff";
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.283); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(53,227,255,0.12)";
+  const grat = (pts) => { ctx.beginPath(); let st = false; for (const [a, b] of pts) { const p = proj(a, b); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else st = false; } ctx.stroke(); };
+  for (let lat = -60; lat <= 60; lat += 30) grat(Array.from({ length: 61 }, (_, k) => [lat, -180 + k * 6]));
+  for (let lon = -180; lon < 180; lon += 30) grat(Array.from({ length: 31 }, (_, k) => [-90 + k * 6, lon]));
+  // great-circle route
+  ctx.strokeStyle = "#37f5a6"; ctx.lineWidth = 2; ctx.shadowBlur = 8; ctx.shadowColor = "#37f5a6";
+  ctx.beginPath(); let st = false;
+  for (const [lat, lon] of ccGreatCircle(o, d, 96)) { const p = proj(lat, lon); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } }
+  ctx.stroke(); ctx.shadowBlur = 0;
+  const pt = (ap, col) => { const p = proj(ap.lat, ap.lon); if (!p.vis) return; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, 6.283); ctx.fillStyle = col; ctx.shadowBlur = 10; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#eafaff"; ctx.font = "11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.fillText(ap.iata || ap.icao || "", p.x, p.y - 9); };
+  pt(o, "#37f5a6"); pt(d, "#ff4d5e");
 }
 
 // ---- ACARS message feed (only polls while the panel is open) ----
@@ -735,15 +821,29 @@ async function ccRefreshAcars() {
   const msgs = d.messages || [];
   if (!msgs.length || !list) return;   // keep the "flip to ACARS mode" hint
   ccAcarsMsgs = msgs;
-  list.innerHTML = msgs.map((m, i) => {
-    const id = ccEsc(m.flight || m.tail || "—");
-    const txt = (m.text || "").replace(/\s+/g, " ").trim();
-    return `<li class="cc-acars-row" data-idx="${i}" title="hover to decode">` +
-           `<span class="cc-acars-time">${ccEsc(fmtTime(m.received_at))}</span>` +
-           `<span class="cc-acars-id">${id}</span>` +
-           `<span class="cc-acars-lbl">${ccEsc(m.label || "")}</span>` +
-           `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 140))}</span></li>`;
+  // Group by flight (fall back to tail) — newest group first.
+  const order = [], groups = new Map();
+  msgs.forEach((m, i) => {
+    const key = m.flight || m.tail || "—";
+    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+    groups.get(key).push(i);
+  });
+  list.innerHTML = order.map((key) => {
+    const idxs = groups.get(key), first = ccAcarsMsgs[idxs[0]];
+    const airline = ACARS_AIRLINES[(first.flight || "").slice(0, 2).toUpperCase()];
+    const sub = (first.tail && first.flight) ? first.tail : "";
+    const rows = idxs.map((i) => {
+      const m = ccAcarsMsgs[i], txt = (m.text || "").replace(/\s+/g, " ").trim();
+      return `<div class="cc-acars-row" data-idx="${i}" title="click to decode + look up">` +
+             `<span class="cc-acars-time">${ccEsc(fmtTime(m.received_at))}</span>` +
+             `<span class="cc-acars-lbl">${ccEsc(m.label || "")}</span>` +
+             `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 80))}</span></div>`;
+    }).join("");
+    return `<div class="acg"><div class="acg-hdr">✈ <b>${ccEsc(key)}</b>` +
+           `${airline ? ` · ${ccEsc(airline)}` : ""}${sub ? ` · ${ccEsc(sub)}` : ""}` +
+           `<span class="acg-n">${idxs.length}</span></div>${rows}</div>`;
   }).join("");
+  ccBindAcarsClick();
 }
 
 // ============================================================
@@ -1025,7 +1125,7 @@ function ccInit() {
   });
 
   ccBuildMetrics();
-  ccBindAcarsPopup();
+  ccBindAcarsClick();
   ccBootSequence();
   ccBootGlobe();
   ccTickClocks();
@@ -1037,6 +1137,7 @@ function ccInit() {
   requestAnimationFrame(ccAnimateMetrics);
   requestAnimationFrame(ccDrawRadar);
   requestAnimationFrame(ccDrawLink);
+  requestAnimationFrame(ccDrawAcarsGlobe);
   setInterval(ccMirrorScannerState, 300);
 
   // data pumps — intervals kept gentle so the dashboard doesn't hammer the
