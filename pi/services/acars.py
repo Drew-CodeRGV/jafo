@@ -23,19 +23,30 @@ log = setup_logging("jafo-acars")
 
 ACARSDEC_BIN = os.environ.get("JAFO_ACARSDEC_BIN", "acarsdec")
 RTL_INDEX = os.environ.get("JAFO_ACARS_RTL_INDEX", "0")
+# Channels MUST fit inside one RTL sample window (~2 MHz), so they're clustered
+# in the 130–131.8 MHz US ACARS group (131.550 is the primary channel).
 FREQS = os.environ.get(
     "JAFO_ACARS_FREQS",
-    "131.550 130.025 131.725 136.700 136.750 136.800"
+    "131.550 130.025 130.450 131.125 131.725 131.825"
 ).split()
+GAIN = os.environ.get("JAFO_ACARS_GAIN", "").strip()   # empty = AGC
+PPM = os.environ.get("JAFO_ACARS_PPM", "").strip()
+RTL_MULT = os.environ.get("JAFO_ACARS_RTL_MULT", "192")  # 192 = 2.4 MS/s
 CMD_OVERRIDE = os.environ.get("JAFO_ACARSDEC_CMD", "").strip()
 
 
 def build_cmd() -> list[str]:
     if CMD_OVERRIDE:
         return CMD_OVERRIDE.split()
-    # acarsdec v3: JSON formatter to stdout, one object per line.
-    return [ACARSDEC_BIN, "--output", "json:file:path=/dev/stdout",
-            "-r", RTL_INDEX, *FREQS]
+    # acarsdec 3.x: -o 4 = per-message JSON to stdout (one object per line);
+    # -e drops empty messages. Then the RTL device + clustered frequencies.
+    cmd = [ACARSDEC_BIN, "-o", "4", "-e", "-m", RTL_MULT]
+    if GAIN:
+        cmd += ["-g", GAIN]
+    if PPM:
+        cmd += ["-p", PPM]
+    cmd += ["-r", RTL_INDEX, *FREQS]
+    return cmd
 
 
 def _clean(v):
