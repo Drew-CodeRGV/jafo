@@ -685,7 +685,13 @@ async function setupWeatherRadar() {
       const host = j.host || "https://tilecache.rainviewer.com";
       mapState.weatherLayer.clearLayers();
       L.tileLayer(`${host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`, {
-        opacity: 0.6, maxZoom: 19, attribution: 'Radar &copy; <a href="https://rainviewer.com">RainViewer</a>',
+        opacity: 0.6,
+        maxZoom: 19,
+        // RainViewer radar only has real data to ~z7; z8+ returns a "zoom level
+        // not supported" placeholder tile. Cap native zoom and let Leaflet
+        // upscale the z7 tiles for our z8–14 map.
+        maxNativeZoom: 7,
+        attribution: 'Radar &copy; <a href="https://rainviewer.com">RainViewer</a>',
       }).addTo(mapState.weatherLayer);
     } catch (e) { /* radar offline — ignore */ }
   };
