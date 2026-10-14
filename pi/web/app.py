@@ -1365,6 +1365,44 @@ def spectrum_page():
     return render_template("spectrum.html", node_name=NODE_NAME)
 
 
+SDR_MODES = ["adsb", "acars", "voice", "noaa"]
+SDR_SCRIPT = str(Path(__file__).resolve().parents[2] / "scripts" / "sdr-mode.sh")
+
+
+def _sdr_current_mode() -> str:
+    import subprocess
+    try:
+        out = subprocess.run(["bash", SDR_SCRIPT, "status"],
+                             capture_output=True, text=True, timeout=15).stdout
+        for line in out.splitlines():
+            if line.startswith("MODE="):
+                return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+@app.route("/api/sdr-mode", methods=["GET", "POST"])
+def api_sdr_mode():
+    # Edge-only + owner: switching the radio is a local-operator action.
+    if not (_is_edge_node() and _viewer_is_owner(request)):
+        abort(404)
+    if request.method == "POST":
+        import subprocess
+        body = request.get_json(silent=True) or {}
+        mode = body.get("mode") or request.form.get("mode") or request.args.get("mode")
+        if mode not in SDR_MODES:
+            return jsonify({"error": "unknown mode"}), 400
+        try:
+            r = subprocess.run(["sudo", "bash", SDR_SCRIPT, mode],
+                               capture_output=True, text=True, timeout=60)
+            return jsonify({"ok": r.returncode == 0, "mode": _sdr_current_mode(),
+                            "output": (r.stdout + r.stderr)[-400:]})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"mode": _sdr_current_mode(), "modes": SDR_MODES})
+
+
 @app.route("/api/acars")
 def api_acars():
     """Recent ACARS messages (populated by jafo-acars when in ACARS mode)."""

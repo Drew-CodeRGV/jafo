@@ -2495,6 +2495,39 @@ function bindMobileMenu() {
   });
 }
 
+// ---- SDR radio mode selector (edge-only power button in the sidebar) ----
+async function bindSdrMode() {
+  const btn = document.getElementById("sdr-power-btn");
+  const list = document.getElementById("sdr-mode-list");
+  const cur = document.getElementById("sdr-current");
+  if (!btn || !list) return;   // hub, or control not rendered
+  const setCurrent = (mode) => {
+    if (cur) cur.textContent = (!mode || mode === "unknown") ? "—" : mode.toUpperCase();
+    list.querySelectorAll("li").forEach((li) => li.classList.toggle("active", li.dataset.mode === mode));
+  };
+  try { const d = await api("/api/sdr-mode"); setCurrent(d.mode); } catch (e) { /* ignore */ }
+
+  btn.addEventListener("click", () => list.classList.toggle("hidden"));
+  list.querySelectorAll("li").forEach((li) => {
+    li.addEventListener("click", async () => {
+      const mode = li.dataset.mode;
+      if (li.classList.contains("active")) { list.classList.add("hidden"); return; }
+      list.querySelectorAll("li").forEach((x) => x.classList.remove("busy"));
+      li.classList.add("busy");
+      if (cur) cur.textContent = "switching…";
+      try {
+        const r = await (await fetch("/api/sdr-mode", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode }),
+        })).json();
+        setCurrent(r.mode || mode);
+      } catch (e) { setCurrent("unknown"); }
+      li.classList.remove("busy");
+      list.classList.add("hidden");
+    });
+  });
+}
+
 // ---- Misc bindings ----
 function bindClearFilters() {
   document.getElementById("clear-filters").onclick = () => {
@@ -2660,6 +2693,7 @@ async function boot() {
   bindStoryModal();
   bindShareModal();
   bindMobileMenu();
+  bindSdrMode();
   await initMap();
   // Load the feed FIRST — it's what matters most and must not be blocked by a
   // slow secondary endpoint (e.g. /api/stats aggregating a huge table).

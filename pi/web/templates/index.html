@@ -197,6 +197,24 @@
       </ul>
     </div>
 
+    {% if not is_hub %}
+    <hr class="sdr-divider">
+    <div class="filter-block sdr-block">
+      <div class="filter-header">
+        <h3>SDR Radio</h3>
+        <span id="sdr-current" class="sdr-current">—</span>
+      </div>
+      <button id="sdr-power-btn" class="sdr-power-btn" type="button" title="Switch what the RTL radio is receiving">⏻</button>
+      <ul id="sdr-mode-list" class="sdr-mode-list hidden">
+        <li data-mode="adsb"><span class="ico">✈</span><span class="lbl">ADS-B</span><span class="hz">1090</span></li>
+        <li data-mode="acars"><span class="ico">✉</span><span class="lbl">ACARS</span><span class="hz">131</span></li>
+        <li data-mode="voice"><span class="ico">🚂</span><span class="lbl">Voice / Rail</span><span class="hz">161</span></li>
+        <li data-mode="noaa"><span class="ico">🌧</span><span class="lbl">NOAA</span><span class="hz">162.4</span></li>
+      </ul>
+      <div class="sdr-note">one radio — picking one switches off the others</div>
+    </div>
+    {% endif %}
+
     <div class="filter-block">
       <button id="clear-filters" class="clear-btn">Clear filters</button>
     </div>
