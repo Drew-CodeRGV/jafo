@@ -197,11 +197,16 @@
       </ul>
     </div>
 
+    <div class="filter-block">
+      <button id="clear-filters" class="clear-btn">Clear filters</button>
+    </div>
+  </div>
+
+  <div class="sidebar-fixed-bottom">
     {% if not is_hub %}
-    <hr class="sdr-divider">
     <div class="filter-block sdr-block">
       <div class="filter-header">
-        <h3>SDR Radio</h3>
+        <h3>⏻ SDR Radio</h3>
         <span id="sdr-current" class="sdr-current">—</span>
       </div>
       <button id="sdr-power-btn" class="sdr-power-btn" type="button" title="Switch what the RTL radio is receiving">⏻</button>
@@ -214,13 +219,6 @@
       <div class="sdr-note">one radio — picking one switches off the others</div>
     </div>
     {% endif %}
-
-    <div class="filter-block">
-      <button id="clear-filters" class="clear-btn">Clear filters</button>
-    </div>
-  </div>
-
-  <div class="sidebar-fixed-bottom">
     <div class="filter-block gmrs-block">
       <div class="filter-header">
         <h3>UHF Business</h3>
