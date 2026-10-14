@@ -245,6 +245,23 @@ CREATE TABLE IF NOT EXISTS opencellid (
     PRIMARY KEY (radio, mcc, mnc, area, cell)
 ) WITHOUT ROWID;
 
+-- ACARS aircraft messages (jafo-acars, when the RTL is in ACARS mode).
+CREATE TABLE IF NOT EXISTS acars_messages (
+    id          INTEGER PRIMARY KEY,
+    received_at INTEGER,
+    freq_mhz    REAL,
+    channel     INTEGER,
+    mode        TEXT,     -- "ACARS" | "VDL2"
+    tail        TEXT,     -- aircraft registration
+    flight      TEXT,     -- flight id
+    label       TEXT,     -- ACARS label
+    block_id    TEXT,
+    msg_no      TEXT,
+    text        TEXT,     -- message body
+    raw_json    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_acars_received ON acars_messages(received_at);
+
 -- Full-text search on transcripts and summaries
 CREATE VIRTUAL TABLE IF NOT EXISTS calls_fts USING fts5(
     transcript,

@@ -1,0 +1,28 @@
+[Unit]
+Description=jafo — ACARS decoder (acarsdec on the RTL; ACARS mode only)
+After=network-online.target
+Wants=network-online.target
+# NOTE: not enabled by default. The RTL is shared with ADS-B (readsb). Use
+# scripts/sdr-mode.sh to switch: it stops readsb + jafo-adsb-serve and starts
+# this, and reverses it to return to ADS-B. Do NOT enable alongside readsb.
+Conflicts=readsb.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/jafo-data
+EnvironmentFile=/home/pi/jafo/.env
+Environment=JAFO_DATA_DIR=/home/pi/jafo-data
+ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/acars.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Nice=5
+OOMScoreAdjust=100
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

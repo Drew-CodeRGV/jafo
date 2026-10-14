@@ -1364,6 +1364,24 @@ def spectrum_page():
     return render_template("spectrum.html", node_name=NODE_NAME)
 
 
+@app.route("/api/acars")
+def api_acars():
+    """Recent ACARS messages (populated by jafo-acars when in ACARS mode)."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT received_at, freq_mhz, mode, tail, flight, label, text "
+            "FROM acars_messages ORDER BY received_at DESC LIMIT 60"
+        ).fetchall()
+    except sqlite3.Error:
+        conn.close()
+        return jsonify({"messages": [], "active": False, "count": 0})
+    conn.close()
+    msgs = [dict(r) for r in rows]
+    active = bool(msgs and (int(time.time()) - msgs[0]["received_at"] < 300))
+    return jsonify({"messages": msgs, "active": active, "count": len(msgs)})
+
+
 # -----------------------------------------------------------------------------
 # Enhance — re-run a single call's audio through Groq for higher-quality
 # transcription. HUB-ONLY: edge nodes refuse this request and tell the

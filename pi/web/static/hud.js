@@ -627,6 +627,27 @@ function ccEsc(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ---- ACARS message feed (only polls while the panel is open) ----
+async function ccRefreshAcars() {
+  const pane = document.getElementById("cc-acars-pane");
+  if (!pane || pane.classList.contains("collapsed")) return;
+  const list = document.getElementById("cc-acars-list");
+  const status = document.getElementById("cc-acars-status");
+  let d;
+  try { d = await api("/api/acars"); } catch (e) { return; }
+  if (status) status.textContent = d.active ? "◉ RECEIVING" : (d.count ? `${d.count} msgs` : "mode off");
+  const msgs = d.messages || [];
+  if (!msgs.length || !list) return;   // keep the "flip to ACARS mode" hint
+  list.innerHTML = msgs.map((m) => {
+    const id = ccEsc(m.flight || m.tail || "—");
+    const txt = (m.text || "").replace(/\s+/g, " ").trim();
+    return `<li class="cc-acars-row"><span class="cc-acars-time">${ccEsc(fmtTime(m.received_at))}</span>` +
+           `<span class="cc-acars-id">${id}</span>` +
+           `<span class="cc-acars-lbl">${ccEsc(m.label || "")}</span>` +
+           `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 140))}</span></li>`;
+  }).join("");
+}
+
 // ============================================================
 // 4. AI Analyst situation assessment (typewriter SITREP strip)
 // ============================================================
@@ -927,6 +948,7 @@ function ccInit() {
   ccRefreshAircraft(); setInterval(ccRefreshAircraft, 30000);
   ccRefreshTicker();   setInterval(ccRefreshTicker, 90000);
   ccRefreshAnalyst();  setInterval(ccRefreshAnalyst, 90000);
+  setInterval(ccRefreshAcars, 10000);
 }
 
 ccInit();

@@ -219,9 +219,16 @@
   <div class="view-toggle" id="view-toggle" aria-label="Show / hide panels">
     <button class="view-chip" data-view="radar" type="button">◎ Radar</button>
     <button class="view-chip" data-view="link" type="button">◉ Link graph</button>
+    <button class="view-chip" data-view="acars" type="button">✉ ACARS</button>
     <button class="view-chip" data-view="map" type="button">🗺 Map</button>
     <button class="view-chip" data-view="air" type="button">✈ Air traffic</button>
     <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
+  </div>
+  <div class="cc-acars-pane collapsed" id="cc-acars-pane" aria-label="ACARS aircraft messages">
+    <div class="cc-acars-hdr"><span class="cc-led cc-led-cyan"></span>ACARS · AIRCRAFT MESSAGES<span id="cc-acars-status" class="cc-hdr-right">—</span></div>
+    <ul class="cc-acars-list" id="cc-acars-list">
+      <li class="cc-acars-empty">No ACARS yet. Flip the RTL to ACARS mode: <code>sudo bash ~/jafo/scripts/sdr-mode.sh acars</code></li>
+    </ul>
   </div>
   <div class="cc-link-pane collapsed" id="cc-link-pane" aria-label="Communications link analysis">
     <span class="cc-link-title">◉ Link Analysis · units ↔ channels · last hour</span>

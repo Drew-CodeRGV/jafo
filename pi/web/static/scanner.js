@@ -112,6 +112,7 @@ function scannerInit() {
 const VIEW_PANELS = {
   radar:   "#cc-radar-pane",
   link:    "#cc-link-pane",
+  acars:   "#cc-acars-pane",
   map:     ".map-pane",
   air:     "#air-strip",
   stories: "#stories-strip",
