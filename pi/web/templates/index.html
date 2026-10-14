@@ -10,6 +10,7 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <link rel="stylesheet" href="{{ static_v('style.css') }}">
+<link rel="stylesheet" href="{{ static_v('scanner.css') }}">
 <link rel="icon" href="/static/logo.png" type="image/png">
 </head>
 <body>
@@ -20,6 +21,7 @@
     <img class="logo-img" src="/static/logo.png" alt="jafo">
     <span class="sub">{{ node_name }}</span>
   </div>
+  <span class="live-indicator" title="Live capture"><span class="dot"></span>LIVE</span>
   <div id="stats-bar" class="stats-bar">
     <span class="stat" id="stat-totals">…</span>
     <span class="stat" id="stat-24h">…</span>
@@ -36,7 +38,42 @@
   </div>
 </header>
 
+<!-- Listen Live scanner — the hero. Plays a channel's decoded calls back-to-back
+     and keeps playing new ones as they arrive. Logic in scanner.js. -->
+<section id="scanner-bar" class="scanner-bar" data-state="idle" aria-label="Listen live scanner">
+  <button id="scanner-toggle" class="scanner-toggle" type="button" aria-label="Play / pause live scanner">▶</button>
+  <div class="scanner-main">
+    <div id="scanner-channels" class="scanner-channels"></div>
+    <div class="scanner-now">
+      <span id="scanner-now-label" class="scanner-now-label">Listen Live</span>
+      <span id="scanner-now-text" class="scanner-now-text">Pick a channel to start the live scanner…</span>
+    </div>
+  </div>
+  <div class="scanner-vu" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <div class="scanner-controls">
+    <button id="scanner-skip" class="scanner-ctl-btn" type="button" title="Skip to next call" aria-label="Skip">⏭</button>
+    <input id="scanner-vol" class="scanner-vol" type="range" min="0" max="1" step="0.05" value="1" title="Volume" aria-label="Volume">
+    <button id="scanner-stop" class="scanner-ctl-btn" type="button" title="Stop scanner" aria-label="Stop">✕</button>
+  </div>
+  <audio id="scanner-audio" class="scanner-audio" preload="none"></audio>
+</section>
+
+<!-- Channel picker popover (populated from /api/talkgroup-groups by scanner.js) -->
+<div id="channel-picker" class="channel-picker hidden" role="dialog" aria-label="Choose a channel">
+  <div class="channel-picker-head">
+    <input id="channel-picker-search" type="search" placeholder="Search channels…" autocomplete="off">
+  </div>
+  <div id="channel-picker-list" class="channel-picker-list"></div>
+</div>
+
 <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+<!-- Slim always-visible rail — opens the full filter drawer. -->
+<nav class="rail" aria-label="Quick access">
+  <button class="rail-btn" data-rail="search" type="button" title="Search transcripts">🔍</button>
+  <button class="rail-btn" data-rail="filters" type="button" title="Filters & talkgroups">☰</button>
+  <button class="rail-btn" data-rail="severity" type="button" title="Severity">◉</button>
+</nav>
 
 <aside class="sidebar">
   <div class="sidebar-fixed-top">
@@ -122,17 +159,22 @@
 </aside>
 
 <main class="timeline">
-  <div class="map-pane" aria-label="Live map of recent calls + air traffic">
+  <div class="view-toggle" id="view-toggle" aria-label="Show / hide panels">
+    <button class="view-chip" data-view="map" type="button">🗺 Map</button>
+    <button class="view-chip" data-view="air" type="button">✈ Air traffic</button>
+    <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
+  </div>
+  <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
     <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
   </div>
-  <section id="air-strip" class="air-strip" aria-label="Aircraft visible right now">
+  <section id="air-strip" class="air-strip collapsed" aria-label="Aircraft visible right now">
     <div class="air-strip-header">
       <h3 class="air-strip-title">Air traffic <span id="air-strip-count">—</span></h3>
       <span class="air-strip-empty">Awaiting first ADS-B fix…</span>
     </div>
     <div id="air-strip-cards" class="air-strip-cards"></div>
   </section>
-  <section id="stories-strip" class="stories-strip" aria-label="Top stories">
+  <section id="stories-strip" class="stories-strip collapsed" aria-label="Top stories">
     <div class="stories-header">
       <h3 class="stories-title">Top stories</h3>
       <div class="stories-sort seg-toggle" role="tablist" aria-label="Sort stories">
@@ -237,5 +279,6 @@ window.JAFO_HUB_LINK = {{ hub_link | tojson }};
 {% endif %}
 
 <script src="{{ static_v('app.js') }}"></script>
+<script src="{{ static_v('scanner.js') }}"></script>
 </body>
 </html>

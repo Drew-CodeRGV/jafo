@@ -2414,8 +2414,11 @@ function startPolling() {
   state.pollTimers.stats = setInterval(refreshStats, 10000);
   state.pollTimers.calls = setInterval(() => {
     if (state.offset === 0 && !state.filters.search) {
-      // Don't wipe the DOM while audio is playing — that kills the active element.
-      const anyPlaying = [...document.querySelectorAll("audio")].some(a => !a.paused);
+      // Don't wipe the DOM while a feed clip is playing — that kills the active
+      // element. The Listen Live scanner uses its own detached audio element
+      // (.scanner-audio); exclude it so the live feed keeps refreshing while
+      // you're listening to the scanner.
+      const anyPlaying = [...document.querySelectorAll("audio:not(.scanner-audio)")].some(a => !a.paused);
       if (!anyPlaying) loadCalls(false);
     }
   }, 15000);

@@ -38,12 +38,16 @@ html, body {
 }
 
 body {
+  /* Feed-first layout: a slim icon rail + full-width timeline, with the dense
+     filter sidebar living in a slide-in drawer (see .sidebar override below).
+     Rows: topbar / scanner hero / content. */
   display: grid;
-  grid-template-columns: 280px 1fr;
-  grid-template-rows: 56px 1fr;
+  grid-template-columns: 52px 1fr;
+  grid-template-rows: 56px auto 1fr;
   grid-template-areas:
-    "topbar topbar"
-    "sidebar timeline";
+    "topbar  topbar"
+    "scanner scanner"
+    "rail    timeline";
 }
 
 /* ---- Topbar ---- */
@@ -113,6 +117,24 @@ body {
   padding: 0 12px;
   min-height: 0;  /* required so the flex child can actually shrink + scroll */
 }
+
+/* Feed-first: the sidebar is a slide-in drawer on ALL widths (opened by the
+   slim rail or the mobile ☰). Overrides the grid placement via position:fixed. */
+.sidebar {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 86vw;
+  transform: translateX(-105%);
+  transition: transform 0.25s ease;
+  z-index: 100;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45);
+}
+body.sidebar-open .sidebar { transform: translateX(0); }
+body.sidebar-open .sidebar-backdrop { display: block; }
+
 .filter-more-btn {
   background: transparent;
   border: 0;
