@@ -652,17 +652,84 @@ async function initMap() {
   mapState.map.setZoom(mapState.map.getZoom() + 1);
   mapState.map.setMaxBounds(L.latLngBounds(cfg.bounds[0], cfg.bounds[1]).pad(0.5));
 
-  // CartoDB Positron — light slate-gray basemap. Neutral, no CSS filter
-  // tricks. Aircraft + call markers read cleanly on top without competing
-  // with bold tile colors.
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: "abcd",
-    maxZoom: 20,
+  // Base map — OpenStreetMap (NO API key). CARTO's free basemaps started
+  // returning "API KEY REQUIRED" watermark tiles, so we switched. The tiles go
+  // in a dedicated "basemap" pane that CSS dark-filters for the command-center
+  // look, leaving overlay tiles (weather/traffic) and markers un-inverted.
+  mapState.map.createPane("basemap");
+  mapState.map.getPane("basemap").style.zIndex = 100;
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    subdomains: "abc",
+    maxZoom: 19,
+    pane: "basemap",
   }).addTo(mapState.map);
 
   addHeatToggleControl();
   initAirTrafficLayers();
+  setupWeatherRadar();
+  setupTrafficLayer();
+  addMapLayerToggles();
+}
+
+// ---- Weather radar overlay (RainViewer — free, no key) ----
+async function setupWeatherRadar() {
+  if (!mapState.map) return;
+  mapState.weatherLayer = L.layerGroup();   // off by default; toggled on
+  const loadFrame = async () => {
+    try {
+      const j = await (await fetch("https://api.rainviewer.com/public/weather-maps.json")).json();
+      const frames = [].concat(j.radar && j.radar.past || [], j.radar && j.radar.nowcast || []);
+      if (!frames.length) return;
+      const f = frames[frames.length - 1];
+      const host = j.host || "https://tilecache.rainviewer.com";
+      mapState.weatherLayer.clearLayers();
+      L.tileLayer(`${host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`, {
+        opacity: 0.6, maxZoom: 19, attribution: 'Radar &copy; <a href="https://rainviewer.com">RainViewer</a>',
+      }).addTo(mapState.weatherLayer);
+    } catch (e) { /* radar offline — ignore */ }
+  };
+  loadFrame();
+  mapState.weatherTimer = setInterval(loadFrame, 300000);   // new frame every 5 min
+}
+
+// ---- Traffic flow overlay (TomTom — needs a free key in JAFO_TOMTOM_KEY) ----
+function setupTrafficLayer() {
+  if (!mapState.map) return;
+  mapState.trafficLayer = L.layerGroup();
+  const key = window.JAFO_TOMTOM_KEY;
+  if (key) {
+    L.tileLayer(
+      `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`,
+      { opacity: 0.85, maxZoom: 22, attribution: 'Traffic &copy; <a href="https://tomtom.com">TomTom</a>' }
+    ).addTo(mapState.trafficLayer);
+  }
+}
+
+// ---- Overlay toggle buttons (weather / traffic) ----
+function addMapLayerToggles() {
+  if (!mapState.map) return;
+  const ctl = L.control({ position: "topright" });
+  ctl.onAdd = () => {
+    const div = L.DomUtil.create("div", "map-layer-toggles");
+    const hasTraffic = !!window.JAFO_TOMTOM_KEY;
+    div.innerHTML =
+      `<button class="maplayer-btn" data-layer="weather" type="button">🌧 Weather</button>` +
+      `<button class="maplayer-btn${hasTraffic ? "" : " disabled"}" data-layer="traffic" type="button"` +
+      `${hasTraffic ? "" : ' title="Set JAFO_TOMTOM_KEY in .env to enable live traffic"'}>🚦 Traffic</button>`;
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelectorAll(".maplayer-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const which = btn.dataset.layer;
+        const layer = which === "weather" ? mapState.weatherLayer : mapState.trafficLayer;
+        if (!layer || (which === "traffic" && !window.JAFO_TOMTOM_KEY)) return;
+        if (mapState.map.hasLayer(layer)) { mapState.map.removeLayer(layer); btn.classList.remove("on"); }
+        else { layer.addTo(mapState.map); btn.classList.add("on"); }
+      });
+    });
+    return div;
+  };
+  ctl.addTo(mapState.map);
 }
 
 // ---- Air traffic + recent calls — overlaid on the main 2D Leaflet map ----
@@ -2106,6 +2173,8 @@ function renderCalls() {
   for (const c of state.calls) {
     root.appendChild(renderCall(c));
   }
+  // Keep the OSINT "recent names" rail in sync (edge demo only; no-op otherwise).
+  if (window.refreshOsintRail) window.refreshOsintRail();
 }
 
 function renderCall(c) {

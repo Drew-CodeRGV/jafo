@@ -293,6 +293,65 @@ body {
   100% { box-shadow: 0 0 0 0 rgba(55,245,166,0); }
 }
 
+/* ---------- Map: dark basemap + overlay toggles + OSINT column ---------- */
+/* OpenStreetMap tiles live in a dedicated "basemap" pane; dark-filter only that
+   pane so weather/traffic overlays and markers keep their real colors. */
+.map-pane .leaflet-basemap-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.85);
+}
+/* map + OSINT column side by side (OSINT column only present in demo mode) */
+.map-pane { display: flex; }
+.map-pane > #map { flex: 1 1 auto; height: 100%; }
+
+.map-layer-toggles { display: flex; flex-direction: column; gap: 6px; }
+.maplayer-btn {
+  font-family: var(--font-mono); font-size: 11px;
+  background: rgba(8,16,24,0.9); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px; cursor: pointer; text-align: left;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.maplayer-btn:hover { border-color: var(--cc-cyan); }
+.maplayer-btn.on { color: var(--cc-cyan); border-color: var(--cc-cyan); box-shadow: 0 0 10px var(--cc-glow); }
+.maplayer-btn.disabled { opacity: 0.45; cursor: not-allowed; }
+
+.osint-rail {
+  flex: 0 0 248px;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(8,16,24,0.95), rgba(5,10,16,0.95));
+  border-left: 1px solid var(--border);
+  min-height: 0;
+}
+.osint-rail-hdr {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em;
+  color: var(--cc-cyan); text-shadow: 0 0 8px var(--cc-glow);
+  padding: 10px 12px; border-bottom: 1px dashed var(--cc-line);
+}
+.osint-rail-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1 1 auto; }
+.osint-rail-empty { color: var(--text-faint); font-size: 12px; padding: 10px; font-family: var(--font-mono); }
+.osint-rail-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.osint-rail-item:hover { background: rgba(53,227,255,0.08); border-color: var(--cc-line); }
+.osint-rail-name { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); min-width: 0; }
+.osint-rail-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.osint-rail-name .osint-silhouette { width: 20px; height: 22px; flex: 0 0 auto; }
+.osint-rail-src { font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); white-space: nowrap; }
+.osint-rail-manual {
+  margin: 8px; padding: 8px; flex: 0 0 auto;
+  background: rgba(53,227,255,0.06); border: 1px dashed rgba(53,227,255,0.4);
+  color: var(--cc-cyan); border-radius: 5px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.osint-rail-manual:hover { background: rgba(53,227,255,0.14); }
+
+@media (max-width: 760px) {
+  .osint-rail { flex-basis: 150px; }
+}
+
 /* ---------- Radar scope (toggleable panel in the timeline) ---------- */
 .cc-radar-pane {
   flex: 0 0 auto;

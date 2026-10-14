@@ -105,6 +105,39 @@ function _renderOsint(sec, data) {
     <p class="osint-note">${matches.length} candidate profile(s) — <strong>unverified</strong>, possibly a different person. Candidates tried: ${_osintEsc(cands)}.</p>`;
 }
 
+// Recent-names rail (beside the map): last few names heard, one-click lookup.
+function refreshOsintRail() {
+  const list = document.getElementById("osint-rail-list");
+  if (!list || typeof state === "undefined") return;
+  const seen = new Set();
+  const rows = [];
+  for (const c of (state.calls || [])) {
+    for (const name of (c.persons || [])) {
+      const k = (name || "").toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      rows.push({ name, call: c });
+      if (rows.length >= 6) break;
+    }
+    if (rows.length >= 6) break;
+  }
+  if (!rows.length) {
+    list.innerHTML = '<li class="osint-rail-empty">no names heard yet…</li>';
+    return;
+  }
+  list.innerHTML = "";
+  for (const r of rows) {
+    const li = document.createElement("li");
+    li.className = "osint-rail-item";
+    li.innerHTML =
+      `<span class="osint-rail-name">${OSINT_SILHOUETTE}<span>${_osintEsc(r.name)}</span></span>` +
+      `<span class="osint-rail-src">${_osintEsc(r.call.talkgroup_tag || "")}</span>`;
+    li.addEventListener("click", () => openOsint([r.name], r.call));
+    list.appendChild(li);
+  }
+}
+window.refreshOsintRail = refreshOsintRail;
+
 function _osintClose() {
   const modal = document.getElementById("osint-modal");
   if (modal) modal.classList.add("hidden");
@@ -122,5 +155,14 @@ function _osintBind() {
   const tpl = document.createElement("div");
   tpl.id = "osint-sil-tpl"; tpl.style.display = "none"; tpl.innerHTML = OSINT_SILHOUETTE;
   document.body.appendChild(tpl);
+
+  // Manual lookup — type any name (great for live demos with a volunteer).
+  const manual = document.getElementById("osint-rail-manual");
+  if (manual) {
+    manual.addEventListener("click", () => {
+      const name = (prompt("Run the OSINT exposure demo on this name:") || "").trim();
+      if (name) openOsint([name], null);
+    });
+  }
 }
 _osintBind();

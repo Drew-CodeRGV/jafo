@@ -207,6 +207,15 @@
   </div>
   <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
     <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
+    {% if osint_demo %}
+    <aside class="osint-rail" id="osint-rail" aria-label="Recent names available for OSINT">
+      <div class="osint-rail-hdr"><span class="cc-led"></span>OSINT · RECENT NAMES</div>
+      <ul class="osint-rail-list" id="osint-rail-list">
+        <li class="osint-rail-empty">waiting for names on the air…</li>
+      </ul>
+      <button class="osint-rail-manual" id="osint-rail-manual" type="button">＋ Look up any name…</button>
+    </aside>
+    {% endif %}
   </div>
   <section id="air-strip" class="air-strip collapsed" aria-label="Aircraft visible right now">
     <div class="air-strip-header">
@@ -286,6 +295,8 @@
 window.JAFO_IS_HUB = {{ 'true' if is_hub else 'false' }};
 // OSINT exposure demo — edge-only + opt-in; false everywhere else.
 window.JAFO_OSINT_DEMO = {{ 'true' if osint_demo else 'false' }};
+// Optional TomTom key for the live-traffic map overlay (JAFO_TOMTOM_KEY).
+window.JAFO_TOMTOM_KEY = {{ tomtom_key | default(none, true) | tojson }};
 </script>
 
 {% if hub_link %}

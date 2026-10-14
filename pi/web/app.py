@@ -434,7 +434,8 @@ def index():
                                region_slug=None, node_slug=None,
                                hub_link=_hub_link_for_this_node(),
                                is_hub=not _is_edge_node(),
-                               osint_demo=_osint_viewer(request))
+                               osint_demo=_osint_viewer(request),
+                               tomtom_key=os.environ.get("JAFO_TOMTOM_KEY", "").strip() or None)
     return render_template("fleet.html", node_name=NODE_NAME)
 
 
