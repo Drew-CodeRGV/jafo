@@ -1051,8 +1051,13 @@ def calls_list():
     overrides = load_overrides()
     rows = [call_row_to_dict(r, tg_meta, overrides) for r in cur]
 
-    cur = conn.execute(f"SELECT COUNT(*) AS n FROM calls {where_sql}", params)
-    total = cur.fetchone()["n"]
+    # COUNT(*) over a large table is expensive; skip it for callers that only
+    # want the rows (e.g. the HUD traffic/units/radar fetch sends count=0).
+    if request.args.get("count") == "0":
+        total = len(rows)
+    else:
+        cur = conn.execute(f"SELECT COUNT(*) AS n FROM calls {where_sql}", params)
+        total = cur.fetchone()["n"]
 
     conn.close()
     return jsonify({"calls": rows, "total": total, "limit": limit, "offset": offset})

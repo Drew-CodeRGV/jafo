@@ -2556,7 +2556,7 @@ function _glanceQuality(dbm) {
 // ---- Polling ----
 function startPolling() {
   stopPolling();
-  state.pollTimers.stats = setInterval(refreshStats, 10000);
+  state.pollTimers.stats = setInterval(refreshStats, 25000);
   state.pollTimers.calls = setInterval(() => {
     if (state.offset === 0 && !state.filters.search) {
       // Don't wipe the DOM while a feed clip is playing — that kills the active
@@ -2566,7 +2566,7 @@ function startPolling() {
       const anyPlaying = [...document.querySelectorAll("audio:not(.scanner-audio)")].some(a => !a.paused);
       if (!anyPlaying) loadCalls(false);
     }
-  }, 15000);
+  }, 25000);
   state.pollTimers.sidebar = setInterval(() => {
     refreshTalkgroups();
     refreshIncidentTypes();
@@ -2585,9 +2585,9 @@ function startPolling() {
       if (wasOnPage0) renderStoriesPage(false);
     });
   }, 120000);
-  // Heatmap recomputes every 90s; geocoding cache fills in between passes
-  // Poll every 15s so newly-landed calls hit the decay window quickly.
-  state.pollTimers.heat = setInterval(refreshHeatmap, 15000);
+  // Heatmap recomputes every 90s server-side; polling every 45s is plenty and
+  // keeps DB load off the shared single-SQLite pipeline.
+  state.pollTimers.heat = setInterval(refreshHeatmap, 45000);
   // Cell-glance widget — refresh every 60s. Live observations only update
   // when cellmon polls the modem, so a tighter cadence is wasted.
   refreshCellGlance();

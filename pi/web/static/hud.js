@@ -348,7 +348,8 @@ function ccDrawTraffic(buckets) {
 
 async function ccRefreshTraffic() {
   try {
-    const data = await api("/api/calls?limit=500&only_kept=1");
+    // count=0 skips the expensive COUNT(*); 250 rows is plenty for 60m of graph.
+    const data = await api("/api/calls?limit=250&only_kept=1&count=0");
     const calls = data.calls || [];
     ccRecentCalls = calls;                 // shared with the radar scope
     const now = Math.floor(Date.now() / 1000);
@@ -639,13 +640,14 @@ function ccInit() {
   requestAnimationFrame(ccDrawRadar);
   setInterval(ccMirrorScannerState, 300);
 
-  // data pumps
+  // data pumps — intervals kept gentle so the dashboard doesn't hammer the
+  // single-SQLite pipeline (the Pi shares one DB across capture+enrich+web).
   ccRefreshRadarConfig();
-  ccRefreshStats();    setInterval(ccRefreshStats, 12000);
-  ccRefreshTraffic();  setInterval(ccRefreshTraffic, 20000);
-  ccRefreshAircraft(); setInterval(ccRefreshAircraft, 15000);
-  ccRefreshTicker();   setInterval(ccRefreshTicker, 60000);
-  ccRefreshAnalyst();  setInterval(ccRefreshAnalyst, 60000);
+  ccRefreshStats();    setInterval(ccRefreshStats, 30000);
+  ccRefreshTraffic();  setInterval(ccRefreshTraffic, 60000);
+  ccRefreshAircraft(); setInterval(ccRefreshAircraft, 30000);
+  ccRefreshTicker();   setInterval(ccRefreshTicker, 90000);
+  ccRefreshAnalyst();  setInterval(ccRefreshAnalyst, 90000);
 }
 
 ccInit();
