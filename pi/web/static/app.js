@@ -691,6 +691,7 @@ async function setupWeatherRadar() {
         // not supported" placeholder tile. Cap native zoom and let Leaflet
         // upscale the z7 tiles for our z8–14 map.
         maxNativeZoom: 7,
+        errorTileUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==",
         attribution: 'Radar &copy; <a href="https://rainviewer.com">RainViewer</a>',
       }).addTo(mapState.weatherLayer);
     } catch (e) { /* radar offline — ignore */ }
@@ -707,7 +708,12 @@ function setupTrafficLayer() {
   if (key) {
     L.tileLayer(
       `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`,
-      { opacity: 0.85, maxZoom: 22, attribution: 'Traffic &copy; <a href="https://tomtom.com">TomTom</a>' }
+      {
+        opacity: 0.85, maxZoom: 22,
+        // If the key lacks Traffic access (403) show nothing, not broken tiles.
+        errorTileUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==",
+        attribution: 'Traffic &copy; <a href="https://tomtom.com">TomTom</a>',
+      }
     ).addTo(mapState.trafficLayer);
   }
 }
