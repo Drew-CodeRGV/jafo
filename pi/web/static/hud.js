@@ -763,7 +763,7 @@ function ccAcarsDecode(m) {
 }
 
 let ccAcarsMsgs = [];
-let ccAcarsGlobeCv = null, ccAcarsRoute = null, ccAcarsGlobeSpin = 0;
+let ccAcarsRoute = null;
 
 function ccBindAcarsClick() {
   const list = document.getElementById("cc-acars-list");
@@ -789,12 +789,12 @@ function ccSelectAcars(idx) {
   const m = ccAcarsMsgs[idx]; if (!m) return;
   const d = document.getElementById("cc-acars-detail"); if (!d) return;
   ccAcarsRoute = null;
+  ccDestroyAcarsMap();
   d.innerHTML =
     `<div class="acd-decode">${ccAcarsDecode(m)}</div>` +
     `<div class="acd-ac" id="acd-ac"><div class="acd-loading">◈ looking up aircraft…</div></div>` +
     `<div class="acd-globe-wrap" id="acd-globe-wrap" style="display:none">` +
-    `<div class="acd-route" id="acd-route">—</div><canvas id="cc-acars-globe" class="acd-globe"></canvas></div>`;
-  ccAcarsGlobeCv = document.getElementById("cc-acars-globe");
+    `<div class="acd-route" id="acd-route">—</div><div id="cc-acars-map" class="acd-map"></div></div>`;
   const reg = m.tail || "", flight = m.flight || "";
   if (!reg && !flight) { document.getElementById("acd-ac").innerHTML = '<div class="acd-none">no tail / flight on this message</div>'; return; }
   const p = new URLSearchParams();
@@ -868,99 +868,54 @@ function ccRenderAircraft(info) {
   bits.push(`<div class="acd-media${photo ? " has-photo" : ""}">${ccPlaneDrawing(info)}${photo}</div>`);
   el.innerHTML = bits.join("");
   if (info.origin && info.destination && info.origin.lat != null && info.destination.lat != null) {
-    ccAcarsRoute = {
-      origin: { ...info.origin, lat: +info.origin.lat, lon: +info.origin.lon },
-      destination: { ...info.destination, lat: +info.destination.lat, lon: +info.destination.lon },
-    };
+    const o = { ...info.origin, lat: +info.origin.lat, lon: +info.origin.lon };
+    const d = { ...info.destination, lat: +info.destination.lat, lon: +info.destination.lon };
+    ccAcarsRoute = { origin: o, destination: d };
     const w = document.getElementById("acd-globe-wrap"); if (w) w.style.display = "";
     const rt = document.getElementById("acd-route");
-    if (rt) rt.innerHTML = `<b>${ccEsc(info.origin.iata || info.origin.icao || "?")}</b> → <b>${ccEsc(info.destination.iata || info.destination.icao || "?")}</b>` +
+    if (rt) rt.innerHTML = `<b>${ccEsc(o.iata || o.icao || "?")}</b> → <b>${ccEsc(d.iata || d.icao || "?")}</b>` +
       (info.route_source ? ` <span class="acd-rtsrc">(${ccEsc(info.route_source)})</span>` : "");
+    ccRenderAcarsMap(o, d);
   }
 }
 
-// Great-circle (slerp) interpolation -> [lat,lon] points.
-function ccGreatCircle(o, d, n) {
-  const R = Math.PI / 180;
-  const vec = (la, lo) => [Math.cos(la * R) * Math.cos(lo * R), Math.cos(la * R) * Math.sin(lo * R), Math.sin(la * R)];
-  const v1 = vec(o.lat, o.lon), v2 = vec(d.lat, d.lon);
-  let dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
-  dot = Math.max(-1, Math.min(1, dot));
-  const om = Math.acos(dot);
-  if (om < 1e-6) return [[o.lat, o.lon]];
-  const pts = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const a = Math.sin((1 - t) * om) / Math.sin(om), b = Math.sin(t * om) / Math.sin(om);
-    const x = a * v1[0] + b * v2[0], y = a * v1[1] + b * v2[1], z = a * v1[2] + b * v2[2];
-    pts.push([Math.asin(z) / R, Math.atan2(y, x) / R]);
-  }
-  return pts;
+// ---- Flat route map (Leaflet), replaces the old 3D globe ----
+let ccAcarsMap = null, ccAcarsMapLayers = [];
+function ccDestroyAcarsMap() {
+  if (ccAcarsMap) { try { ccAcarsMap.remove(); } catch (e) {} ccAcarsMap = null; ccAcarsMapLayers = []; }
 }
-
-function ccDrawAcarsGlobe() {
-  requestAnimationFrame(ccDrawAcarsGlobe);
-  const cv = ccAcarsGlobeCv; if (!cv || !ccAcarsRoute) return;
-  const pane = document.getElementById("cc-acars-pane");
-  if (!pane || pane.classList.contains("collapsed")) return;
-  const dpr = window.devicePixelRatio || 1;
-  if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) ccFitCanvas(cv);
-  const ctx = cv.getContext("2d"), w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
-  const cx = w / 2, cy = h / 2, D2R = Math.PI / 180, minside = Math.min(w, h);
-  const o = ccAcarsRoute.origin, d = ccAcarsRoute.destination;
-  const arc = ccGreatCircle(o, d, 120);
-  const mid = arc[Math.floor(arc.length / 2)];   // route midpoint [lat,lon]
-  // central angle between endpoints -> zoom factor
-  const vec = (la, lo) => [Math.cos(la * D2R) * Math.cos(lo * D2R), Math.cos(la * D2R) * Math.sin(lo * D2R), Math.sin(la * D2R)];
-  const v1 = vec(o.lat, o.lon), v2 = vec(d.lat, d.lon);
-  let dotp = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]; dotp = Math.max(-1, Math.min(1, dotp));
-  const half = Math.max(Math.acos(dotp) / 2, 0.05);
-  let R = (0.32 * minside) / Math.sin(half);      // zoom so both points sit well inside the rim
-  R = Math.max(R, minside / 2 - 8);               // never smaller than a full globe
-  R = Math.min(R, minside * 4);                   // cap zoom for very close airports
-  // projection centered on the route midpoint, with a gentle wobble for 3D feel.
-  // Shrink the wobble when zoomed in so endpoints don't swing off-screen.
-  const latM = mid[0], lonM = mid[1];
-  const wob = Math.sin(performance.now() / 2200) * 0.05 * Math.min(1, (minside * 0.5) / R);
-  const tc = Math.cos(-latM * D2R), ts = Math.sin(-latM * D2R);
-  const proj = (lat, lon) => {
-    const la = lat * D2R, lo = (lon - lonM) * D2R + wob;
-    const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
-    return { x: cx + x * R, y: cy - (y * tc - z * ts) * R, vis: (y * ts + z * tc) > 0 };
+function ccRenderAcarsMap(o, d) {
+  const el = document.getElementById("cc-acars-map");
+  if (!el || typeof L === "undefined") return;
+  ccDestroyAcarsMap();
+  const map = L.map(el, {
+    zoomControl: false, attributionControl: false, dragging: true,
+    scrollWheelZoom: false, doubleClickZoom: true, worldCopyJump: true,
+  });
+  ccAcarsMap = map;
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    subdomains: "abc", maxZoom: 12, className: "acd-map-tiles",
+  }).addTo(map);
+  const dot = (lat, lon, col, label) => {
+    L.circleMarker([lat, lon], {
+      radius: 6, color: "#eafaff", weight: 1.5, fillColor: col, fillOpacity: 1,
+    }).addTo(map);
+    L.marker([lat, lon], {
+      interactive: false,
+      icon: L.divIcon({ className: "acd-map-lbl", html: `<span style="border-color:${col}">${ccEsc(label)}</span>`, iconSize: null }),
+    }).addTo(map);
   };
-  ctx.clearRect(0, 0, w, h);
-  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(53,227,255,0.13)";
-  const grat = (pts) => { ctx.beginPath(); let st = false; for (const [a, b] of pts) { const p = proj(a, b); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } } ctx.stroke(); };
-  for (let lat = -80; lat <= 80; lat += 10) grat(Array.from({ length: 73 }, (_, k) => [lat, -180 + k * 5]));
-  for (let lon = -180; lon < 180; lon += 10) grat(Array.from({ length: 37 }, (_, k) => [-90 + k * 5, lon]));
-  // great-circle route
-  ctx.strokeStyle = "#37f5a6"; ctx.lineWidth = 2.5; ctx.shadowBlur = 10; ctx.shadowColor = "#37f5a6";
-  ctx.beginPath(); let st = false;
-  for (const [lat, lon] of arc) { const p = proj(lat, lon); if (p.vis) { st ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); st = true; } else { if (st) ctx.stroke(); ctx.beginPath(); st = false; } }
-  ctx.stroke(); ctx.shadowBlur = 0;
-  // Endpoints, drawn last and on top: glowing marker + ringed outline + a
-  // dark label pill (clamped inside the canvas) so codes are never obscured.
-  const endpoint = (ap, col, tag, below) => {
-    const p = proj(ap.lat, ap.lon); if (!p.vis) return;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 5.5, 0, 6.283);
-    ctx.fillStyle = col; ctx.shadowBlur = 16; ctx.shadowColor = col; ctx.fill(); ctx.shadowBlur = 0;
-    ctx.lineWidth = 1.5; ctx.strokeStyle = "#eafaff"; ctx.stroke();
-    const txt = `${tag} ${ap.iata || ap.icao || ""}`.trim();
-    ctx.font = "bold 12px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    const pw = ctx.measureText(txt).width + 14;
-    const lx = Math.max(pw / 2 + 2, Math.min(w - pw / 2 - 2, p.x));
-    let ly = below ? p.y + 20 : p.y - 20; ly = Math.max(12, Math.min(h - 12, ly));
-    ctx.beginPath();
-    (ctx.roundRect ? ctx.roundRect(lx - pw / 2, ly - 9, pw, 18, 4)
-                   : ctx.rect(lx - pw / 2, ly - 9, pw, 18));
-    ctx.fillStyle = "rgba(4,10,16,0.85)"; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = col; ctx.stroke();
-    ctx.fillStyle = "#eafaff"; ctx.fillText(txt, lx, ly);
-  };
-  const po = proj(o.lat, o.lon), pd = proj(d.lat, d.lon);
-  // put each label on the outer side so the two pills don't collide
-  endpoint(o, "#37f5a6", "DEP", po.y >= pd.y);
-  endpoint(d, "#ff4d5e", "ARR", pd.y > po.y);
+  const line = L.polyline([[o.lat, o.lon], [d.lat, d.lon]], {
+    color: "#35e3ff", weight: 2, opacity: 0.9, dashArray: "6 5",
+  }).addTo(map);
+  dot(o.lat, o.lon, "#37f5a6", `DEP ${o.iata || o.icao || ""}`.trim());
+  dot(d.lat, d.lon, "#ff4d5e", `ARR ${d.iata || d.icao || ""}`.trim());
+  // Leaflet needs a tick for the freshly-shown container to have a size.
+  setTimeout(() => {
+    if (!ccAcarsMap) return;
+    map.invalidateSize();
+    try { map.fitBounds(line.getBounds(), { padding: [34, 34], maxZoom: 9 }); } catch (e) {}
+  }, 60);
 }
 
 // ---- ACARS message feed (only polls while the panel is open) ----
@@ -1333,7 +1288,6 @@ function ccInit() {
   requestAnimationFrame(ccAnimateMetrics);
   requestAnimationFrame(ccDrawRadar);
   requestAnimationFrame(ccDrawLink);
-  requestAnimationFrame(ccDrawAcarsGlobe);
   setInterval(ccMirrorScannerState, 300);
 
   // data pumps — intervals kept gentle so the dashboard doesn't hammer the

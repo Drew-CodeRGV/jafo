@@ -240,11 +240,19 @@ body {
 .acd-photo-wrap { flex: 1 1 auto; min-width: 0; display: block; }
 .acd-photo { width: 100%; height: 100%; max-height: 104px; object-fit: cover; border-radius: 6px; border: 1px solid var(--cc-line); display: block; }
 
-/* route globe */
+/* route map (flat Leaflet map) */
 .acd-globe-wrap { margin-top: 8px; border-top: 1px dashed var(--cc-line); padding-top: 6px; }
-.acd-route { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 2px; }
+.acd-route { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 4px; }
 .acd-route b { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
-.acd-globe { display: block; width: 100%; height: 164px; }
+.acd-map { display: block; width: 100%; height: 190px; border: 1px solid var(--cc-line); border-radius: 6px; background: #0a131c; overflow: hidden; }
+/* dark-skin the OSM tiles to match the command-center theme */
+.acd-map .acd-map-tiles { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.85); }
+.acd-map .acd-map-lbl span {
+  display: inline-block; transform: translate(-50%, -150%); white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #eafaff;
+  background: rgba(4,10,16,0.85); border: 1px solid var(--cc-cyan); border-radius: 3px; padding: 1px 5px;
+}
+.acd-map .leaflet-container { background: #0a131c; }
 
 @media (max-width: 760px) {
   .cc-acars-split { flex-direction: column; }
