@@ -770,6 +770,14 @@ function ccBindAcarsClick() {
   if (!list || list._acbound) return;
   list._acbound = true;
   list.addEventListener("click", (e) => {
+    // Click a flight header → collapse/expand all its entries.
+    const hdr = e.target.closest(".acg-hdr");
+    if (hdr) {
+      const key = hdr.dataset.key, g = hdr.closest(".acg");
+      if (ccAcarsCollapsed.has(key)) ccAcarsCollapsed.delete(key); else ccAcarsCollapsed.add(key);
+      if (g) g.classList.toggle("collapsed", ccAcarsCollapsed.has(key));
+      return;
+    }
     const r = e.target.closest(".cc-acars-row"); if (!r) return;
     list.querySelectorAll(".cc-acars-row.sel").forEach((x) => x.classList.remove("sel"));
     r.classList.add("sel");
@@ -988,21 +996,28 @@ async function ccRefreshAcars() {
              `<span class="cc-acars-lbl">${ccEsc(m.label || "")}</span>` +
              `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 80))}</span></div>`;
     }).join("");
-    return `<div class="acg"><div class="acg-hdr">✈ <b>${ccEsc(key)}</b>` +
-           `${airline ? ` · ${ccEsc(airline)}` : ""}${sub ? ` · ${ccEsc(sub)}` : ""}` +
+    const collapsed = ccAcarsCollapsed.has(key);
+    return `<div class="acg${collapsed ? " collapsed" : ""}">` +
+           `<div class="acg-hdr" data-key="${ccEsc(key)}" title="click to collapse this flight">` +
+           `<span class="acg-caret">▾</span>` +
+           `<span class="acg-title">✈ <b>${ccEsc(key)}</b>` +
+           `${airline ? ` · ${ccEsc(airline)}` : ""}${sub ? ` · ${ccEsc(sub)}` : ""}</span>` +
+           `<span class="acg-meta" data-pending="1" data-flight="${ccEsc(flight)}" data-tail="${ccEsc(tail)}" data-ap="${ccEsc(ap)}"></span>` +
            `<span class="acg-n">${idxs.length}</span></div>` +
-           `<div class="acg-sub" data-pending="1" data-flight="${ccEsc(flight)}" data-tail="${ccEsc(tail)}" data-ap="${ccEsc(ap)}"></div>` +
            `${rows}</div>`;
   }).join("");
   ccBindAcarsClick();
   ccEnrichAcarsGroups();
 }
 
-// Fill each group's sub-line with route (origin → dest) + aircraft type.
+// Which flight groups are collapsed (persist across the poll's re-render).
+const ccAcarsCollapsed = new Set();
+
+// Fill each group header inline with route (origin → dest) + aircraft type.
 // Lookups are cached client-side (and 24h server-side) so the poll is cheap.
 const ccAcEnrich = new Map();
 function ccEnrichAcarsGroups() {
-  document.querySelectorAll(".acg-sub[data-pending]").forEach((el) => {
+  document.querySelectorAll(".acg-meta[data-pending]").forEach((el) => {
     el.removeAttribute("data-pending");
     const flight = el.dataset.flight || "", tail = el.dataset.tail || "", ap = el.dataset.ap || "";
     if (!flight && !tail) return;
@@ -1016,7 +1031,7 @@ function ccEnrichAcarsGroups() {
       }
       const typ = [info.manufacturer, info.type].filter(Boolean).join(" ");
       if (typ) bits.push(`<span class="acg-type">${ccEsc(typ)}</span>`);
-      el.innerHTML = bits.join('<span class="acg-dot">·</span>');
+      el.innerHTML = bits.length ? ('<span class="acg-dot">·</span>' + bits.join('<span class="acg-dot">·</span>')) : "";
     };
     if (ccAcEnrich.has(ck)) { paint(ccAcEnrich.get(ck)); return; }
     const p = new URLSearchParams();
