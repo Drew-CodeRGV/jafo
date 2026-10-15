@@ -252,7 +252,7 @@ body {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #eafaff;
   background: rgba(4,10,16,0.85); border: 1px solid var(--cc-cyan); border-radius: 3px; padding: 1px 5px;
 }
-.acd-map .leaflet-container { background: #0a131c; }
+.acd-map .leaflet-container { background: #0a131c; touch-action: pan-y !important; cursor: default; }
 
 @media (max-width: 760px) {
   .cc-acars-split { flex-direction: column; }

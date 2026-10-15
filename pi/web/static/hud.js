@@ -888,9 +888,11 @@ function ccRenderAcarsMap(o, d) {
   const el = document.getElementById("cc-acars-map");
   if (!el || typeof L === "undefined") return;
   ccDestroyAcarsMap();
+  // Fully static: no drag/zoom so scrolling the column passes straight through.
   const map = L.map(el, {
-    zoomControl: false, attributionControl: false, dragging: true,
-    scrollWheelZoom: false, doubleClickZoom: true, worldCopyJump: true,
+    zoomControl: false, attributionControl: false, dragging: false,
+    scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false,
+    boxZoom: false, keyboard: false, tap: false, worldCopyJump: true,
   });
   ccAcarsMap = map;
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
