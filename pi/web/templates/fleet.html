@@ -3,77 +3,190 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jafo — fleet</title>
+<title>JAFO · Fleet</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<link rel="stylesheet" href="{{ static_v('style.css') }}">
 <link rel="icon" href="/static/logo.png" type="image/png">
 <style>
-  body { padding: 0; }
-  .fleet-hero { padding: 24px 32px 12px; display:flex; align-items:center; gap:16px; }
-  .fleet-hero img { height: 48px; }
-  .fleet-hero h1 { margin: 0; font-size: 28px; }
-  .fleet-hero p { margin: 4px 0 0; color: var(--text-dim,#aaa); }
-  #fleet-map { height: 50vh; }
-  .region-grid { display:grid; gap:14px; padding: 20px 32px; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); }
-  .region-card { padding:16px; background: var(--bg-alt,#1a1a1a); border-radius:10px; border:1px solid var(--border,#2a2a2a); transition: border-color .15s; cursor:pointer; }
-  .region-card:hover { border-color: var(--accent,#4cc06b); }
-  .region-card h3 { margin: 0 0 4px; }
-  .region-card .desc { font-size: 13px; color: var(--text-dim,#aaa); margin-bottom: 12px; }
-  .region-card .stats { display:flex; gap: 16px; font-size: 13px; }
-  .region-card .stats span { color: var(--text-dim,#aaa); }
-  .region-card .stats b { color: inherit; }
-  a.region-card { text-decoration: none; color: inherit; display: block; }
+  :root{
+    --bg:#06090f; --panel:#0c131f; --panel2:#111a2b; --line:#1d2a40;
+    --cyan:#22d3ee; --green:#34d399; --red:#f87171; --amber:#ffb020;
+    --txt:#e6edf6; --dim:#8294ad; --mono:'SFMono-Regular',Consolas,'Roboto Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background-image:radial-gradient(circle at 20% -10%,rgba(34,211,238,.07),transparent 45%),
+                     radial-gradient(circle at 90% 0%,rgba(52,211,153,.06),transparent 40%),
+                     linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+    background-size:auto,auto,34px 34px,34px 34px;}
+  .scan{position:fixed;inset:0;pointer-events:none;z-index:9;opacity:.5;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.12) 3px);}
+  /* header */
+  .fx-top{display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(17,26,43,.9),rgba(12,19,31,.6));position:relative}
+  .fx-top::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;
+    background:linear-gradient(90deg,var(--cyan),transparent 60%)}
+  .fx-top img{height:46px;filter:drop-shadow(0 0 10px rgba(34,211,238,.4))}
+  .fx-title{font-family:var(--mono);font-weight:700;font-size:22px;letter-spacing:3px}
+  .fx-title b{color:var(--cyan)}
+  .fx-sub{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:2px;margin-top:2px}
+  .fx-stats{margin-left:auto;display:flex;gap:10px}
+  .fx-chip{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:7px;
+    padding:8px 12px;background:var(--panel);text-align:center;min-width:78px}
+  .fx-chip b{display:block;font-size:19px;line-height:1.1}
+  .fx-chip .lbl{color:var(--dim);font-size:9px;letter-spacing:1.5px}
+  .fx-chip.live b{color:var(--green)} .fx-chip.off b{color:var(--red)}
+  /* map */
+  #fleet-map{height:56vh;min-height:360px;background:#06090f;border-bottom:1px solid var(--line)}
+  .leaflet-container{background:#06090f}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel2);color:var(--txt);
+    border:1px solid var(--line);box-shadow:0 8px 30px rgba(0,0,0,.6);border-radius:10px}
+  .leaflet-popup-content{margin:12px 14px;font-family:var(--mono)}
+  /* glowing markers */
+  .nmark{position:relative;width:16px;height:16px}
+  .nmark .core{position:absolute;inset:3px;border-radius:50%}
+  .nmark.live .core{background:var(--green);box-shadow:0 0 10px var(--green),0 0 20px rgba(52,211,153,.6)}
+  .nmark.off  .core{background:var(--red);box-shadow:0 0 8px rgba(248,113,113,.6)}
+  .nmark.live .ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--green);
+    animation:pulse 1.8s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+  .nlabel{font-family:var(--mono);font-size:11px;color:var(--txt);background:rgba(6,9,15,.72);
+    border:1px solid var(--line);border-radius:5px;padding:1px 6px;white-space:nowrap;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  .leaflet-tooltip.nlabel::before{display:none}
+  .pop-name{font-size:15px;font-weight:700;color:var(--cyan);margin-bottom:2px}
+  .pop-meta{font-size:12px;color:var(--dim);margin-bottom:9px;line-height:1.5}
+  .pop-btn{display:block;text-align:center;text-decoration:none;font-weight:700;letter-spacing:1px;
+    padding:8px;border-radius:7px;background:var(--cyan);color:#04121a;font-size:12px}
+  .pop-btn:hover{background:#67e8f9}
+  /* roster */
+  .fx-wrap{padding:22px 26px 48px;max-width:1280px;margin:0 auto}
+  .fx-h2{font-family:var(--mono);font-size:12px;letter-spacing:3px;color:var(--dim);margin:0 0 14px;
+    display:flex;align-items:center;gap:10px}
+  .fx-h2::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+  .fx-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .ncard{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+    border-radius:12px;padding:16px;position:relative;overflow:hidden;transition:border-color .15s,transform .1s}
+  .ncard:hover{border-color:var(--cyan);transform:translateY(-2px)}
+  .ncard .edge{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .ncard.live .edge{background:var(--green);box-shadow:0 0 12px var(--green)}
+  .ncard.off .edge{background:var(--red)}
+  .ncard-top{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  .led{width:9px;height:9px;border-radius:50%}
+  .live .led{background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 2s infinite}
+  .off .led{background:var(--red)}
+  @keyframes blink{50%{opacity:.35}}
+  .ncard h3{margin:0;font-size:17px}
+  .badge{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:1.5px;padding:3px 8px;
+    border-radius:20px;border:1px solid}
+  .live .badge{color:var(--green);border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.08)}
+  .off .badge{color:var(--red);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.08)}
+  .ncard .region{font-family:var(--mono);font-size:11px;color:var(--cyan);letter-spacing:1px;margin:2px 0 12px}
+  .ncard .stats{display:flex;gap:18px;margin-bottom:14px}
+  .ncard .stats div{font-family:var(--mono)}
+  .ncard .stats b{display:block;font-size:18px}
+  .ncard .stats .k{font-size:9px;color:var(--dim);letter-spacing:1px}
+  .ncard .go{display:block;text-align:center;text-decoration:none;font-weight:700;letter-spacing:1.5px;
+    font-size:12px;padding:10px;border-radius:8px;background:var(--cyan);color:#04121a;transition:background .15s}
+  .ncard .go:hover{background:#67e8f9}
+  .ncard.off .go{background:var(--panel);color:var(--dim);border:1px solid var(--line)}
+  .ncard.off .go:hover{color:var(--txt);border-color:var(--cyan)}
+  .foot{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;padding:10px 0 30px}
 </style>
 </head>
 <body>
-<header class="fleet-hero">
-  <img src="/static/logo.png" alt="">
+<div class="scan"></div>
+
+<header class="fx-top">
+  <img src="/static/logo.png" alt="jafo">
   <div>
-    <h1>jafo fleet</h1>
-    <p>Just Another F***ing Observer — passive radio observatory clearing house.</p>
+    <div class="fx-title">JAFO · <b>FLEET</b></div>
+    <div class="fx-sub">PASSIVE OBSERVER NETWORK · SELECT A NODE TO OPEN ITS DASHBOARD</div>
   </div>
+  <div class="fx-stats" id="fx-stats"></div>
 </header>
+
 <div id="fleet-map"></div>
-<div id="region-cards" class="region-grid"></div>
+
+<div class="fx-wrap">
+  <h2 class="fx-h2">DEPLOYED NODES</h2>
+  <div id="node-grid" class="fx-grid"></div>
+  <div class="foot" id="fleet-foot">loading fleet…</div>
+</div>
+
 <script>
-const map = L.map('fleet-map', { zoomControl: true });
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{y}/{x}.png', {
-  attribution: '© OpenStreetMap contributors', maxZoom: 18
+const relTime = (ts) => {
+  if (!ts) return "never";
+  const s = Math.floor(Date.now()/1000) - ts;
+  if (s < 90) return "just now";
+  if (s < 5400) return Math.round(s/60) + "m ago";
+  if (s < 172800) return Math.round(s/3600) + "h ago";
+  return Math.round(s/86400) + "d ago";
+};
+const fmt = (n) => (n||0).toLocaleString();
+
+const map = L.map('fleet-map', { zoomControl:true, attributionControl:false });
+// Free, no-API-key dark basemap (Esri Dark Gray Canvas — same infra the app
+// already uses for imagery; CARTO's free dark tiles now require a key).
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom:16, maxNativeZoom:16
 }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom:16, maxNativeZoom:16, opacity:.8
+}).addTo(map);
+L.control.attribution({prefix:false}).addAttribution('© Esri').addTo(map);
 
 (async () => {
-  const [regions, nodes] = await Promise.all([
-    fetch('/api/regions').then(r => r.json()),
-    fetch('/api/fleet/nodes').then(r => r.json()),
-  ]);
-  // Map bounds: union of all node coordinates
-  const pts = nodes.nodes.filter(n => n.lat && n.lng);
+  const nodes = (await fetch('/api/fleet/nodes').then(r=>r.json())).nodes || [];
+  const pts = nodes.filter(n => n.lat && n.lng);
   if (pts.length) {
-    const b = L.latLngBounds(pts.map(n => [n.lat, n.lng]));
-    map.fitBounds(b.pad(0.4), { maxZoom: 8 });
-  } else {
-    map.setView([26.2, -98.2], 9);
-  }
-  // Markers per node
+    map.fitBounds(L.latLngBounds(pts.map(n=>[n.lat,n.lng])).pad(0.45), { maxZoom: 9 });
+  } else { map.setView([31.3, -98.5], 6); }
+
   pts.forEach(n => {
-    L.marker([n.lat, n.lng])
-      .bindPopup(`<b>${n.display_name}</b><br>region: <a href="/r/${n.region_slug}">${n.region_slug}</a><br>${n.calls_24h||0} calls in last 24h<br><a href="/r/${n.region_slug}/n/${n.slug}">Open node →</a>`)
-      .addTo(map);
+    const cls = n.live ? 'live' : 'off';
+    const icon = L.divIcon({ className:'', iconSize:[16,16], iconAnchor:[8,8],
+      html:`<div class="nmark ${cls}"><div class="ring"></div><div class="core"></div></div>` });
+    const m = L.marker([n.lat,n.lng], { icon }).addTo(map);
+    m.bindTooltip(n.display_name, { permanent:true, direction:'top', offset:[0,-8], className:'nlabel' });
+    m.bindPopup(
+      `<div class="pop-name">${n.display_name}</div>`+
+      `<div class="pop-meta">${n.region_name||n.region_slug||''}<br>`+
+      `${n.live?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--red)">● OFFLINE</span>'}`+
+      ` · ${fmt(n.calls_24h)} calls/24h · seen ${relTime(n.last_seen_at)}</div>`+
+      `<a class="pop-btn" href="/r/${n.region_slug}/n/${n.slug}">OPEN DASHBOARD →</a>`);
   });
-  // Region cards
-  document.getElementById('region-cards').innerHTML = regions.regions.map(r => `
-    <a href="/r/${r.slug}" class="region-card">
-      <h3>${r.name}</h3>
-      <div class="desc">${r.description||''}</div>
+
+  // summary chips
+  const live = nodes.filter(n=>n.live).length;
+  document.getElementById('fx-stats').innerHTML =
+    `<div class="fx-chip"><b>${nodes.length}</b><span class="lbl">NODES</span></div>`+
+    `<div class="fx-chip live"><b>${live}</b><span class="lbl">LIVE</span></div>`+
+    `<div class="fx-chip off"><b>${nodes.length-live}</b><span class="lbl">OFFLINE</span></div>`;
+
+  // roster cards
+  const sorted = [...nodes].sort((a,b)=>(b.live-a.live)||((b.calls_24h||0)-(a.calls_24h||0)));
+  document.getElementById('node-grid').innerHTML = sorted.map(n => {
+    const cls = n.live ? 'live' : 'off';
+    return `<div class="ncard ${cls}"><div class="edge"></div>
+      <div class="ncard-top"><span class="led"></span><h3>${n.display_name}</h3>
+        <span class="badge">${n.live?'LIVE':'OFFLINE'}</span></div>
+      <div class="region">▸ ${n.region_name||n.region_slug||'—'}</div>
       <div class="stats">
-        <span><b>${r.node_count}</b> nodes</span>
-        <span><b>${(r.calls_24h||0).toLocaleString()}</b> calls / 24h</span>
-        <span><b>${(r.call_count||0).toLocaleString()}</b> total</span>
+        <div><b>${fmt(n.calls_24h)}</b><span class="k">CALLS / 24H</span></div>
+        <div><b>${relTime(n.live?n.last_seen_at:n.last_call_at)}</b><span class="k">${n.live?'LAST SEEN':'LAST CALL'}</span></div>
       </div>
-    </a>`).join('');
+      <a class="go" href="/r/${n.region_slug}/n/${n.slug}">OPEN DASHBOARD →</a>
+    </div>`;
+  }).join('');
+
+  document.getElementById('fleet-foot').textContent =
+    `${nodes.length} node${nodes.length!==1?'s':''} · ${live} live · JAFO — Just Another F***ing Observer`;
 })();
 </script>
 </body>

@@ -115,6 +115,7 @@ const VIEW_PANELS = {
   acars:   "#cc-acars-pane",
   map:     ".map-pane",
   air:     "#air-strip",
+  coverage: "#cc-coverage-pane",
   stories: "#stories-strip",
 };
 
@@ -141,6 +142,12 @@ function setViewPanel(key, open, chip) {
   // Leaflet mis-measures a container that was display:none at init; nudge it.
   if (key === "map" && open && typeof mapState !== "undefined" && mapState.map) {
     setTimeout(() => mapState.map.invalidateSize(), 60);
+  }
+  // Coverage uses WebGL, which can't size a display:none canvas — lazy-init on
+  // first open and pause the render loop when hidden.
+  if (key === "coverage" && typeof coverageSetActive === "function") {
+    if (open) setTimeout(() => coverageSetActive(true), 60);
+    else coverageSetActive(false);
   }
 }
 
@@ -211,7 +218,9 @@ async function openChannelPicker() {
   if (!scanner.groupsCache) {
     SB.pickerList.innerHTML = '<div class="channel-picker-empty">Loading channels…</div>';
     try {
-      scanner.groupsCache = await api("/api/talkgroup-groups?group_by=service&sort=count");
+      scanner.groupsCache = await api("/api/talkgroup-groups?group_by=service&sort=count"
+        + (window.JAFO_NODE_SLUG ? "&node=" + encodeURIComponent(window.JAFO_NODE_SLUG)
+           : window.JAFO_REGION_SLUG ? "&region=" + encodeURIComponent(window.JAFO_REGION_SLUG) : ""));
     } catch (e) {
       SB.pickerList.innerHTML = '<div class="channel-picker-empty">Could not load channels.</div>';
       return;

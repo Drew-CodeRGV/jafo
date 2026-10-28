@@ -1,0 +1,13 @@
+[Unit]
+Description=jafo — periodic location check (auto-relocate if the node has moved)
+
+[Timer]
+# Fire shortly after boot (catches a power-on in a new city) and every 20 min
+# thereafter (catches a move without a reboot). Persistent so a missed run while
+# powered off fires on next boot.
+OnBootSec=90
+OnUnitActiveSec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

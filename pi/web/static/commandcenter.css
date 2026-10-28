@@ -150,7 +150,9 @@ body {
 .cc-acars-pane.collapsed { display: none !important; }
 .cc-acars-split { display: flex; height: 100%; }
 .cc-acars-left { flex: 1 1 52%; min-width: 0; display: flex; flex-direction: column; padding: 10px 12px; overflow: hidden; }
-.cc-acars-right { flex: 1 1 48%; min-width: 0; border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 14px; }
+.cc-acars-right { flex: 1 1 48%; min-width: 0; border-left: 1px solid var(--border); overflow: hidden; padding: 10px 14px; display: flex; flex-direction: column; }
+/* Only the decode + aircraft text scrolls; the route map stays pinned & visible. */
+.acd-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .cc-acars-hdr {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
@@ -168,6 +170,24 @@ body {
 }
 .acg-hdr:hover { background: #0d1824; }
 .acg-hdr b { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
+/* Category highlight: colored left bar + flight-name tint (commercial/cargo/private/military). */
+.acg > .acg-hdr { border-left: 3px solid transparent; }
+.acg.cat-comm  > .acg-hdr { border-left-color: #35a7ff; }
+.acg.cat-cargo > .acg-hdr { border-left-color: #ff9d2e; }
+.acg.cat-priv  > .acg-hdr { border-left-color: #ffe14d; }
+.acg.cat-mil   > .acg-hdr { border-left-color: #ff4d5e; }
+.acg.cat-comm  > .acg-hdr b { color: #6bbcff; text-shadow: 0 0 6px rgba(53,167,255,0.55); }
+.acg.cat-cargo > .acg-hdr b { color: #ffb259; text-shadow: 0 0 6px rgba(255,157,46,0.55); }
+.acg.cat-priv  > .acg-hdr b { color: #ffe766; text-shadow: 0 0 6px rgba(255,225,77,0.55); }
+.acg.cat-mil   > .acg-hdr b { color: #ff6b78; text-shadow: 0 0 6px rgba(255,77,94,0.55); }
+/* Category legend above the by-flight list. */
+.cc-acars-legend { display: flex; flex-wrap: wrap; gap: 3px 10px; padding: 0 2px 6px; margin-bottom: 6px; border-bottom: 1px dashed var(--cc-line); font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); flex: 0 0 auto; }
+.cc-acars-legend .lg { display: inline-flex; align-items: center; gap: 4px; }
+.cc-acars-legend .lg::before { content: ""; width: 8px; height: 8px; border-radius: 2px; }
+.cc-acars-legend .lg-comm::before { background: #35a7ff; }
+.cc-acars-legend .lg-cargo::before { background: #ff9d2e; }
+.cc-acars-legend .lg-priv::before { background: #ffe14d; }
+.cc-acars-legend .lg-mil::before { background: #ff4d5e; }
 .acg-caret { flex: 0 0 auto; color: var(--text-faint); font-size: 10px; transition: transform 0.15s; }
 .acg.collapsed .acg-caret { transform: rotate(-90deg); }
 .acg.collapsed .cc-acars-row { display: none; }
@@ -188,6 +208,14 @@ body {
 .cc-acars-detail-empty { color: var(--text-faint); font-size: 12px; padding: 16px 6px; font-family: var(--font-mono); line-height: 1.6; }
 
 /* decode block (reused from the old popup) — compact so the whole card fits one pane */
+/* compact header: identity line + label + meta chips, ~3 lines instead of six rows */
+.acd-decode .ap-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+.acd-decode .ap-ident { font-family: var(--font-mono); font-size: 12px; color: var(--text); line-height: 1.45; }
+.acd-decode .ap-ident b { color: var(--cc-green); }
+.acd-decode .ap-label { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); line-height: 1.4; margin: 1px 0 3px; }
+.acd-decode .ap-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-bottom: 4px; }
+.acd-decode .ap-chip { font-family: var(--font-mono); font-size: 10px; color: var(--text); white-space: nowrap; }
+.acd-decode .ap-chip i { color: var(--cc-cyan); font-style: normal; text-transform: uppercase; font-size: 8px; letter-spacing: 0.04em; margin-right: 4px; }
 .acd-decode .ap-row { display: flex; gap: 8px; font-size: 11px; padding: 1px 0; }
 .acd-decode .ap-k { flex: 0 0 62px; color: var(--cc-cyan); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.03em; text-transform: uppercase; line-height: 1.5; }
 .acd-decode .ap-v { flex: 1 1 auto; color: var(--text); font-family: var(--font-mono); font-size: 11px; word-break: break-word; line-height: 1.5; }
@@ -241,7 +269,7 @@ body {
 .acd-photo { width: 100%; height: 100%; max-height: 104px; object-fit: cover; border-radius: 6px; border: 1px solid var(--cc-line); display: block; }
 
 /* route map (flat Leaflet map) */
-.acd-globe-wrap { margin-top: 8px; border-top: 1px dashed var(--cc-line); padding-top: 6px; }
+.acd-globe-wrap { flex: 0 0 auto; margin-top: 8px; border-top: 1px dashed var(--cc-line); padding-top: 6px; }
 .acd-route { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 4px; }
 .acd-route b { color: var(--cc-cyan); text-shadow: 0 0 6px var(--cc-glow); }
 .acd-map { display: block; width: 100%; height: 190px; border: 1px solid var(--cc-line); border-radius: 6px; background: #0a131c; overflow: hidden; }

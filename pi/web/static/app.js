@@ -644,7 +644,9 @@ function addHeatToggleControl() {
 async function initMap() {
   if (mapState.map || typeof L === "undefined") return;
   let cfg = { center: [26.2, -98.0], bounds: [[25.8, -98.9], [26.55, -97.1]] };
-  try { cfg = await api("/api/map-config"); } catch (e) { console.warn("map-config failed, using defaults", e); }
+  const mcUrl = "/api/map-config" + (window.JAFO_REGION_SLUG
+    ? "?region=" + encodeURIComponent(window.JAFO_REGION_SLUG) : "");
+  try { cfg = await api(mcUrl); } catch (e) { console.warn("map-config failed, using defaults", e); }
 
   mapState.map = L.map("map", {
     zoomControl: true,
@@ -1836,7 +1838,7 @@ function normSeverity(s) {
 // ---- Stats bar ----
 async function refreshStats() {
   try {
-    const s = await api("/api/stats");
+    const s = await api(`/api/stats?${applyScope(new URLSearchParams())}`);
     document.getElementById("stat-totals").innerHTML =
       `<strong>${s.totals.kept_total ?? 0}</strong> kept &nbsp;·&nbsp;
        <strong>${s.totals.transcribed ?? 0}</strong> transcribed &nbsp;·&nbsp;
@@ -1871,9 +1873,8 @@ async function refreshStats() {
 // ---- Talkgroup grouping sidebar ----
 async function refreshTalkgroups() {
   try {
-    const data = await api(
-      `/api/talkgroup-groups?group_by=${encodeURIComponent(state.groupBy)}&sort=${encodeURIComponent(state.sort)}`
-    );
+    const tgp = applyScope(new URLSearchParams({ group_by: state.groupBy, sort: state.sort }));
+    const data = await api(`/api/talkgroup-groups?${tgp}`);
     const root = document.getElementById("talkgroup-groups");
     root.innerHTML = "";
 
@@ -2183,10 +2184,18 @@ function renderActiveFilters() {
 }
 
 // ---- Calls list ----
+// On the hub, /r/<region>/n/<node> and /r/<region> inject a scope that must
+// ride along on every calls query so the feed/map show only that node/region.
+function applyScope(p) {
+  if (window.JAFO_NODE_SLUG) p.set("node", window.JAFO_NODE_SLUG);
+  else if (window.JAFO_REGION_SLUG) p.set("region", window.JAFO_REGION_SLUG);
+  return p;
+}
+
 function buildCallsURL() {
   const f = state.filters;
   if (f.search) {
-    const params = new URLSearchParams({ q: f.search, limit: state.limit });
+    const params = applyScope(new URLSearchParams({ q: f.search, limit: state.limit }));
     return `/api/search?${params}`;
   }
   const p = new URLSearchParams({
@@ -2199,6 +2208,7 @@ function buildCallsURL() {
   if (f.category) p.set("category", f.category);
   if (f.incident_type) p.set("incident_type", f.incident_type);
   if (f.severity) p.set("severity", f.severity);
+  applyScope(p);
   return `/api/calls?${p}`;
 }
 

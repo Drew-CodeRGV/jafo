@@ -3,7 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jafo — {{ node_name }}</title>
+<title>jafo — {{ node_display_name or region_name or node_name }}</title>
+<script>
+  // Scope injected by the per-region / per-node routes (null on an edge Pi).
+  // app.js reads these to filter /api/calls, center the map, and label the UI.
+  window.JAFO_REGION_SLUG  = {{ (region_slug or None) | tojson }};
+  window.JAFO_NODE_SLUG    = {{ (node_slug or None) | tojson }};
+  window.JAFO_NODE_DISPLAY = {{ (node_display_name or None) | tojson }};
+  window.JAFO_REGION_NAME  = {{ (region_name or None) | tojson }};
+</script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -12,6 +20,7 @@
 <link rel="stylesheet" href="{{ static_v('style.css') }}">
 <link rel="stylesheet" href="{{ static_v('scanner.css') }}">
 <link rel="stylesheet" href="{{ static_v('commandcenter.css') }}">
+<link rel="stylesheet" href="{{ static_v('coverage.css') }}">
 <link rel="icon" href="/static/logo.png" type="image/png">
 </head>
 <body>
@@ -24,7 +33,7 @@
   <button id="menu-btn" class="menu-btn" aria-label="Toggle filters menu" type="button">☰</button>
   <div class="brand">
     <img class="logo-img" src="/static/logo.png" alt="jafo">
-    <span class="sub">{{ node_name }}</span>
+    <span class="sub">{{ node_display_name or region_name or node_name }}</span>
   </div>
   <span class="live-indicator" title="Live capture"><span class="dot"></span>LIVE</span>
   <span class="cc-class-chip" title="For demonstration only">UNCLASS · DEMO</span>
@@ -238,7 +247,48 @@
     <button class="view-chip" data-view="acars" type="button">✉ ACARS</button>
     <button class="view-chip" data-view="map" type="button">🗺 Map</button>
     <button class="view-chip" data-view="air" type="button">✈ Air traffic</button>
+    <button class="view-chip" data-view="coverage" type="button">📡 Coverage</button>
     <button class="view-chip" data-view="stories" type="button">📰 Top stories</button>
+  </div>
+  <div class="coverage-pane collapsed" id="cc-coverage-pane" aria-label="Antenna reception coverage (3D)">
+    <div class="cov-head">
+      <div class="cov-title"><span class="cc-led"></span>ANTENNA COVERAGE · 3D RANGE</div>
+      <div class="cov-modes" id="cov-modes" role="group" aria-label="View mode">
+        <button class="cov-mode active" data-cov-mode="orbit" type="button">Orbit</button>
+        <button class="cov-mode" data-cov-mode="top" type="button">Top</button>
+        <button class="cov-mode" data-cov-mode="slice" type="button">Slice</button>
+      </div>
+    </div>
+    <div class="cov-stage" id="cov-stage">
+      <canvas id="cc-coverage-canvas" class="cov-canvas"></canvas>
+      <div class="cov-overlay hidden" id="cov-overlay"></div>
+    </div>
+    <div class="cov-foot">
+      <span class="cov-legend" id="cov-legend"></span>
+      <span class="cov-stat" id="cov-stat">—</span>
+    </div>
+  </div>
+  <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
+    <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
+    <div id="map-reticle" class="map-reticle hidden" aria-hidden="true">
+      <div class="reticle-ring"></div>
+      <div class="reticle-cross-h"></div>
+      <div class="reticle-cross-v"></div>
+      <div class="reticle-readout">
+        <span id="reticle-status">ACQUIRING</span>
+        <span id="reticle-coords"></span>
+        <span id="reticle-label"></span>
+      </div>
+    </div>
+    {% if osint_demo %}
+    <aside class="osint-rail" id="osint-rail" aria-label="Recent names available for OSINT">
+      <div class="osint-rail-hdr"><span class="cc-led"></span>OSINT · RECENT NAMES</div>
+      <ul class="osint-rail-list" id="osint-rail-list">
+        <li class="osint-rail-empty">waiting for names on the air…</li>
+      </ul>
+      <button class="osint-rail-manual" id="osint-rail-manual" type="button">＋ Look up any name…</button>
+    </aside>
+    {% endif %}
   </div>
   <div class="cc-acars-pane collapsed" id="cc-acars-pane" aria-label="ACARS aircraft messages">
     <div class="cc-acars-split">
@@ -265,28 +315,6 @@
       <b><span class="d" style="background:#35e3ff"></span>low</b>
     </span>
     <canvas id="cc-radar"></canvas>
-  </div>
-  <div class="map-pane collapsed" aria-label="Live map of recent calls + air traffic">
-    <div id="map" class="map-2d" aria-label="Map of recent calls and aircraft"></div>
-    <div id="map-reticle" class="map-reticle hidden" aria-hidden="true">
-      <div class="reticle-ring"></div>
-      <div class="reticle-cross-h"></div>
-      <div class="reticle-cross-v"></div>
-      <div class="reticle-readout">
-        <span id="reticle-status">ACQUIRING</span>
-        <span id="reticle-coords"></span>
-        <span id="reticle-label"></span>
-      </div>
-    </div>
-    {% if osint_demo %}
-    <aside class="osint-rail" id="osint-rail" aria-label="Recent names available for OSINT">
-      <div class="osint-rail-hdr"><span class="cc-led"></span>OSINT · RECENT NAMES</div>
-      <ul class="osint-rail-list" id="osint-rail-list">
-        <li class="osint-rail-empty">waiting for names on the air…</li>
-      </ul>
-      <button class="osint-rail-manual" id="osint-rail-manual" type="button">＋ Look up any name…</button>
-    </aside>
-    {% endif %}
   </div>
   <section id="air-strip" class="air-strip collapsed" aria-label="Aircraft visible right now">
     <div class="air-strip-header">
@@ -406,14 +434,16 @@ window.JAFO_HUB_LINK = {{ hub_link | tojson }};
 <div class="cc-wall-stage" id="cc-wall-stage" aria-hidden="true"></div>
 
 <div class="cc-classbar-bot" aria-hidden="true">
-  <span class="cc-cb-left">◤ {{ node_name }} · LRGVRRS P25 PHASE II</span>
+  <span class="cc-cb-left">◤ {{ node_display_name or region_name or node_name }} · {{ system_label }}</span>
   <span class="cc-cb-mid">UNCLASSIFIED · FOR DEMONSTRATION ONLY · SIGINT // COMINT // OSINT FUSION</span>
   <span class="cc-cb-right" id="cc-cb-right">● MONITORING</span>
 </div>
 
+<script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 <script src="{{ static_v('app.js') }}"></script>
 <script src="{{ static_v('scanner.js') }}"></script>
 <script src="{{ static_v('hud.js') }}"></script>
+<script src="{{ static_v('coverage.js') }}"></script>
 
 {% if osint_demo %}
 <!-- OSINT exposure demo (edge/sandbox only). Gated server-side; assets + modal

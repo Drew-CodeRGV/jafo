@@ -294,13 +294,18 @@ def _read_tg_csv(path) -> dict[int, dict]:
     return out
 
 
-def load_talkgroup_metadata() -> dict[int, dict]:
+def load_talkgroup_metadata(region_slug: str | None = None) -> dict[int, dict]:
     """Return {tg_decimal: {tag, category, alpha_tag, description}}.
 
-    Merges the primary LRGVRRS talkgroups CSV with any additional
-    conventional-system CSVs (EXTRA_TALKGROUPS_CSVS). Empty dict if all
-    are missing or unreadable.
+    With region_slug, a per-region CSV (config/talkgroups-<region>.csv) wins
+    when present — so the hub can name a second system (e.g. GATRRS for Austin)
+    whose talkgroup IDs collide with the primary system's. Otherwise merges the
+    primary talkgroups CSV with the conventional-system CSVs (EXTRA_TALKGROUPS_CSVS).
     """
+    if region_slug:
+        rp = DATA_DIR / "config" / f"talkgroups-{region_slug}.csv"
+        if rp.exists():
+            return _read_tg_csv(rp)
     out = _read_tg_csv(TALKGROUPS_CSV)
     for extra in EXTRA_TALKGROUPS_CSVS:
         # Extra CSVs win on collision — but in practice we keep their TG IDs
@@ -476,7 +481,7 @@ def node_detail(slug: str, node_slug: str):
     """Single-node view — same UI but scoped to one node within a region."""
     conn = get_db()
     n = conn.execute("""
-        SELECT n.slug, n.display_name, r.slug AS region_slug
+        SELECT n.slug, n.display_name, r.slug AS region_slug, r.name AS region_name
         FROM nodes n JOIN regions r ON r.id = n.region_id
         WHERE n.slug = ? AND r.slug = ?
     """, (node_slug, slug)).fetchone()
@@ -486,6 +491,7 @@ def node_detail(slug: str, node_slug: str):
     return render_template("index.html", node_name=NODE_NAME,
                            region_slug=slug, node_slug=node_slug,
                            node_display_name=n["display_name"],
+                           region_name=n["region_name"],
                            hub_link=_hub_link_for_this_node(),
                            is_hub=not _is_edge_node())
 
@@ -857,21 +863,112 @@ def api_regions():
     return jsonify({"regions": [dict(r) for r in rows]})
 
 
+LIVE_WINDOW_SEC = 600  # a node streaming within 10 min counts as "live"
+
 @app.route("/api/fleet/nodes")
 def api_fleet_nodes():
-    """Public: nodes with location for the fleet map (no PII)."""
+    """Public: nodes with location for the fleet map (no PII).
+
+    Returns every enabled node (not just streaming ones) with a computed
+    `live` flag + `last_call_at` so the map can show active vs inactive."""
     conn = get_db()
     rows = conn.execute("""
         SELECT n.slug, n.display_name, n.lat, n.lng, n.status,
                r.slug AS region_slug, r.name AS region_name,
                n.last_seen_at,
                (SELECT COUNT(*) FROM calls WHERE node_id = n.id
-                AND processed_at > strftime('%s','now','-1 day')) AS calls_24h
+                AND processed_at > strftime('%s','now','-1 day')) AS calls_24h,
+               (SELECT MAX(start_time) FROM calls WHERE node_id = n.id) AS last_call_at
         FROM nodes n LEFT JOIN regions r ON r.id = n.region_id
-        WHERE n.status = 'active'
+        WHERE n.status != 'disabled'
     """).fetchall()
     conn.close()
-    return jsonify({"nodes": [dict(r) for r in rows]})
+    now = int(time.time())
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["live"] = bool(d.get("last_seen_at") and now - d["last_seen_at"] <= LIVE_WINDOW_SEC)
+        out.append(d)
+    return jsonify({"nodes": out})
+
+
+PROVISION_TOKEN = os.environ.get("JAFO_PROVISION_TOKEN", "").strip()
+_SLUG_RE = re.compile(r"[^a-z0-9-]")
+
+def _slugify(s: str) -> str:
+    return _SLUG_RE.sub("", (s or "").strip().lower().replace(" ", "-"))[:48]
+
+@app.route("/api/provision", methods=["POST"])
+def api_provision():
+    """A node self-registers for its current location (called by relocate.py).
+
+    Ensures the region + node exist, (re)issues a node token, and optionally
+    stores the region's talkgroup CSV — so a relocated Pi gets its own hub
+    node/region automatically without any manual admin step. Gated by the
+    shared JAFO_PROVISION_TOKEN (Bearer)."""
+    if not PROVISION_TOKEN:
+        return jsonify({"error": "provisioning disabled (no JAFO_PROVISION_TOKEN on hub)"}), 503
+    auth = request.headers.get("Authorization", "")
+    if not (auth.startswith("Bearer ") and secrets.compare_digest(auth[7:].strip(), PROVISION_TOKEN)):
+        return jsonify({"error": "unauthorized"}), 401
+
+    d = request.get_json(force=True, silent=True) or {}
+    region_slug = _slugify(d.get("region_slug", ""))
+    node_slug   = _slugify(d.get("node_slug", ""))
+    if not region_slug or not node_slug:
+        return jsonify({"error": "region_slug and node_slug required"}), 400
+    lat, lng = d.get("lat"), d.get("lng")
+    now = int(time.time())
+
+    conn = get_db()
+    try:
+        r = conn.execute("SELECT id FROM regions WHERE slug = ?", (region_slug,)).fetchone()
+        if r:
+            region_id = r["id"]
+            if lat is not None:
+                conn.execute("UPDATE regions SET default_lat = COALESCE(default_lat, ?), "
+                             "default_lng = COALESCE(default_lng, ?) WHERE id = ?",
+                             (lat, lng, region_id))
+        else:
+            conn.execute("""INSERT INTO regions (slug, name, description, default_lat,
+                              default_lng, default_zoom, created_at)
+                            VALUES (?, ?, ?, ?, ?, 11, ?)""",
+                         (region_slug, d.get("region_name") or region_slug.title(),
+                          d.get("region_desc") or "", lat, lng, now))
+            region_id = conn.execute("SELECT id FROM regions WHERE slug = ?",
+                                     (region_slug,)).fetchone()["id"]
+
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        display = d.get("node_display") or node_slug
+        n = conn.execute("SELECT id FROM nodes WHERE slug = ?", (node_slug,)).fetchone()
+        if n:
+            conn.execute("""UPDATE nodes SET region_id = ?, display_name = ?, lat = ?,
+                              lng = ?, token_hash = ?, status = 'active' WHERE id = ?""",
+                         (region_id, display, lat, lng, token_hash, n["id"]))
+            created = False
+        else:
+            conn.execute("""INSERT INTO nodes (slug, region_id, display_name, owner_email,
+                              lat, lng, token_hash, notes, status, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
+                         (node_slug, region_id, display, d.get("owner_email"),
+                          lat, lng, token_hash, d.get("notes") or "auto-provisioned", now))
+            created = True
+        conn.commit()
+
+        tg_rows = 0
+        tg_csv = d.get("talkgroups_csv")
+        if tg_csv:
+            p = DATA_DIR / "config" / f"talkgroups-{region_slug}.csv"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(tg_csv)
+            tg_rows = tg_csv.count("\n")
+    finally:
+        conn.close()
+
+    return jsonify({"ok": True, "created": created, "region_slug": region_slug,
+                    "node_slug": node_slug, "node_token": token,
+                    "talkgroups_rows": tg_rows})
 
 
 # -----------------------------------------------------------------------------
@@ -1687,24 +1784,50 @@ def talkgroup_groups():
     if sort not in ("count", "alpha"):
         sort = "count"
 
-    meta = load_talkgroup_metadata()
+    # Scope the channel list to one node/region (hub multi-node view) so the
+    # sidebar only shows LOCAL channels for the node being viewed.
+    region_slug = request.args.get("region")
+    node_slug   = request.args.get("node")
+    scope_sql, scope_params = "", []
+    if region_slug:
+        scope_sql += " AND region_id = (SELECT id FROM regions WHERE slug = ?)"
+        scope_params.append(region_slug)
+    if node_slug:
+        scope_sql += " AND node_id = (SELECT id FROM nodes WHERE slug = ?)"
+        scope_params.append(node_slug)
+    scoped = bool(region_slug or node_slug)
+
+    # Pick the region whose talkgroup names to use. A node page passes ?node=
+    # only, so resolve its region for naming (GATRRS names for the Austin node).
+    meta_region = region_slug
+    if node_slug and not meta_region:
+        _c = get_db()
+        _r = _c.execute(
+            "SELECT r.slug FROM nodes n JOIN regions r ON r.id = n.region_id WHERE n.slug = ?",
+            (node_slug,)).fetchone()
+        _c.close()
+        meta_region = _r["slug"] if _r else None
+
+    meta = load_talkgroup_metadata(meta_region)
     overrides = load_overrides()
     # TGs explicitly defined in the conventional CSVs (e.g. GMRS) — these
     # should appear in the sidebar even with n=0 so the user can see the
-    # section is wired up before the first call lands.
+    # section is wired up before the first call lands. Skip when scoped to a
+    # node/region — those seed channels are specific to the primary node.
     seeded_tgs: dict[int, dict] = {}
-    for extra in EXTRA_TALKGROUPS_CSVS:
-        seeded_tgs.update(_read_tg_csv(extra))
+    if not scoped:
+        for extra in EXTRA_TALKGROUPS_CSVS:
+            seeded_tgs.update(_read_tg_csv(extra))
 
     conn = get_db()
     cur = conn.execute(
-        """
+        f"""
         SELECT talkgroup, talkgroup_tag, COUNT(*) AS n
         FROM calls
-        WHERE status = 'kept' AND processed_at > strftime('%s', 'now', ?)
+        WHERE status = 'kept' AND processed_at > strftime('%s', 'now', ?){scope_sql}
         GROUP BY talkgroup, talkgroup_tag
         """,
-        (f"-{window_days} day",),
+        (f"-{window_days} day", *scope_params),
     )
     rows = [dict(r) for r in cur]
     conn.close()
@@ -4367,9 +4490,11 @@ def ticker_feed():
     if _is_edge_node():
         # Proxy from hub so jafo.local shows the same ticker as jafo.live
         hub_url = os.environ.get("JAFO_HUB_URL", "https://jafo.live").rstrip("/")
+        _ns = os.environ.get("JAFO_NODE_SLUG", "").strip()
+        _q = f"?node={_ns}" if _ns else ""
         try:
             import requests as _r
-            resp = _r.get(f"{hub_url}/api/ticker", timeout=4)
+            resp = _r.get(f"{hub_url}/api/ticker{_q}", timeout=4)
             if resp.status_code == 200:
                 return jsonify(resp.json())
         except Exception:
@@ -4380,27 +4505,41 @@ def ticker_feed():
     cutoff = now - STORY_MAX_AGE_SEC
     conn = get_db()
 
-    latest_rows = conn.execute("""
+    # Scope the ticker to one node/region on the hub. Stories have no region
+    # column, so scope them via their primary_call_id → calls.region/node.
+    region_slug = request.args.get("region")
+    node_slug   = request.args.get("node")
+    calls_scope, scope_params = "", []
+    if region_slug:
+        calls_scope += " AND region_id = (SELECT id FROM regions WHERE slug = ?)"
+        scope_params.append(region_slug)
+    if node_slug:
+        calls_scope += " AND node_id = (SELECT id FROM nodes WHERE slug = ?)"
+        scope_params.append(node_slug)
+    story_scope = (f" AND primary_call_id IN (SELECT id FROM calls WHERE 1=1{calls_scope})"
+                   if calls_scope else "")
+
+    latest_rows = conn.execute(f"""
         SELECT id, title, talkgroup_tag, last_call_at
         FROM stories
-        WHERE last_call_at >= ?
+        WHERE last_call_at >= ?{story_scope}
         ORDER BY last_call_at DESC
         LIMIT 3
-    """, (cutoff,)).fetchall()
+    """, (cutoff, *scope_params)).fetchall()
     latest = [{
         "label": (r["title"] or "—")[:120],
         "url":   f"/share/story/{r['id']}",
         "sub":   r["talkgroup_tag"] or "",
     } for r in latest_rows]
 
-    viewed_rows = conn.execute("""
+    viewed_rows = conn.execute(f"""
         SELECT id, title, talkgroup_tag, COALESCE(views, 0) AS views
         FROM stories
         WHERE last_call_at >= ?
-          AND COALESCE(views, 0) > 0
+          AND COALESCE(views, 0) > 0{story_scope}
         ORDER BY views DESC, last_call_at DESC
         LIMIT 3
-    """, (cutoff,)).fetchall()
+    """, (cutoff, *scope_params)).fetchall()
     most_viewed = [{
         "label": (r["title"] or "—")[:120],
         "url":   f"/share/story/{r['id']}",
@@ -4408,16 +4547,16 @@ def ticker_feed():
     } for r in viewed_rows]
 
     # Most active talkgroups in the last 12h, by call count
-    tg_rows = conn.execute("""
+    tg_rows = conn.execute(f"""
         SELECT talkgroup, talkgroup_tag, COUNT(*) AS n
         FROM calls
         WHERE start_time >= ?
           AND talkgroup_tag IS NOT NULL
-          AND talkgroup_tag != ''
+          AND talkgroup_tag != ''{calls_scope}
         GROUP BY talkgroup, talkgroup_tag
         ORDER BY n DESC
         LIMIT 3
-    """, (cutoff,)).fetchall()
+    """, (cutoff, *scope_params)).fetchall()
     active_talkgroups = [{
         "label": r["talkgroup_tag"],
         "url":   f"/talkgroups#{r['talkgroup']}",
@@ -6440,9 +6579,46 @@ def recent_calls_geo():
     })
 
 
+@app.context_processor
+def _inject_edge_scope():
+    # Location-dynamic UI label, written to .env by relocate.py on each move.
+    return {"system_label": os.environ.get("JAFO_SYSTEM_LABEL", "P25 TRUNKED")}
+
+
 @app.route("/api/map-config")
 def map_config():
-    """Bounds + center for the live map. Frontend uses these to fit the view."""
+    """Bounds + center for the live map. Frontend uses these to fit the view.
+
+    With ?region=<slug> the view is scoped to that region's configured
+    center/bbox (falls back to a box around its center, then to RGV)."""
+    region_slug = request.args.get("region")
+    if region_slug:
+        conn = get_db()
+        r = conn.execute(
+            """SELECT default_lat, default_lng, default_zoom,
+                      bbox_north, bbox_south, bbox_east, bbox_west
+               FROM regions WHERE slug = ?""", (region_slug,)).fetchone()
+        conn.close()
+        if r and r["default_lat"] is not None:
+            center = [r["default_lat"], r["default_lng"]]
+            if r["bbox_north"] is not None:
+                bounds = [[r["bbox_south"], r["bbox_west"]],
+                          [r["bbox_north"], r["bbox_east"]]]
+            else:
+                d = 0.45  # ~50 km box around the center when no bbox is set
+                bounds = [[center[0] - d, center[1] - d],
+                          [center[0] + d, center[1] + d]]
+            return jsonify({"center": center, "bounds": bounds})
+    # Edge node: env JAFO_MAP_LAT/LNG (written by relocate.py on each move) make
+    # the local map follow the node's current location without a regions table.
+    _lat, _lng = os.environ.get("JAFO_MAP_LAT"), os.environ.get("JAFO_MAP_LNG")
+    if _lat and _lng:
+        try:
+            c = [float(_lat), float(_lng)]; d = 0.45
+            return jsonify({"center": c,
+                            "bounds": [[c[0]-d, c[1]-d], [c[0]+d, c[1]+d]]})
+        except ValueError:
+            pass
     return jsonify({
         "center": list(RGV_CENTER),
         "bounds": [list(RGV_BOUNDS[0]), list(RGV_BOUNDS[1])],
@@ -6823,6 +6999,210 @@ def api_aircraft():
             return jsonify(payload), 502
 
 
+# -----------------------------------------------------------------------------
+# Antenna coverage — 3D reception envelope. A background thread reads the local
+# dump1090/readsb feed (the same one /api/aircraft prefers) and accumulates the
+# maximum detection range per 1° bearing × altitude band. The frontend renders
+# this as a 3D dome. This reflects THIS antenna's real reception, so it only
+# collects when a local decoder is present — on the cloud hub it stays idle and
+# the endpoint reports available:false.
+#
+# Idea adapted from github.com/Charan-N15/ADS-B-3D-Antenna-Range-Visualizer,
+# reimplemented natively (no separate service / lighttpd / /range3d page).
+# -----------------------------------------------------------------------------
+
+# Altitude bands (ft): finest low, where the horizon does the limiting, coarser
+# up high. (lo, hi) pairs, contiguous, surface → 50,000 ft.
+def _build_coverage_bands() -> list[tuple[int, int]]:
+    bands, e = [], 0
+    for top, step in ((10000, 500), (20000, 1000), (50000, 2000)):
+        while e < top:
+            bands.append((e, e + step))
+            e += step
+    return bands
+
+COVERAGE_BANDS = _build_coverage_bands()      # 45 bands
+COVERAGE_BEARINGS = 360                        # 1° bins
+COVERAGE_POLL_SEC = 2                          # feed sampling cadence
+COVERAGE_SAVE_SEC = 30                         # disk flush cadence
+COVERAGE_MAX_NM = 500                          # sanity cap — ignore absurd ranges
+COVERAGE_PATH = DATA_DIR / "coverage.json"
+
+_COV_LOCK = threading.Lock()
+_COV_GRID: list[list[float | None]] = [
+    [None] * len(COVERAGE_BANDS) for _ in range(COVERAGE_BEARINGS)
+]
+_COV_SAMPLES = 0
+_COV_UPDATED = 0
+_COV_RX_CACHE: dict = {"ts": 0.0, "val": None}
+
+
+def _coverage_receiver() -> dict:
+    """Antenna location. dump1090/readsb write {"lat","lon"} to receiver.json
+    alongside aircraft.json; fall back to the configured region center."""
+    now = time.time()
+    if _COV_RX_CACHE["val"] and now - _COV_RX_CACHE["ts"] < 300:
+        return _COV_RX_CACHE["val"]
+    val = None
+    for p in LOCAL_ADSB_PATHS:
+        rp = p.rsplit("/", 1)[0] + "/receiver.json"
+        try:
+            with open(rp) as f:
+                d = json.load(f)
+            la, lo = d.get("lat"), d.get("lon")
+            if la is not None and lo is not None:
+                val = {"lat": la, "lon": lo, "source": "receiver.json"}
+                break
+        except (OSError, json.JSONDecodeError):
+            continue
+    if val is None:
+        val = {"lat": RGV_CENTER[0], "lon": RGV_CENTER[1], "source": "fallback"}
+    _COV_RX_CACHE["ts"], _COV_RX_CACHE["val"] = now, val
+    return val
+
+
+def _coverage_band(alt_ft: float) -> int | None:
+    """Band index for an altitude, or None if above the top band."""
+    if alt_ft < 0:
+        alt_ft = 0
+    for i, (lo, hi) in enumerate(COVERAGE_BANDS):
+        if lo <= alt_ft < hi:
+            return i
+    return None
+
+
+def _gc_nm_bearing(lat1, lon1, lat2, lon2) -> tuple[float, float]:
+    """Great-circle distance (nautical miles) and initial bearing (deg) from
+    point 1 (receiver) to point 2 (aircraft)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    d_nm = 2 * 3440.065 * math.asin(min(1.0, math.sqrt(a)))
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    brg = (math.degrees(math.atan2(y, x)) + 360) % 360
+    return d_nm, brg
+
+
+def _coverage_ingest(aircraft: list[dict]) -> None:
+    """Fold one feed snapshot into the running max-range grid."""
+    global _COV_SAMPLES, _COV_UPDATED
+    rx = _coverage_receiver()
+    rlat, rlon = rx["lat"], rx["lon"]
+    with _COV_LOCK:
+        for a in aircraft:
+            lat, lon = a.get("lat"), a.get("lon")
+            if lat is None or lon is None:
+                continue
+            alt = a.get("alt_baro")
+            if alt in (None, "ground"):
+                alt = a.get("alt_geom")
+            if not isinstance(alt, (int, float)):
+                continue
+            band = _coverage_band(alt)
+            if band is None:
+                continue
+            d_nm, brg = _gc_nm_bearing(rlat, rlon, lat, lon)
+            if d_nm <= 0 or d_nm > COVERAGE_MAX_NM:
+                continue
+            bb = int(brg) % COVERAGE_BEARINGS
+            cur = _COV_GRID[bb][band]
+            if cur is None or d_nm > cur:
+                _COV_GRID[bb][band] = round(d_nm, 1)
+            _COV_SAMPLES += 1
+        _COV_UPDATED = int(time.time())
+
+
+def _coverage_save() -> None:
+    with _COV_LOCK:
+        payload = {
+            "grid": _COV_GRID,
+            "samples": _COV_SAMPLES,
+            "updated": _COV_UPDATED,
+            "nbands": len(COVERAGE_BANDS),
+        }
+    tmp = COVERAGE_PATH.with_suffix(".json.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(payload, f, separators=(",", ":"))
+        os.replace(tmp, COVERAGE_PATH)
+    except OSError as e:
+        print(f"[coverage] save failed: {e}", file=sys.stderr)
+
+
+def _coverage_load() -> None:
+    """Restore the accumulated envelope on startup. Discards a saved grid whose
+    band count doesn't match the current scheme (schema drift across versions)."""
+    global _COV_GRID, _COV_SAMPLES, _COV_UPDATED
+    try:
+        with open(COVERAGE_PATH) as f:
+            d = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    grid = d.get("grid")
+    if (not isinstance(grid, list) or len(grid) != COVERAGE_BEARINGS
+            or d.get("nbands") != len(COVERAGE_BANDS)):
+        return
+    with _COV_LOCK:
+        _COV_GRID = [
+            [(v if isinstance(v, (int, float)) else None) for v in row]
+            for row in grid
+        ]
+        _COV_SAMPLES = int(d.get("samples") or 0)
+        _COV_UPDATED = int(d.get("updated") or 0)
+
+
+def _coverage_loop() -> None:
+    _coverage_load()
+    last_save = time.time()
+    while True:
+        try:
+            feed = _load_local_readsb()
+            if feed:
+                _coverage_ingest(feed.get("ac") or [])
+                if time.time() - last_save >= COVERAGE_SAVE_SEC:
+                    _coverage_save()
+                    last_save = time.time()
+        except Exception as e:
+            print(f"[coverage] loop error: {e}", file=sys.stderr)
+        time.sleep(COVERAGE_POLL_SEC)
+
+
+def _start_coverage_thread() -> None:
+    t = threading.Thread(target=_coverage_loop, daemon=True, name="coverage-loop")
+    t.start()
+
+
+@app.route("/api/coverage")
+def api_coverage():
+    """3D antenna reception envelope: max range (nm) per bearing × altitude band."""
+    rx = _coverage_receiver()
+    with _COV_LOCK:
+        grid = [row[:] for row in _COV_GRID]
+        samples, updated = _COV_SAMPLES, _COV_UPDATED
+    max_range, any_hit = 0.0, False
+    for row in grid:
+        for v in row:
+            if v:
+                any_hit = True
+                if v > max_range:
+                    max_range = v
+    # "available" = we have data, or a decoder is live right now (so a fresh Pi
+    # shows the panel immediately rather than the no-receiver note).
+    local_live = _load_local_readsb() is not None
+    return jsonify({
+        "available": any_hit or local_live,
+        "receiver": rx,
+        "bands": [{"lo": lo, "hi": hi} for lo, hi in COVERAGE_BANDS],
+        "bearings": COVERAGE_BEARINGS,
+        "range_unit": "nm",
+        "grid": grid,
+        "max_range": round(max_range, 1),
+        "samples": samples,
+        "updated": updated,
+    })
+
+
 # Apply the full SCHEMA (calls + cell_* + opencellid) once at startup so any
 # tables added in newer releases are present even on long-running edge nodes
 # whose get_db() short-circuits the schema apply when the DB file exists.
@@ -6838,6 +7218,7 @@ ensure_share_grants_table()
 if not _is_edge_node():
     _start_stories_thread()
 _start_heatmap_thread()
+_start_coverage_thread()
 
 
 # -----------------------------------------------------------------------------

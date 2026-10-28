@@ -1,0 +1,16 @@
+[Unit]
+Description=jafo — auto-relocate (re-home this node to its current location)
+Documentation=file:/home/pi/jafo/pi/tools/relocate.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+# relocate.py reads ~/jafo/.env itself (hub URL + provision token) and only acts
+# when the resolved region actually changes AND a receivable site is found, so
+# running it on boot/timer never disturbs a working, in-place capture config.
+ExecStart=/usr/bin/python3 /home/pi/jafo/pi/tools/relocate.py --auto
+# Give the network/SDR a moment to settle before probing geo + decoding.
+ExecStartPre=/bin/sleep 20
+Nice=5

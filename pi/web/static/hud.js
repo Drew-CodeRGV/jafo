@@ -475,7 +475,12 @@ function ccRefreshUnits() {
 
 async function ccRefreshStats() {
   try {
-    const s = await api("/api/stats");
+    // Scope telemetry to the per-node/region view when on the hub.
+    const sc = new URLSearchParams();
+    if (window.JAFO_NODE_SLUG) sc.set("node", window.JAFO_NODE_SLUG);
+    else if (window.JAFO_REGION_SLUG) sc.set("region", window.JAFO_REGION_SLUG);
+    const q = sc.toString();
+    const s = await api("/api/stats" + (q ? "?" + q : ""));
     ccSetMetric("calls24", s.last_24h ? s.last_24h.kept_24h : 0);
     ccSetMetric("total", s.totals ? s.totals.kept_total : 0);
     const bl = s.backlog ? (s.backlog.transcribe_pending || 0) + (s.backlog.enrich_pending || 0) : 0;
@@ -604,7 +609,9 @@ async function ccRefreshTicker() {
   const track = document.getElementById("cc-ticker-track");
   if (!track) return;
   try {
-    const d = await api("/api/ticker");
+    const tq = window.JAFO_NODE_SLUG ? "?node=" + encodeURIComponent(window.JAFO_NODE_SLUG)
+      : window.JAFO_REGION_SLUG ? "?region=" + encodeURIComponent(window.JAFO_REGION_SLUG) : "";
+    const d = await api("/api/ticker" + tq);
     const items = [];
     for (const tg of (d.active_talkgroups || [])) {
       items.push(`<span class="cc-ticker-item"><b>${ccEsc(tg.label)}</b><span class="sub">${ccEsc(tg.sub || "")}</span></span>`);
@@ -650,6 +657,30 @@ const ACARS_AIRLINES = {
   FX: "FedEx", "5X": "UPS", OO: "SkyWest", MQ: "Envoy", OH: "PSA", YX: "Republic",
   "9E": "Endeavor", AM: "Aeroméxico", Y4: "Volaris", VB: "VivaAerobús",
 };
+
+// ---- Flight-list category classification: commercial / cargo / private / military ----
+// Cargo callsign prefixes (IATA 2-letter + ICAO 3-letter) and operator-name keywords.
+const ACARS_CARGO_CODES = { FX: 1, "5X": 1, GTI: 1, CLX: 1, GEC: 1, BOX: 1, CKS: 1, ABX: 1, PAC: 1, ABW: 1, CJT: 1, GTY: 1, K4: 1 };
+const ACARS_CARGO_RE = /CARGO|FREIGHT|FEDEX|\bUPS\b|\bDHL\b|ATLAS AIR|CARGOLUX|KALITTA|POLAR AIR|AMERIJET|WESTERN GLOBAL|\bABX\b|ASTAR|LUFTHANSA CARGO/i;
+const ACARS_MIL_RE = /AIR FORCE|\bNAVY\b|\bARMY\b|MARINE|MILITARY|\bNATO\b|COAST GUARD|NATIONAL GUARD|AIR MOBILITY/i;
+const ACARS_MIL_TYPE_RE = /\b(C-?130|C-?17|C-?5|KC-?135|KC-?46|KC-?10|P-?8|E-?3|B-?52|C-?40|RC-?135|UH-?60|H-?60|F-?1[568]|F-?22|F-?35)\b/i;
+const ACARS_MIL_CALL_RE = /^(RCH|CNV|EVAC|SPAR|PAT\d|SNTRY|DOOM|TROY|GRZ|BOXER|REACH|NAVY|ARMY|VENUS|MAGMA|HOBO)/;
+
+// Returns "comm" | "cargo" | "priv" | "mil" | "" (unknown → no highlight).
+function ccAcarsCategory(flight, tail, name, type) {
+  const f = (flight || "").toUpperCase().trim();
+  const t = (tail || "").toUpperCase().trim();
+  const nm = (name || "").toString();
+  const ty = (type || "").toString();
+  const p2 = f.slice(0, 2), p3 = f.slice(0, 3);
+  if (ACARS_MIL_RE.test(nm) || ACARS_MIL_TYPE_RE.test(ty) || ACARS_MIL_CALL_RE.test(f)) return "mil";
+  if (ACARS_CARGO_CODES[p2] || ACARS_CARGO_CODES[p3] || ACARS_CARGO_RE.test(nm)) return "cargo";
+  if (nm) return "comm";                                 // resolved to an airline → commercial
+  if (/^[A-Z]{2,3}\d{1,4}[A-Z]?$/.test(f)) return "comm"; // airline-style callsign (UA1201, AAL23)
+  if (/^N[1-9]/.test(f) || /^N[1-9]/.test(t) || (t && t === f)) return "priv"; // N-number / GA
+  return "";
+}
+
 function ccRegCountry(tail) {
   const t = (tail || "").toUpperCase();
   if (/^N/.test(t)) return "🇺🇸 USA";
@@ -735,17 +766,21 @@ function ccHumanizeAcars(text) {
 }
 
 function ccAcarsDecode(m) {
-  const row = (k, v) => `<div class="ap-row"><span class="ap-k">${k}</span><span class="ap-v">${v}</span></div>`;
+  const chip = (k, v) => `<span class="ap-chip"><i>${k}</i>${v}</span>`;
   const flight = m.flight || "", tail = m.tail || "", label = m.label || "", text = m.text || "";
   const airline = ACARS_AIRLINES[(flight.slice(0, 2) || "").toUpperCase()];
   const country = ccRegCountry(tail);
-  let html = "";
-  html += row("Aircraft", ccEsc(tail || "—") + (country ? ` · ${country}` : ""));
-  if (flight) html += row("Flight", ccEsc(flight) + (airline ? ` · ${ccEsc(airline)}` : ""));
-  html += row("Label", `${ccEsc(label)} — ${ccEsc(ACARS_LABELS[label] || "airline / application-defined")}`);
-  html += row("Channel", `${m.freq_mhz || "?"} MHz` + (m.mode ? ` · mode ${ccEsc(m.mode)}` : ""));
-  if (m.block_id || m.msg_no) html += row("Block / Msg", ccEsc([m.block_id, m.msg_no].filter(Boolean).join(" ")));
-  html += row("Received", ccEsc(fmtTime(m.received_at)));
+  // Compact header: identity line (tail + flight), label line, then a meta strip.
+  let html = `<div class="ap-head">`;
+  html += `<span class="ap-ident"><b>${ccEsc(tail || "—")}</b>${country ? ` · ${ccEsc(country)}` : ""}</span>`;
+  if (flight) html += `<span class="ap-ident">✈ ${ccEsc(flight)}${airline ? ` · ${ccEsc(airline)}` : ""}</span>`;
+  html += `</div>`;
+  html += `<div class="ap-label">${ccEsc(label)} — ${ccEsc(ACARS_LABELS[label] || "airline / application-defined")}</div>`;
+  html += `<div class="ap-meta">`;
+  html += chip("Channel", `${m.freq_mhz || "?"} MHz` + (m.mode ? ` · mode ${ccEsc(m.mode)}` : ""));
+  if (m.block_id || m.msg_no) html += chip("Blk/Msg", ccEsc([m.block_id, m.msg_no].filter(Boolean).join(" ")));
+  html += chip("Rcvd", ccEsc(fmtTime(m.received_at)));
+  html += `</div>`;
   const notes = [];
   if (label === "SQ") { const sq = ccDecodeSquitter(text); if (sq) notes.push(sq); }
   const pos = ccParsePos(text);
@@ -791,8 +826,10 @@ function ccSelectAcars(idx) {
   ccAcarsRoute = null;
   ccDestroyAcarsMap();
   d.innerHTML =
+    `<div class="acd-scroll">` +
     `<div class="acd-decode">${ccAcarsDecode(m)}</div>` +
     `<div class="acd-ac" id="acd-ac"><div class="acd-loading">◈ looking up aircraft…</div></div>` +
+    `</div>` +
     `<div class="acd-globe-wrap" id="acd-globe-wrap" style="display:none">` +
     `<div class="acd-route" id="acd-route">—</div><div id="cc-acars-map" class="acd-map"></div></div>`;
   const reg = m.tail || "", flight = m.flight || "";
@@ -932,6 +969,14 @@ async function ccRefreshAcars() {
   const msgs = d.messages || [];
   if (!msgs.length || !list) return;   // keep the "flip to ACARS mode" hint
   ccAcarsMsgs = msgs;
+  // One-time category legend above the list.
+  if (!document.getElementById("cc-acars-legend")) {
+    const lg = document.createElement("div");
+    lg.id = "cc-acars-legend"; lg.className = "cc-acars-legend";
+    lg.innerHTML = '<span class="lg lg-comm">commercial</span><span class="lg lg-cargo">cargo</span>' +
+                   '<span class="lg lg-priv">private</span><span class="lg lg-mil">military</span>';
+    list.parentElement.insertBefore(lg, list);
+  }
   // Group by flight (fall back to tail) — newest group first.
   const order = [], groups = new Map();
   msgs.forEach((m, i) => {
@@ -954,7 +999,8 @@ async function ccRefreshAcars() {
              `<span class="cc-acars-txt">${ccEsc(txt.slice(0, 80))}</span></div>`;
     }).join("");
     const collapsed = ccAcarsCollapsed.has(key);
-    return `<div class="acg${collapsed ? " collapsed" : ""}">` +
+    const cat = ccAcarsCategory(flight, tail, airline, "");
+    return `<div class="acg${collapsed ? " collapsed" : ""}${cat ? " cat-" + cat : ""}">` +
            `<div class="acg-hdr" data-key="${ccEsc(key)}" title="click to collapse this flight">` +
            `<span class="acg-caret">▾</span>` +
            `<span class="acg-title">✈ <b>${ccEsc(key)}</b>` +
@@ -981,6 +1027,14 @@ function ccEnrichAcarsGroups() {
     const ck = `${tail}|${flight}|${ap}`;
     const paint = (info) => {
       if (!info) return;
+      // Refine the list color now that we know the real operator + type.
+      const g = el.closest(".acg");
+      if (g) {
+        const cat = ccAcarsCategory(flight, tail, info.airline_name || info.operator || "",
+                                    [info.manufacturer, info.type, info.icao_type].filter(Boolean).join(" "));
+        g.classList.remove("cat-comm", "cat-cargo", "cat-priv", "cat-mil");
+        if (cat) g.classList.add("cat-" + cat);
+      }
       const bits = [];
       if (info.origin && info.destination) {
         const o = info.origin.iata || info.origin.icao, d = info.destination.iata || info.destination.icao;
