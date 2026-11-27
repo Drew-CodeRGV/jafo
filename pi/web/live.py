@@ -262,6 +262,22 @@ def live_page(slug: str):
 
 
 WALLS = ("command", "newsroom", "grid", "pulse")
+CONCEPTS = ("river", "brief", "console", "near")   # /live redesign prototypes
+
+
+@bp.route("/live/<slug>/v/<name>")
+def concept_page(slug: str, name: str):
+    """Redesign prototypes of the /live experience: templates/v_<name>.html."""
+    if name not in CONCEPTS:
+        abort(404)
+    conn = _db()
+    r = conn.execute("SELECT * FROM regions WHERE slug = ?", (slug,)).fetchone()
+    conn.close()
+    if not r:
+        abort(404)
+    return render_template(f"v_{name}.html", region_slug=slug, region_name=r["name"], region=dict(r),
+                           tz=str(A_TZ()), concepts=CONCEPTS, concept=name,
+                           audio=_owner() or A.PUBLIC_AUDIO, owner=_owner())
 
 
 @bp.route("/live/<slug>/wall")

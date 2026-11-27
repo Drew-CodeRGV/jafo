@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<link rel="stylesheet" href="/static/live.css?v=5">
+<link rel="stylesheet" href="/static/live.css?v=6">
 <script>
   // Apply the saved theme before paint.
   try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -73,6 +73,7 @@
     <button type="button" data-base="sat">Satellite</button>
   </div>
   <label class="tog"><span>Units</span><input type="checkbox" data-layer="units" checked><i></i></label>
+  <label class="tog"><span>Aircraft</span><input type="checkbox" data-layer="aircraft" checked><i></i></label>
   <label class="tog"><span>Traffic cameras</span><input type="checkbox" data-layer="cameras"><i></i></label>
   <label class="tog"><span>Heat (24h)</span><input type="checkbox" data-layer="heat"><i></i></label>
   <label class="tog"><span>Radar</span><input type="checkbox" data-layer="radar"><i></i></label>
@@ -109,11 +110,13 @@
     <button role="tab" type="button" data-tab="incidents" class="on">Incidents <span class="n" id="n-incidents"></span></button>
     <button role="tab" type="button" data-tab="units">Units <span class="n" id="n-units"></span></button>
     <button role="tab" type="button" data-tab="radio">Radio</button>
+    <button role="tab" type="button" data-tab="air">Air <span class="n" id="n-air"></span></button>
   </div>
   <div class="views" id="views">
     <section class="view" data-view="incidents"></section>
     <section class="view" data-view="units" hidden></section>
     <section class="view" data-view="radio" hidden></section>
+    <section class="view" data-view="air" hidden></section>
     <section class="view detail" data-view="detail" hidden></section>
     <section class="view detail" data-view="filters" hidden></section>
   </div>
@@ -192,6 +195,6 @@
 
 <div class="toast" id="toast" role="status" hidden></div>
 
-<script src="/static/live.js?v=4"></script>
+<script src="/static/live.js?v=6"></script>
 </body>
 </html>

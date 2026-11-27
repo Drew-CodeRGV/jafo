@@ -118,7 +118,7 @@ function initMap(cfg) {
   unitLayer = L.layerGroup().addTo(map);
   incLayer = L.layerGroup().addTo(map);
   warnLayer = L.layerGroup().addTo(map);
-  map.on("zoomend", () => renderMapIncidents());
+  map.on("zoomend", () => { renderMapIncidents(); renderAirMap(); });
   map.on("click", () => { if (isMobile()) setSheet("short"); });
   $("#btn-zin").onclick = () => map.zoomIn();
   $("#btn-zout").onclick = () => map.zoomOut();
@@ -270,6 +270,8 @@ function setTab(tab) {
   if (tab === "incidents") renderIncidentList();
   if (tab === "units") { renderUnitList(); loadUnits(); }
   if (tab === "radio") renderRadio();
+  if (tab === "air") { renderAir(); loadAir(); }
+  if (tab !== "air") AIR.sel = null;
   setHash(tab === "incidents" ? "" : tab);
 }
 function setHash(h) { const want = h ? "#" + h : " "; if (location.hash !== (h ? "#" + h : "")) history.replaceState(null, "", h ? "#" + h : location.pathname); }
@@ -377,6 +379,7 @@ function renderIncidentDetail() {
     <div class="dmeta">${kico(d.kind)}<div><div style="color:var(--text)">${esc(d.location || "Location not given")}${d.precision && ["city", "street"].includes(d.precision) ? " <small>(approximate)</small>" : ""}</div>
     <div>${fmtTime(d.first_at)}${d.last_at - d.first_at > 120 ? ` – ${fmtTime(d.last_at)}` : ""} · ${esc(STATUS_LABEL[d.status] || d.status)}${d.city ? " · " + esc(d.city) : ""}</div></div></div>`;
   if (d.summary) html += `<div class="dsum">${richText(d.summary)}</div>`;
+  html += `<div id="overhead-slot"></div>`;
   html += `<div class="dtabs">
     <button type="button" data-dtab="timeline" class="${tab === "timeline" ? "on" : ""}">Timeline <span class="n">${d.timeline.length}</span></button>
     <button type="button" data-dtab="involved" class="${tab === "involved" ? "on" : ""}">Involved <span class="n">${ucount + d.people.length + d.vehicles.length}</span></button>
@@ -754,6 +757,7 @@ function renderWeatherPop() {
 async function toggleLayer(name, on) {
   if (name === "units") renderMapUnits();
   if (name === "cameras") toggleCamLayer(on);
+  if (name === "aircraft") renderAirMap();
   if (name === "warnings") loadWeather();
   if (name === "radar") {
     if (on) {
@@ -1024,7 +1028,7 @@ function back() {
   setTab(S.tab);
 }
 function onClick(e) {
-  const t = e.target.closest("button, [data-inc], [data-unit], [data-inc-link], [data-toggle-words], [data-cam], a, .unit-ref");
+  const t = e.target.closest("button, [data-inc], [data-unit], [data-inc-link], [data-toggle-words], [data-cam], [data-ac], a, .unit-ref");
   if (!t) return;
   const ds = t.dataset;
   if (t.matches(".unit-ref")) { e.preventDefault(); openUnit(+ds.unit); return; }
@@ -1055,6 +1059,7 @@ function onClick(e) {
   }
   if (ds.push) { setPush(ds.push); return; }
   if (ds.cam) { openCamBig(ds.cam, ds.camname); return; }
+  if (ds.ac) { openAircraft(ds.ac); return; }
   if (ds.hlList) { S.hl.list = ds.hlList; renderHighlights(); return; }
   if (ds.hlStat) { S.hl.stat = ds.hlStat; renderHighlights(); return; }
   if (ds.hlDays) { store.set("hlDays", +ds.hlDays); openHighlights(+ds.hlDays, S.hl.kind); return; }
@@ -1095,6 +1100,7 @@ function rerender() {
   if (S.detail?.type === "incident" && S.detail.data) renderIncidentDetail();
   else if (S.detail?.type === "unit" && S.detail.data) renderUnitDetail();
   else if (S.tab === "radio") renderRadio();
+  else if (S.tab === "air") renderAir();
 }
 async function loadOlder() {
   try {
@@ -1114,7 +1120,8 @@ function routeHash() {
   let m;
   if ((m = h.match(/^i\/(\d+)/))) openIncident(+m[1]);
   else if ((m = h.match(/^u\/(\d+)/))) openUnit(+m[1]);
-  else if (["units", "radio"].includes(h)) setTab(h);
+  else if ((m = h.match(/^a\/([0-9a-f]+)/i))) { setTab("air"); loadAir().then(() => openAircraft(m[1])); }
+  else if (["units", "radio", "air"].includes(h)) setTab(h);
 }
 
 function bind() {
@@ -1176,6 +1183,115 @@ function bind() {
   if (window.JAFO_TOMTOM_KEY) $("#tog-traffic").hidden = false;
   addEventListener("hashchange", routeHash);
   initSheet(); initReplayUi(); markTheme();
+}
+
+// ---------------------------------------------------------------- aircraft (ADS-B + ACARS)
+const DEMO = new URLSearchParams(location.search).get("demo") === "1";
+const AIR = { data: null, layer: null, trails: null, sel: null };
+const PLANE = '<svg viewBox="0 0 24 24"><path d="M12 2c.8 0 1.3.9 1.3 2v5.2l7.7 4.4v2l-7.7-2.2v4.3l2.3 1.8V21L12 20l-3.6 1v-1.5l2.3-1.8v-4.3L3 15.6v-2l7.7-4.4V4c0-1.1.5-2 1.3-2z"/></svg>';
+const HELI = '<svg viewBox="0 0 24 24"><path d="M11 3h2v3h7v1.6h-7V9c2.7.3 4.5 2.4 4.5 5 0 2.4-1.6 4-4 4.4V20h3v1.4H7.5V20h3v-1.6c-2.4-.4-4-2-4-4.4 0-2.6 1.8-4.7 4.5-5V7.6H4V6h7V3z"/></svg>';
+const ROLE_NAME = { border: "Border Patrol", medical: "Medical", police: "Police", military: "Military", news: "News" };
+async function loadAir() {
+  try { AIR.data = await api("/api/live/air", DEMO ? { demo: 1 } : {}); } catch (e) { return; }
+  const c = AIR.data.counts || {};
+  $("#n-air").textContent = c.interesting || c.total || "";
+  renderAirMap();
+  if (S.tab === "air" && !S.detail) renderAir();
+  if (S.detail?.type === "aircraft") renderAircraftDetail();
+  const em = (AIR.data.aircraft || []).filter((a) => a.emergency);
+  for (const a of em) if (!AIR.alerted?.has(a.hex)) {
+    AIR.alerted = AIR.alerted || new Set(); AIR.alerted.add(a.hex);
+    toast(`✈ ${a.callsign || a.reg || a.hex} squawking ${a.emergency} (${{ "7700": "emergency", "7600": "radio failure", "7500": "hijack" }[a.emergency]})`);
+  }
+  if (S.detail?.type === "incident" && S.detail.data) markOverhead();
+}
+function acIcon(a) {
+  const cls = ["ac", a.role ? "role" : "", a.emergency ? "emergency" : "", !a.interesting && (a.alt_ft || 0) > 15000 ? "dim" : ""].join(" ");
+  const tag = a.interesting && (map.getZoom() >= 11 || a.emergency || AIR.sel === a.hex) ? `<span class="tag">${a.role ? `<b>${esc(ROLE_NAME[a.role])}</b> ` : ""}${esc(a.callsign || a.reg || "")}${a.alt_ft != null && !a.on_ground ? ` · ${Math.round(a.alt_ft / 100) * 100} ft` : ""}${a.circling ? " · circling" : ""}</span>` : "";
+  const rot = a.kind === "helicopter" ? 0 : (a.track || 0);
+  return L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15],
+    html: `<div class="${cls}">${(a.kind === "helicopter" ? HELI : PLANE).replace("<svg", `<svg style="transform:rotate(${rot}deg)"`)}${tag}</div>` });
+}
+function renderAirMap() {
+  if (!map) return;
+  if (!AIR.layer) { AIR.layer = L.layerGroup().addTo(map); AIR.trails = L.layerGroup().addTo(map); }
+  AIR.layer.clearLayers(); AIR.trails.clearLayers();
+  if (!$('[data-layer="aircraft"]').checked || S.replay || !AIR.data) return;
+  for (const a of AIR.data.aircraft || []) {
+    if (a.lat == null) continue;
+    if (a.trail?.length > 1 && (a.interesting || AIR.sel === a.hex))
+      L.polyline(a.trail.map((p) => [p[0], p[1]]), { pane: "trails", color: a.emergency ? "#d4372f" : a.role ? "#7a3ff2" : "#5b6575", weight: AIR.sel === a.hex ? 3 : 1.6, opacity: 0.7, dashArray: a.kind === "helicopter" ? "2 4" : null }).addTo(AIR.trails);
+    L.marker([a.lat, a.lng], { icon: acIcon(a), pane: "units", zIndexOffset: a.emergency ? 900 : a.interesting ? 500 : 0 })
+      .on("click", () => openAircraft(a.hex)).addTo(AIR.layer);
+  }
+}
+function airRow(a) {
+  const cls = ["row", "airrow", a.role ? "role" : "", a.emergency ? "emergency" : ""].join(" ");
+  const sub = [a.alt_ft != null && !a.on_ground ? `${a.alt_ft.toLocaleString()} ft` : a.on_ground ? "on ground" : null,
+    a.gs_kt != null ? `${a.gs_kt} kt` : null, a.type].filter(Boolean).join(" · ");
+  return `<div class="${cls}" data-ac="${esc(a.hex)}" tabindex="0"><span class="acico">${a.kind === "helicopter" ? HELI : PLANE}</span>
+    <div class="main"><div class="t">${a.emergency ? `<span class="pill alert">${esc(a.emergency)}</span>` : ""}${a.role ? `<span class="pill role">${esc(ROLE_NAME[a.role])}</span>` : ""}${esc(a.callsign || a.reg || a.hex)}</div>
+    <div class="s">${esc(sub)}${a.circling ? " · circling" : ""}${a.near_incident ? ` · over “${esc(a.near_incident.title)}”` : ""}</div></div>
+    <div class="meta">${a.operator ? `<div style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.operator.toLowerCase())}</div>` : ""}</div></div>`;
+}
+function renderAir() {
+  const v = $('[data-view="air"]');
+  const d = AIR.data;
+  if (!d) { v.innerHTML = `<div class="empty">Loading the sky…</div>`; return; }
+  const q = S.q.toLowerCase();
+  const list = (d.aircraft || []).filter((a) => !q || `${a.callsign} ${a.reg} ${a.type} ${a.operator} ${a.role}`.toLowerCase().includes(q));
+  const intr = list.filter((a) => a.interesting), rest = list.filter((a) => !a.interesting);
+  let html = `<div class="sec-h">In the air<small>${d.counts.airborne} airborne${d.demo ? " · demo" : ""}</small></div>`;
+  if (!list.length) html += `<div class="empty">Nothing in the sky over ${esc(CFG.regionName)} right now${new Date().getHours() < 6 ? " — it's the middle of the night" : ""}. Aircraft appear here from JAFO's own ADS-B receiver and the adsb.lol network.</div>`;
+  if (intr.length) html += `<div class="sub-h">Worth a look · ${intr.length}</div>` + intr.map(airRow).join("");
+  if (rest.length) html += `<div class="sub-h">Other traffic · ${rest.length}</div>` + rest.map(airRow).join("");
+  const ac = d.acars || {};
+  html += `<div class="sub-h">ACARS messages ${ac.active ? "· receiving" : "· receiver idle"}</div>`;
+  html += (ac.messages || []).length ? `<div class="acars">${ac.messages.slice(0, 12).map((m) => `<div class="m"><b>${esc(m.flight || m.tail || "—")}</b> <span style="color:var(--text-3)">${fmtTime(m.at)} · label ${esc(m.label || "")}</span><code>${esc(m.text)}</code></div>`).join("")}</div>`
+    : `<div class="empty" style="padding-top:6px">No ACARS in the last few hours. The second radio switches between ADS-B and ACARS.</div>`;
+  v.innerHTML = html;
+}
+async function openAircraft(hex) {
+  S.detail = { type: "aircraft", id: hex };
+  AIR.sel = hex;
+  showView("detail"); setHash(`a/${hex}`);
+  if (isMobile()) setSheet("mid");
+  renderAircraftDetail(true);
+  renderAirMap();
+}
+async function renderAircraftDetail(fly = false) {
+  const a = (AIR.data?.aircraft || []).find((x) => x.hex === S.detail.id);
+  const v = $('[data-view="detail"]');
+  if (!a) { v.innerHTML = `<div class="dhead"><button type="button" class="back" data-act="back">${ICO.back}</button><div class="dtitle">Out of range</div></div><div class="empty">This aircraft isn't being heard any more.</div>`; return; }
+  if (fly && a.lat != null) flyToVisible([a.lat, a.lng], Math.max(map.getZoom(), 12));
+  let look = AIR.look?.[a.hex];
+  v.innerHTML = `<div class="dhead"><button type="button" class="back" data-act="back" title="Back">${ICO.back}</button>
+    <div class="dtitle">${esc(a.callsign || a.reg || a.hex)}</div></div>
+    <div class="dmeta"><span class="acico" style="width:28px;height:28px;display:grid;place-items:center">${a.kind === "helicopter" ? HELI : PLANE}</span><div><div style="color:var(--text)">${esc(a.label)}</div>
+    <div>${a.emergency ? `<span class="pill alert">Squawk ${esc(a.emergency)}</span>` : ""}${a.role ? `<span class="pill role">${esc(ROLE_NAME[a.role])}</span>` : ""}${a.circling ? `<span class="pill">Circling</span>` : ""}</div></div></div>
+    ${look?.photo ? `<div style="padding:0 16px"><img class="ac-photo" src="${esc(look.photo)}" alt=""></div>` : ""}
+    ${a.near_incident ? `<div class="overhead" data-inc-link="${a.near_incident.id}">Over <b>${esc(a.near_incident.title)}</b> · ${a.near_incident.distance_mi} mi away →</div>` : ""}
+    <div class="kv">
+      ${[["Registration", a.reg], ["Type", [look?.manufacturer, look?.type || a.type].filter(Boolean).join(" ")], ["Operator", look?.operator || a.operator],
+         ["Altitude", a.on_ground ? "On the ground" : a.alt_ft != null ? `${a.alt_ft.toLocaleString()} ft` : null], ["Speed", a.gs_kt != null ? `${a.gs_kt} kt` : null],
+         ["Heading", a.track != null ? `${Math.round(a.track)}°` : null], ["Climb", a.vs_fpm ? `${a.vs_fpm > 0 ? "+" : ""}${a.vs_fpm} ft/min` : null], ["Squawk", a.squawk],
+         ["Route", look?.origin && look?.destination ? `${look.origin.iata || look.origin.icao} → ${look.destination.iata || look.destination.icao}` : null],
+         ["Heard by", a.source === "verified" ? "JAFO receiver + adsb.lol" : a.source === "local" ? "JAFO's own receiver" : a.source === "demo" ? "Demo" : "adsb.lol network"], ["ICAO hex", a.hex]]
+        .filter(([, v]) => v).map(([k, v]) => `<div class="item"><div class="lbl" style="font-weight:500;color:var(--text-2);width:96px">${esc(k)}</div><div>${esc(v)}</div></div>`).join("")}
+    </div>`;
+  if (!look && (a.reg || a.callsign) && a.source !== "demo") {
+    AIR.look = AIR.look || {};
+    AIR.look[a.hex] = {};
+    try { AIR.look[a.hex] = await api("/api/aircraft-lookup", { reg: a.reg || "", flight: a.callsign || "", region: undefined }); } catch (e) {}
+    if (S.detail?.type === "aircraft" && S.detail.id === a.hex) renderAircraftDetail();
+  }
+}
+function markOverhead() {
+  const d = S.detail.data;
+  const over = (AIR.data?.aircraft || []).filter((a) => a.near_incident?.id === d.id);
+  const el = $("#overhead-slot");
+  if (!el) return;
+  el.innerHTML = over.map((a) => `<div class="overhead" data-ac="${esc(a.hex)}">✈ <b>${esc(ROLE_NAME[a.role] || (a.kind === "helicopter" ? "Helicopter" : "Aircraft"))}</b> ${esc(a.callsign || a.reg || "")} ${a.circling ? "circling" : "flying"} ${a.near_incident.distance_mi} mi away at ${a.alt_ft?.toLocaleString?.() ?? "?"} ft</div>`).join("");
 }
 
 // ---------------------------------------------------------------- alerts (web push) + app install
@@ -1249,7 +1365,8 @@ async function boot() {
     if (saved !== null && el) { el.checked = saved; if (saved && ["heat", "radar", "cameras"].includes(name)) toggleLayer(name, true); }
   }
   await Promise.all([loadIncidents(), loadUnits(), loadRadio(true)]);
-  loadWeather(); presence(); initPush(); keepAwake();
+  loadWeather(); presence(); initPush(); keepAwake(); loadAir();
+  setInterval(() => { if (!document.hidden && !S.replay) loadAir(); }, DEMO ? 5000 : 10000);
   routeHash();
   if (!store.get("toured", false)) setTimeout(() => openTour(0), 600);
   setInterval(() => { if (!document.hidden) loadIncidents(); }, 10000);

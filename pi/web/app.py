@@ -7255,6 +7255,8 @@ else:
     app.register_blueprint(_live_bp)
     import cameras as _cameras  # noqa: E402  TxDOT traffic cameras
     app.register_blueprint(_cameras.bp)
+    import air as _air  # noqa: E402  ADS-B / ACARS for /live
+    app.register_blueprint(_air.bp)
     try:  # web push alerts (needs pywebpush in the web venv)
         import push as _push  # noqa: E402
         app.register_blueprint(_push.bp)

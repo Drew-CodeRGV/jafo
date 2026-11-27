@@ -480,3 +480,28 @@ body.replaying .player { display: none; }
   .chips { right: 64px; }
 }
 @media (prefers-reduced-motion: reduce) { .brand .heli, .live-dot i { animation: none; } }
+
+/* ---------- aircraft ---------- */
+.ac { position: relative; width: 30px; height: 30px; display: grid; place-items: center; }
+.ac svg { width: 26px; height: 26px; fill: #2f3a4b; stroke: #fff; stroke-width: 1.2; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); transition: transform .8s linear; }
+:root[data-theme="dark"] .ac svg { fill: #dfe6f1; stroke: #10151c; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ac svg { fill: #dfe6f1; stroke: #10151c; } }
+.ac.role svg { fill: #7a3ff2; }
+.ac.emergency svg { fill: var(--alert); }
+.ac.emergency::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--alert); animation: pulse 1.4s ease-out infinite; }
+.ac.dim svg { opacity: .55; }
+.ac .tag { position: absolute; left: 26px; top: -2px; white-space: nowrap; font: 600 10.5px/1 var(--font); padding: 2px 5px; border-radius: 5px; background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.ac .tag b { color: #7a3ff2; }
+.airrow .acico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--hover); flex: none; }
+.airrow .acico svg { width: 22px; height: 22px; fill: var(--text-2); }
+.airrow.role .acico svg { fill: #7a3ff2; }
+.airrow.emergency .acico { background: color-mix(in srgb, var(--alert) 18%, transparent); }
+.airrow.emergency .acico svg { fill: var(--alert); }
+.pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: var(--hover); color: var(--text-2); margin-right: 4px; }
+.pill.role { background: color-mix(in srgb, #7a3ff2 15%, transparent); color: #7a3ff2; }
+.pill.alert { background: var(--alert); color: #fff; }
+.ac-photo { width: 100%; border-radius: 12px; display: block; margin: 6px 0; aspect-ratio: 16/10; object-fit: cover; background: var(--hover); }
+.acars { padding: 4px 16px 12px; }
+.acars .m { border-bottom: 1px solid var(--line); padding: 8px 0; font-size: 13px; }
+.acars .m code { display: block; white-space: pre-wrap; font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--text-2); margin-top: 3px; }
+.overhead { margin: 8px 16px 0; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #7a3ff2 10%, transparent); font-size: 13px; cursor: pointer; }
