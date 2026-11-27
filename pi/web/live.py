@@ -319,6 +319,13 @@ def live_map(slug: str):
     return render_template("live.html", view="map", **_page_ctx(slug))
 
 
+@bp.route("/live/<slug>/about")
+def live_about(slug: str):
+    """About: sources, what is hidden, legality, accuracy, retention."""
+    return render_template("about.html", view="about", audio_days=int(os.environ.get("AUDIO_RETENTION_DAYS", "30")),
+                           air_hours=int(float(os.environ.get("JAFO_AIR_HISTORY_HOURS", "48"))), **_page_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     """Console: the multi-pane pro view, with the River timeline as a pane."""

@@ -669,6 +669,7 @@ function scrollToStory(id) {
   el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1400);
 }
 function routeHash() {
+  if (location.hash === "#report") { history.replaceState(null, "", location.pathname + location.search); openNamed("report"); return; }
   const m = location.hash.match(/^#(?:i\/|story-)(\d+)$/);
   if (m) gotoStory(+m[1]);
 }
@@ -1203,7 +1204,8 @@ async function openNamed(name) {
     <p>The <b>Briefing</b> paragraph is written on your device from those stories, ordered by how serious they are, how many crews are involved, and how recent they are. <b>Near me</b> sorts the same stories by distance from places you choose. Saved places stay in this browser; place search looks things up through JAFO's server, which uses its own records and OpenStreetMap.</p>
     <p><b>In the air</b> comes from aircraft broadcasting their position (ADS-B). We point out helicopters, Border Patrol, medical and military flights, and emergency codes.</p>
     <p>Civilian names, phone numbers, plates and exact house numbers are hidden automatically. ${CAN_PLAY ? "Recordings play only when you tap them, and they aren't edited, so they may contain details the written version leaves out." : "Audio stays private to the station operators."} Encrypted channels aren't heard at all.</p>
-    <p>Everything here is automated and unconfirmed. Transcripts, summaries and locations can be wrong; <button type="button" class="link" data-open="report">tell us</button> when they are. <b>This is not an emergency service. Call 911 if you need help.</b></p></div>`);
+    <p>Everything here is automated and unconfirmed. Transcripts, summaries and locations can be wrong; <button type="button" class="link" data-open="report">tell us</button> when they are. <b>This is not an emergency service. Call 911 if you need help.</b></p>
+    <p><a href="/live/${esc(CFG.region)}/about">The full About page: what's hidden, why it's legal, what we keep →</a></p></div>`);
   if (name === "report") return openReport(null, null);
 }
 function openReport(callId, incId) {

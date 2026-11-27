@@ -127,6 +127,13 @@ def live_map(slug: str):
     return render_template("live.html", view="map", **_ctx(slug))
 
 
+@bp.route("/live/<slug>/about")
+def live_about(slug: str):
+    # retention figures describe the hub (jafo.live), the public system of record
+    return render_template("about.html", view="about", audio_days=int(os.environ.get("JAFO_HUB_AUDIO_DAYS", "14")),
+                           air_hours=48, **_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     return render_template(["pro.html", "v_console.html"], view="pro", concept="console", **_ctx(slug))

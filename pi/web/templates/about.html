@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>About JAFO Live · {{ region_name }}</title>
+<meta name="description" content="How JAFO Live turns public-safety radio in {{ region_name }} into plain-English stories: where it comes from, what we hide, why it's legal, and where it can be wrong.">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Public+Sans:wght@400..700&display=swap">
+<script>try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #141a24; --ink-2: #3d4757; --ink-3: #6b7585; --rule: #e2e6ee;
+  --accent: #1d4fd8; --ok: #11795a; --no: #b42318; --soft: #eef2fb;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+    --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+  --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16.5px/1.6 var(--f-body); }
+a { color: var(--accent); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 20px 18px 64px; }
+.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font: 800 20px var(--f-display); letter-spacing: -.01em; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand small { font: 600 13px var(--f-body); color: var(--ink-3); }
+.back { font-weight: 600; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--rule); }
+h1 { font: 800 clamp(30px, 6vw, 44px)/1.08 var(--f-display); letter-spacing: -.02em; margin: 18px 0 10px; }
+.lede { font-size: 19px; color: var(--ink-2); margin: 0 0 18px; }
+.alert { background: var(--card); border: 1px solid var(--rule); border-left: 5px solid var(--no); border-radius: 14px; padding: 14px 16px; margin: 18px 0 8px; }
+.alert b { color: var(--no); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
+nav.toc a { text-decoration: none; font: 600 13.5px var(--f-body); padding: 6px 12px; border-radius: 999px; background: var(--soft); color: var(--ink-2); }
+section { background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 6px 22px 16px; margin: 16px 0; }
+h2 { font: 750 23px/1.25 var(--f-display); letter-spacing: -.01em; margin: 18px 0 6px; scroll-margin-top: 16px; }
+h3 { font: 700 16.5px var(--f-body); margin: 16px 0 2px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 22px; margin: 8px 0; }
+li { margin: 5px 0; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--soft); color: var(--accent); font: 800 13.5px var(--f-body); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .two { grid-template-columns: 1fr; } section { padding: 4px 16px 14px; } }
+.box { border-radius: 14px; padding: 4px 14px 10px; background: var(--soft); }
+.box h3 { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.no { background: var(--no); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.fine { font-size: 13.5px; color: var(--ink-3); }
+code { font-size: .92em; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { margin-top: 26px; color: var(--ink-3); font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="brand" href="/live/{{ region_slug }}"><img src="/static/jafo-icon-512.png" alt="">JAFO Live <small>{{ region_name }}</small></a>
+    <a class="back" href="/live/{{ region_slug }}">← Back to the briefing</a>
+  </div>
+
+  <h1>About JAFO Live</h1>
+  <p class="lede">JAFO turns the public-safety radio traffic of {{ region_name }} into plain-English stories, live, so neighbours, reporters and the curious can see what's going on without learning scanner code.</p>
+  <div class="alert"><b>This is not an emergency service.</b> Nothing here reaches police, fire or EMS. If you need help, call 911. Please don't go to incident scenes; give crews room to work.</div>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#what">What it is</a><a href="#how">How it works</a><a href="#hidden">What we hide</a><a href="#legal">Is this legal?</a>
+    <a href="#accuracy">Accuracy</a><a href="#air">Aircraft</a><a href="#keep">What we keep</a><a href="#fix">Corrections</a>
+  </nav>
+
+  <section id="what">
+    <h2>What it is</h2>
+    <p>JAFO (short for "Just Another F***ing Observer") is an independent listening station. A small computer with radio receivers sits in the Valley and listens to the same public-safety channels anyone with a scanner can hear: police, fire, EMS, public works and other agencies on the regional radio system.</p>
+    <p>Instead of a wall of crackly audio and codes, you get stories: "Large warehouse fire on South Weaver in McAllen, twelve units, crews on scene." Each one shows where it is (to the block), which units are working it, how it has progressed, and the radio calls behind it.</p>
+    <p>JAFO is <b>not affiliated with any police department, fire department, EMS service, city, county or government agency</b>. Nothing on this site is an official record.</p>
+  </section>
+
+  <section id="how">
+    <h2>How a radio call becomes a story</h2>
+    <ol class="steps">
+      <li><b>Listen.</b> JAFO's receivers follow the trunked digital (P25) radio system and record each transmission as it happens. Channels that are encrypted can't be heard and are skipped.</li>
+      <li><b>Clean up.</b> Silence and static are trimmed, and calls with no speech are dropped.</li>
+      <li><b>Write it down.</b> Speech recognition (Whisper) turns the audio into text.</li>
+      <li><b>Make sense of it.</b> An AI model (Anthropic's Claude) reads each call along with recent ones on the channel. It writes one plain-English line and works out who is speaking. It explains radio codes, picks out the units and their status, and pins the location to the block. It also decides whether the call is a new incident or an update to one already open, and lists anything private that must be hidden (see below).</li>
+      <li><b>Publish.</b> The story appears on the briefing, map, console and wall screens, usually within about a minute of the radio call. Stories go quiet and then wrap up when the radio does.</li>
+    </ol>
+    <p>The same receivers also pick up aircraft position broadcasts (ADS-B) and airline text messages (ACARS). Weather comes from the National Weather Service, and traffic camera stills from TxDOT's public cameras.</p>
+  </section>
+
+  <section id="hidden">
+    <h2>What we hide, and what we don't</h2>
+    <p>Dispatchers read out private details all the time: names, home addresses, birth dates, plate numbers. They need them to do their jobs. You don't. JAFO strips them out of everything it writes.</p>
+    <div class="two">
+      <div class="box">
+        <h3><span class="dot no"></span>Hidden from the text</h3>
+        <ul>
+          <li><b>Exact addresses.</b> A house number becomes its block ("the 1200 block of Main"). The house number is never stored with the incident, and map pins sit on the block, not the house.</li>
+          <li><b>Names</b> of callers, victims, suspects, witnesses and patients.</li>
+          <li><b>Phone numbers, Social Security numbers, birth dates</b> and <b>licence plates</b>.</li>
+          <li><b>Radio ID numbers</b> of individual officers' radios.</li>
+          <li><b>Crew names</b> in airline (ACARS) messages.</li>
+        </ul>
+        <p class="fine">Two layers do this. The AI marks the private words in each transcript, and then a second automatic filter catches phone numbers, plates, Social Security numbers and house numbers the AI missed.</p>
+      </div>
+      <div class="box">
+        <h3><span class="dot ok"></span>Not hidden</h3>
+        <ul>
+          <li><b>The kind of call and roughly where it is</b>: a crash on the expressway, a medical call on a block.</li>
+          <li><b>Unit call signs</b> (like "Medic 12" or "Engine 3") and what they're doing.</li>
+          <li><b>Business and landmark names</b> when that's where the call is.</li>
+          <li><b>The original audio.</b> Recordings are not bleeped. If a dispatcher says a name on the air, you can hear it in the recording even though the written version hides it. Audio only plays when you tap it.</li>
+        </ul>
+      </div>
+    </div>
+    <h3>Sensitive calls</h3>
+    <p>Some calls involve suicide or self-harm, mental-health crises, deaths, sexual assault or child abuse. On public wall displays (screens in offices and newsrooms), these are shown with a neutral title such as "Medical emergency", with no details. On this site they keep their detail, because hiding them would make the record less accurate. We still never name the people involved.</p>
+    <h3>What we never do</h3>
+    <ul>
+      <li>We never decrypt or try to break into encrypted channels. If an agency encrypts a channel, JAFO doesn't hear it.</li>
+      <li>We don't transmit on any public-safety frequency. JAFO only listens.</li>
+      <li>We don't try to identify the people in a call or link them to other data.</li>
+    </ul>
+  </section>
+
+  <section id="legal">
+    <h2>Is this legal?</h2>
+    <p>Yes. Listening to unencrypted public-safety radio has been lawful in the United States for decades. It's what millions of scanner owners, scanner apps and newsrooms do every day.</p>
+    <ul>
+      <li><b>Federal law says so directly.</b> The Electronic Communications Privacy Act makes it lawful for anyone to intercept a radio communication sent by a government, law-enforcement, civil-defense, private land-mobile or public-safety radio system that is readily accessible to the general public (<a href="https://www.law.cornell.edu/uscode/text/18/2511" rel="noopener">18 U.S.C. § 2511(2)(g)</a>).</li>
+      <li><b>"Readily accessible" means not encrypted.</b> Under the same law, a scrambled or encrypted transmission isn't readily accessible (<a href="https://www.law.cornell.edu/uscode/text/18/2510" rel="noopener">18 U.S.C. § 2510(16)</a>). That's why JAFO skips encrypted channels instead of trying to decode them.</li>
+      <li><b>Texas follows the same rule.</b> Texas wiretap law (<a href="https://statutes.capitol.texas.gov/Docs/PE/htm/PE.16.htm" rel="noopener">Penal Code § 16.02(c)</a>) protects interception of unencrypted government, law-enforcement, civil-defense and public-safety radio. It treats police mobile data terminals (the text screens in patrol cars) differently, and JAFO doesn't receive those. It listens to voice radio only.</li>
+      <li><b>Aircraft broadcasts are meant to be heard.</b> ADS-B position reports are broadcast in the open so anyone can track aircraft, and community networks share them worldwide. ACARS airline messages are sent unencrypted over the air.</li>
+      <li><b>Misusing what you hear is a different matter.</b> Using radio information to commit a crime, to avoid arrest or to interfere with police, fire or EMS is illegal, and it's not what this site is for.</li>
+    </ul>
+    <p class="fine">This is a plain-language summary, not legal advice.</p>
+  </section>
+
+  <section id="accuracy">
+    <h2>How accurate is it?</h2>
+    <p>JAFO is automated, and no one checks each story before it appears. Expect mistakes.</p>
+    <ul>
+      <li><b>Speech recognition mishears.</b> Radio audio is clipped, noisy and full of jargon. Street names and unit numbers are the most common errors.</li>
+      <li><b>The AI can misread a call.</b> It can group two incidents into one, or split one into two, or get a status wrong. Locations can be off, especially when a call only names a road or a business.</li>
+      <li><b>A call is not a finding.</b> What's said on the radio is what was reported at that moment: an allegation or a first impression, not a conclusion. A "shots fired" call can turn out to be fireworks. Nothing here means anyone did anything wrong.</li>
+      <li><b>We don't hear everything.</b> Encrypted channels, other radio systems, phone calls and in-person reports never reach JAFO. A quiet map doesn't mean a quiet city.</li>
+      <li><b>Updates can lag.</b> Stories usually appear within about a minute, but busy periods or a receiver problem can delay them.</li>
+    </ul>
+    <p>For official information, contact the agency involved. For news, check local reporting.</p>
+  </section>
+
+  <section id="air">
+    <h2>Aircraft and airline messages</h2>
+    <p>The "In the air" views show aircraft from JAFO's own ADS-B receiver, plus community networks (adsb.lol, adsb.fi and airplanes.live) where JAFO's antenna can't reach. We highlight helicopters, Border Patrol, police, medical and military flights, emergency codes, and aircraft circling near an incident.</p>
+    <ul>
+      <li>We show only what the aircraft broadcasts, plus the public FAA registry for the owner of private and government aircraft. Some owners ask the FAA to limit how their aircraft is displayed, and community networks may still show those aircraft.</li>
+      <li>Aircraft pictures are illustrations drawn from the reported type and airline. Colours are approximate, and they are not photos of that aircraft.</li>
+      <li>Airline ACARS messages are translated into plain English, such as "Took off from McAllen at 11:24 am, bound for Dallas–Fort Worth". Routine machine data is hidden, and the original text is one tap away.</li>
+    </ul>
+  </section>
+
+  <section id="keep">
+    <h2>What we keep, and for how long</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Recordings</th><td>Kept for {{ audio_days }} days on JAFO's server, then deleted. The listening station itself keeps only the last few hours.</td></tr>
+      <tr><th>Stories and transcripts</th><td>Kept as an archive of what was said on the air, with private details removed as described above.</td></tr>
+      <tr><th>Aircraft tracks</th><td>Kept for {{ air_hours }} hours.</td></tr>
+      <tr><th>You</th><td>No account is needed. Saved places, filters and your theme stay in your browser. Alert sign-ups store only your browser's push address, the region and the alert level you picked. Place searches are looked up on JAFO's server, using its own records and OpenStreetMap.</td></tr>
+    </table></div>
+  </section>
+
+  <section id="fix">
+    <h2>Corrections and removal requests</h2>
+    <p>If something is wrong, or something private is showing that shouldn't be, use <b>Report a problem</b>. It's in the menu and on every story and radio call. Reports go straight to the people who run JAFO, who can correct a story, soften it or take it down.</p>
+    <p><a href="/live/{{ region_slug }}#report">Report a problem →</a></p>
+  </section>
+
+  <footer>JAFO Live · {{ region_name }} · an independent project, not affiliated with any agency · <a href="/live/{{ region_slug }}">Briefing</a> · <a href="/live/{{ region_slug }}/map">Map</a></footer>
+</div>
+</body>
+</html>
