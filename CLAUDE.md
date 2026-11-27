@@ -244,6 +244,7 @@ the old fleet view is `/fleet`). It is built on an incidents/units model:
 | Wall displays `/live/<region>/wall/<command\|newsroom\|grid\|pulse>` | `pi/web/templates/wall_*.html`, `pi/web/static/wall_*.{js,css}` |
 | Web push alerts + manifest + service worker (`/live/sw.js`) | `pi/web/push.py`, `pi/web/static/live-sw.js` |
 | TxDOT cameras (catalog + snapshot proxy) | `pi/web/cameras.py` |
+| Edge (jafo.local) /live + walls: same templates, `/api/live/*` proxied to the hub | `pi/web/live_edge.py` (app.py picks it when `JAFO_HUB_URL` is set) |
 
 Gotchas:
 - **Haiku 5.5 thinks by default** and thinking counts toward `max_tokens`. Keep
@@ -257,4 +258,9 @@ Gotchas:
 - Talkgroup city context comes from `DATA_DIR/config/talkgroups-<slug>.csv`
   on the hub (`talkgroups-rgv.csv`, `talkgroups-austin.csv`).
 - Region → TxDOT district: `rgv→PHR`, `austin→AUS` (`JAFO_TXDOT_DISTRICTS`).
+- Wall displays soften sensitive incidents (self-harm, mental health, death,
+  sexual assault, child abuse) for any request whose Referer is a `/wall/` page
+  or that passes `?safe=1`; `/live` keeps full detail.
+- The Pi's app.py is diverged (ACARS): it got live_edge registered by an
+  appended block (backup `app.py.bak-live-*`), not a wholesale copy.
 - Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).

@@ -581,8 +581,20 @@ def _derive_incident_status(conn, incident_id: int) -> str:
     return "cleared" if had_units else "new"
 
 
+META_RE = re.compile(r"\btranscri|\bno (clear |reportable |identifiable )?(dispatch|event|incident|emergency)|"
+                     r"\bgarbled|\bunclear (radio )?(transmission|traffic)|could not be understood|"
+                     r"\bfiller phrase|\bno call details", re.I)
+
+
 def apply_result(conn, call, region: dict, res: dict, cands, srcs: list[int]) -> int | None:
     now = int(time.time())
+    # Haiku sometimes narrates the transcript itself ("the transcript is garbled,
+    # no event described"). For chatter, replace that with a plain line.
+    if res.get("call_line") and META_RE.search(res["call_line"]) and (
+            res.get("chatter") or (res.get("incident") or {}).get("action") == "none"):
+        who = next((s.get("who") for s in res.get("speakers") or [] if s.get("who") and s["who"] != "?"), None)
+        res["call_line"] = f"{who} — brief, unclear transmission." if who and who.lower() != "unit" \
+            else "Brief, unclear transmission."
     at = call["start_time"] or now
     region_id = region.get("id")
     redact = [r for r in (res.get("redact") or []) if isinstance(r, str)]

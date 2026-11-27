@@ -7243,18 +7243,24 @@ _start_heatmap_thread()
 _start_coverage_thread()
 
 
-# /live — incidents + units map (enricher v2). Imported last: live.py imports
-# this module and needs every helper above to exist.
-from live import bp as _live_bp  # noqa: E402
-app.register_blueprint(_live_bp)
-import cameras as _cameras  # noqa: E402  TxDOT traffic cameras
-app.register_blueprint(_cameras.bp)
-try:  # web push alerts (needs pywebpush in the web venv)
-    import push as _push  # noqa: E402
-    app.register_blueprint(_push.bp)
-    _push.start_notifier()
-except ImportError as _e:
-    print(f"[push] disabled: {_e}", file=sys.stderr)
+# /live — incidents + units map (enricher v2). Imported last: these modules
+# import this one and need every helper above to exist. The hub serves the
+# data itself; an edge node renders the same pages and proxies /api/live/*
+# to the hub (live_edge.py).
+if _is_edge_node():
+    from live_edge import bp as _live_edge_bp  # noqa: E402
+    app.register_blueprint(_live_edge_bp)
+else:
+    from live import bp as _live_bp  # noqa: E402
+    app.register_blueprint(_live_bp)
+    import cameras as _cameras  # noqa: E402  TxDOT traffic cameras
+    app.register_blueprint(_cameras.bp)
+    try:  # web push alerts (needs pywebpush in the web venv)
+        import push as _push  # noqa: E402
+        app.register_blueprint(_push.bp)
+        _push.start_notifier()
+    except ImportError as _e:
+        print(f"[push] disabled: {_e}", file=sys.stderr)
 
 
 # -----------------------------------------------------------------------------
