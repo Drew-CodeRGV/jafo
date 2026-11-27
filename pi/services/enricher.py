@@ -45,7 +45,8 @@ GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "qwen/qwen3.8-27b").str
 # service starts are left for backfill_incidents.py.
 ENRICH_V2 = os.environ.get("JAFO_ENRICH_V2", "1").strip().lower() in ("1", "true", "yes")
 V2_MAX_AGE_HOURS = float(os.environ.get("JAFO_ENRICH_V2_MAX_AGE_HOURS", "6"))
-V2_BATCH = 8
+V2_BATCH = 6               # calls per worker per round
+V2_WORKERS = int(os.environ.get("JAFO_ENRICH_V2_WORKERS", "4"))
 SWEEP_EVERY_SEC = 60
 
 # Dual-run / shadow Ollama (corpus building for distillation evaluation).
@@ -254,12 +255,48 @@ def enrich_via_anthropic(client, transcript: str, talkgroup_tag: str) -> dict:
     return json.loads(_strip_fences(text))
 
 
+def _v2_one(conn, client, call) -> None:
+    t0 = time.time()
+    try:
+        iid = inc_v2.enrich_call(conn, client, call)
+        log.info("V2    id=%s inc=%s (%.2fs)", call["id"], iid, time.time() - t0)
+    except Exception as e:
+        conn.rollback()
+        err = f"{type(e).__name__}: {str(e)[:300]}"
+        log.error("V2FAIL id=%s: %s", call["id"], err)
+        conn.execute("UPDATE calls SET enrich_v2_error = ?, enriched_v2_at = ?, "
+                     "enrich_error = COALESCE(enrich_error, ?), enriched_at = COALESCE(enriched_at, ?) "
+                     "WHERE id = ?", (err, int(time.time()), err, int(time.time()), call["id"]))
+        conn.commit()
+        time.sleep(1)
+
+
 def run_v2_loop(client) -> None:
-    """Hub mode: enricher v2 (incidents, units, speaker turns, redaction)."""
+    """Hub mode: enricher v2 (incidents, units, speaker turns, redaction).
+
+    Calls are processed by V2_WORKERS threads. Each talkgroup's calls stay on
+    one worker, in order, so follow-ups on a channel always see the incident
+    their earlier calls created; different channels run in parallel."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
     conn = db_connect()
+    local = threading.local()
+
+    def worker_conn():
+        if not hasattr(local, "conn"):
+            local.conn = db_connect()
+        return local.conn
+
+    def run_group(group):
+        c = worker_conn()
+        for call in group:
+            _v2_one(c, client, call)
+
     since = int(time.time() - V2_MAX_AGE_HOURS * 3600)
     last_sweep = 0.0
-    log.info("Starting jafo-enricher v2. model=%s (calls newer than %.1fh)", inc_v2.MODEL, V2_MAX_AGE_HOURS)
+    pool = ThreadPoolExecutor(max_workers=V2_WORKERS)
+    log.info("Starting jafo-enricher v2. model=%s workers=%d (calls newer than %.1fh)",
+             inc_v2.MODEL, V2_WORKERS, V2_MAX_AGE_HOURS)
     while True:
         if time.time() - last_sweep > SWEEP_EVERY_SEC:
             try:
@@ -271,7 +308,7 @@ def run_v2_loop(client) -> None:
                 log.exception("sweep failed: %s", e)
             last_sweep = time.time()
         try:
-            calls = conn.execute(inc_v2.PENDING_SQL, (since, V2_BATCH)).fetchall()
+            calls = conn.execute(inc_v2.PENDING_SQL, (since, V2_BATCH * V2_WORKERS)).fetchall()
         except Exception as e:
             log.exception("DB query failed: %s", e)
             time.sleep(POLL_INTERVAL_SEC)
@@ -279,20 +316,13 @@ def run_v2_loop(client) -> None:
         if not calls:
             time.sleep(3)
             continue
+        groups: dict = {}
         for call in calls:
-            t0 = time.time()
-            try:
-                iid = inc_v2.enrich_call(conn, client, call)
-                log.info("V2    id=%s inc=%s (%.2fs)", call["id"], iid, time.time() - t0)
-            except Exception as e:
-                conn.rollback()
-                err = f"{type(e).__name__}: {str(e)[:300]}"
-                log.error("V2FAIL id=%s: %s", call["id"], err)
-                conn.execute("UPDATE calls SET enrich_v2_error = ?, enriched_v2_at = ?, "
-                             "enrich_error = COALESCE(enrich_error, ?), enriched_at = COALESCE(enriched_at, ?) "
-                             "WHERE id = ?", (err, int(time.time()), err, int(time.time()), call["id"]))
-                conn.commit()
-                time.sleep(1)
+            groups.setdefault(call["talkgroup"], []).append(call)
+        lanes = [[] for _ in range(V2_WORKERS)]
+        for grp in sorted(groups.values(), key=len, reverse=True):
+            min(lanes, key=len).extend(grp)
+        list(pool.map(run_group, [lane for lane in lanes if lane]))
 
 
 def enrich_via_groq(client, transcript: str, talkgroup_tag: str) -> dict:
