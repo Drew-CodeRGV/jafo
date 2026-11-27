@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Front page · {{ region_name }} · JAFO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/wall_newsroom.css?v=1">
+<script>
+  window.NEWSROOM = {
+    slug: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    tz: {{ tz | tojson }},
+    region: {{ region | tojson }},
+    audio: {{ audio | tojson }},
+    walls: {{ walls | tojson }},
+  };
+  (function () {
+    var t = new URLSearchParams(location.search).get("theme");
+    if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else if (t === "auto" || t === "system") document.documentElement.removeAttribute("data-theme");
+  })();
+</script>
+</head>
+<body>
+<div class="page" id="page">
+
+  <header class="mast">
+    <div class="mast-l">
+      <div class="flag"><span class="flag-name">Dispatch</span><span class="flag-sub">JAFO · {{ region_name }}</span></div>
+    </div>
+    <div class="mast-c" id="dateline"></div>
+    <div class="mast-r">
+      <span class="onair" id="onair"><i></i><span id="onair-t">Live</span></span>
+      <span class="clock" id="clock"></span>
+    </div>
+  </header>
+
+  <main class="front">
+    <section class="lead" id="lead" aria-live="polite">
+      <div class="lead-pages" id="lead-pages"><article class="lp in"><div class="kicker"><span class="st">Setting the front page…</span></div></article></div>
+      <figure class="locator" id="locator">
+        <div class="locator-map" id="map"></div>
+        <figcaption id="locator-cap"></figcaption>
+      </figure>
+    </section>
+
+    <aside class="wire">
+      <div class="wire-head">
+        <h2>On the radio</h2>
+        <span class="wire-lag" id="wire-lag"></span>
+      </div>
+      <ol class="wire-list" id="wire"></ol>
+    </aside>
+
+    <section class="also" id="also">
+      <h3 class="also-head" id="also-head">Also developing</h3>
+      <div class="also-row" id="also-row"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="fig" id="f-today"></div>
+    <div class="fig" id="f-hour"></div>
+    <div class="fig fig-spark" id="f-busy"></div>
+    <div class="fig fig-wx" id="f-wx"></div>
+    <nav class="walls" id="walls"></nav>
+  </footer>
+</div>
+<script src="/static/wall_newsroom.js?v=1"></script>
+</body>
+</html>

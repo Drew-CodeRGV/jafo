@@ -214,8 +214,21 @@ def wall_page(slug: str, name: str):
                            audio=_owner() or A.PUBLIC_AUDIO)
 
 
+_PULSE_CACHE: dict[str, tuple[float, dict]] = {}
+
+
 @bp.route("/api/live/pulse")
 def api_pulse():
+    key = request.args.get("region") or ""
+    hit = _PULSE_CACHE.get(key)
+    if hit and time.time() - hit[0] < 10:
+        return jsonify(hit[1])
+    data = _pulse_data()
+    _PULSE_CACHE[key] = (time.time(), data)
+    return jsonify(data)
+
+
+def _pulse_data() -> dict:
     """One cheap call with everything an ambient wall display needs:
     24h activity in 10-minute bins (calls, by service), incidents opened per
     hour by kind, active counts by kind/status, units by status/service, and
@@ -255,8 +268,19 @@ def api_pulse():
                                 ORDER BY c.start_time DESC LIMIT 1""", (rid,)).fetchone()
     calls_1h = sum(b["calls"] for b in bins[-6:])
     calls_prev_1h = sum(b["calls"] for b in bins[-12:-6])
+    midnight = int(datetime.now(A_TZ()).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    today = conn.execute("""SELECT COUNT(*) n, SUM(kind IN ('violence','fire')) danger FROM incidents
+                            WHERE region_id IS ? AND first_call_at >= ?""", (rid, midnight)).fetchone()
+    latest_enriched = conn.execute("""SELECT MAX(start_time) FROM calls WHERE region_id IS ? AND start_time >= ?
+                                      AND enriched_v2_at IS NOT NULL""", (rid, start)).fetchone()[0]
+    latest_heard = conn.execute("SELECT MAX(start_time) FROM calls WHERE region_id IS ? AND start_time >= ?",
+                                (rid, start)).fetchone()[0]
     conn.close()
-    return jsonify({
+    return ({
+        "today": {"since": midnight, "incidents": today["n"] or 0, "danger": today["danger"] or 0},
+        # How far behind the AI pipeline is: walls can show "catching up" honestly.
+        "pipeline": {"latest_heard": latest_heard, "latest_enriched": latest_enriched,
+                     "lag_sec": (latest_heard - latest_enriched) if latest_heard and latest_enriched else None},
         "now": now, "region": {k: r.get(k) for k in ("slug", "name", "default_lat", "default_lng",
                                                      "bbox_north", "bbox_south", "bbox_east", "bbox_west")},
         "bins_10min": bins, "bins_start": start,
