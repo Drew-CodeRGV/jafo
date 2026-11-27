@@ -449,6 +449,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     inc_cols = {row[1] for row in conn.execute("PRAGMA table_info(incidents)")}
     if "notable" not in inc_cols:   # funny | strange | animal (Highlights lists)
         conn.execute("ALTER TABLE incidents ADD COLUMN notable TEXT")
+    if "sensitive" not in inc_cols:  # softened on wall displays
+        conn.execute("ALTER TABLE incidents ADD COLUMN sensitive INTEGER DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_v2_pending    ON calls(enriched_v2_at, start_time)")
 
     # cell_sites — add the asr_number column on existing DBs (introduced

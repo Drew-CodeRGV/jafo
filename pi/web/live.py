@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import statistics
 import threading
 import time
@@ -118,7 +119,46 @@ def _unit_counts(conn, ids: list[int]) -> dict[int, dict]:
     return out
 
 
+# --- wall-display softening -------------------------------------------------
+# Office walls must not put self-harm, mental-health crises, deaths, sexual
+# assault or child abuse up in large type. /live keeps full detail; requests
+# from a wall page (Referer .../wall/...) or with ?safe=1 get neutral text.
+SENSITIVE_RE = re.compile(r"suicid|self[- ]?(inflicted|harm)|overdos|mental|psych|crisis|\bdoa\b|deceased|dead body|"
+                          r"\bdeath\b|\bdied\b|fatal|unattended death|sexual|rape|molest|child abuse|\bcps\b|"
+                          r"jumper|hanging|cutting (him|her)self", re.I)
+SOFT_TITLE = {"medical": "Medical emergency", "violence": "Police emergency", "fire": "Fire department call",
+              "traffic": "Traffic incident", "property": "Police call", "suspicious": "Police call",
+              "other": "Emergency call"}
+
+
+def _wall() -> bool:
+    try:
+        return request.args.get("safe") == "1" or "/wall/" in (request.referrer or "")
+    except RuntimeError:
+        return False
+
+
+def _is_sensitive(row) -> bool:
+    keys = row.keys() if hasattr(row, "keys") else []
+    if "sensitive" in keys and row["sensitive"]:
+        return True
+    text = " ".join(str(row[k] or "") for k in ("title", "summary", "type") if k in keys)
+    return bool(SENSITIVE_RE.search(text))
+
+
+def _soft_title(kind) -> str:
+    return SOFT_TITLE.get(kind or "other", "Emergency call")
+
+
 def _incident_brief(inc, counts, now) -> dict:
+    if _wall() and _is_sensitive(inc):
+        d = _incident_brief_raw(inc, counts, now)
+        d.update(title=_soft_title(inc["kind"]), summary=None, location=inc["city"] or None, softened=True)
+        return d
+    return _incident_brief_raw(inc, counts, now)
+
+
+def _incident_brief_raw(inc, counts, now) -> dict:
     return {
         "id": inc["id"], "title": inc["title"], "kind": inc["kind"] or "other",
         "service": inc["service"], "type": inc["type"], "severity": inc["severity"],
@@ -148,6 +188,13 @@ def _speakers_public(row) -> list[dict]:
 CALL_COLS = """c.id, c.start_time, c.duration_sec, c.talkgroup, c.talkgroup_tag, c.transcript,
                c.call_line, c.call_kind, c.call_service, c.speakers_json, c.redact_json, c.codes_json,
                c.incident_id, c.opus_path, c.audio_deleted, c.incident_type"""
+
+
+def _soften_call(d: dict, kind) -> dict:
+    d.update(line=f"Units are handling a {_soft_title(kind).lower()}.", speakers=[], codes=[], audio=None)
+    if d.get("incident"):
+        d["incident"] = {**d["incident"], "title": _soft_title(kind)}
+    return d
 
 
 def _call_public(row, owner: bool, incident=None) -> dict:
@@ -220,7 +267,7 @@ _PULSE_CACHE: dict[str, tuple[float, dict]] = {}
 
 @bp.route("/api/live/pulse")
 def api_pulse():
-    key = request.args.get("region") or ""
+    key = (request.args.get("region") or "") + ("|wall" if _wall() else "")
     hit = _PULSE_CACHE.get(key)
     if hit and time.time() - hit[0] < 10:
         return jsonify(hit[1])
@@ -302,7 +349,7 @@ def _pulse_data() -> dict:
                      "opened_24h": sum(opened_24h.values()),
                      "units_out": sum(n for svc in unit_status.values() for st, n in svc.items()
                                       if st in ACTIVE_STATUSES)},
-        "last_call": dict(last_call) if last_call else None,
+        "last_call": _last_call_public(last_call),
     })
 
 
@@ -431,6 +478,9 @@ def api_incident(iid: int):
     d["trails"] = _unit_trails(conn, [u["id"] for u in units], inc["first_call_at"] - 3 * 3600,
                                inc["last_call_at"], iid)
     d["related_news"] = _related_news(conn, inc)
+    if _wall() and _is_sensitive(inc):
+        d.update(summary=None, people=[], vehicles=[], related_news=[], trails=[])
+        d["timeline"] = [_soften_call(t, inc["kind"]) for t in d["timeline"]]
     slug_row = conn.execute("SELECT slug FROM regions WHERE id = ?", (inc["region_id"],)).fetchone()
     conn.close()
     try:
@@ -486,22 +536,29 @@ def api_units():
     r = _region(conn, request.args.get("region"))
     if scope == "out":
         rows = conn.execute(f"""
-            SELECT u.*, i.title inc_title, i.kind inc_kind, i.lat inc_lat, i.lng inc_lng
+            SELECT u.*, i.title inc_title, i.kind inc_kind, i.lat inc_lat, i.lng inc_lng,
+                   i.sensitive inc_sensitive, i.summary inc_summary, i.type inc_type
             FROM units u LEFT JOIN incidents i ON i.id = u.incident_id
             WHERE u.region_id IS ? AND u.status IN ({','.join('?' * len(ACTIVE_STATUSES))})
               AND u.last_heard >= ?
             ORDER BY u.service, u.callsign""", (r.get("id"), *ACTIVE_STATUSES, now - 4 * 3600)).fetchall()
     else:
         rows = conn.execute("""
-            SELECT u.*, i.title inc_title, i.kind inc_kind, i.lat inc_lat, i.lng inc_lng
+            SELECT u.*, i.title inc_title, i.kind inc_kind, i.lat inc_lat, i.lng inc_lng,
+                   i.sensitive inc_sensitive, i.summary inc_summary, i.type inc_type
             FROM units u LEFT JOIN incidents i ON i.id = u.incident_id
             WHERE u.region_id IS ? AND u.last_heard >= ?
             ORDER BY u.last_heard DESC LIMIT 400""", (r.get("id"), now - 24 * 3600)).fetchall()
     conn.close()
+    wall = _wall()
     items = [{
         "id": u["id"], "callsign": u["callsign"], "service": u["service"] or "other", "role": u["role"],
         "status": u["status"] or "unknown", "since": u["status_since"], "last_heard": u["last_heard"],
-        "incident_id": u["incident_id"], "incident_title": u["inc_title"], "incident_kind": u["inc_kind"],
+        "incident_id": u["incident_id"],
+        "incident_title": (_soft_title(u["inc_kind"]) if wall and u["incident_id"] and _is_sensitive(
+            {"sensitive": u["inc_sensitive"], "title": u["inc_title"], "summary": u["inc_summary"],
+             "type": u["inc_type"]}) else u["inc_title"]),
+        "incident_kind": u["inc_kind"],
         "lat": u["inc_lat"], "lng": u["inc_lng"], "location": _scrub(u["location_text"]),
     } for u in rows]
     return jsonify({"items": items, "now": now})
@@ -578,13 +635,21 @@ def api_radio():
             args += chans
     if request.args.get("hide_chatter") == "1":
         where.append("(c.incident_id IS NOT NULL OR c.incident_type NOT IN ('Radio Chatter'))")
-    rows = conn.execute(f"""SELECT {CALL_COLS}, i.title inc_title, i.kind inc_kind
+    rows = conn.execute(f"""SELECT {CALL_COLS}, i.title inc_title, i.kind inc_kind, i.sensitive inc_sensitive,
+                                   i.summary inc_summary, i.type inc_type
                             FROM calls c LEFT JOIN incidents i ON i.id = c.incident_id
                             WHERE {' AND '.join(where)}
                             ORDER BY c.start_time {'ASC' if since and not before else 'DESC'} LIMIT ?""",
                         args + [limit]).fetchall()
-    items = [_call_public(c, owner, {"id": c["incident_id"], "title": c["inc_title"], "kind": c["inc_kind"]}
-                          if c["incident_id"] else None) for c in rows]
+    wall = _wall()
+    items = []
+    for c in rows:
+        d = _call_public(c, owner, {"id": c["incident_id"], "title": c["inc_title"], "kind": c["inc_kind"]}
+                         if c["incident_id"] else None)
+        if wall and c["incident_id"] and _is_sensitive({"sensitive": c["inc_sensitive"], "title": c["inc_title"],
+                                                        "summary": c["inc_summary"], "type": c["inc_type"]}):
+            d = _soften_call(d, c["inc_kind"])
+        items.append(d)
     if since and not before:
         items.reverse()
     chans = conn.execute("""SELECT talkgroup, MAX(talkgroup_tag) tag, COUNT(*) n FROM calls
@@ -684,7 +749,8 @@ def api_stats():
 
     def top(sort_key, filt=lambda i: True, n=10):
         rows = sorted((i for i in incs if filt(i)), key=sort_key, reverse=True)[:n]
-        return [{"id": i["id"], "title": i["title"], "at": i["first_call_at"], "kind": i["kind"],
+        return [{"id": i["id"], "title": _soft_title(i["kind"]) if _wall() and _is_sensitive(i) else i["title"],
+                 "at": i["first_call_at"], "kind": i["kind"],
                  "location": _scrub(i["location_text"]), "calls": i["call_count"]} for i in rows]
     sev = {"critical": 4, "high": 3, "medium": 2, "low": 1}
     unit_n = Counter()
@@ -730,6 +796,20 @@ def api_stats():
         "response": response, "lists": lists,
         "kinds": Counter(i["kind"] or "other" for i in incs),
     })
+
+
+def _last_call_public(row):
+    if not row:
+        return None
+    d = dict(row)
+    if _wall() and d.get("incident_id"):
+        conn = _db()
+        inc = conn.execute("SELECT * FROM incidents WHERE id = ?", (d["incident_id"],)).fetchone()
+        conn.close()
+        if inc and _is_sensitive(inc):
+            d.update(call_line=f"Units are handling a {_soft_title(inc['kind']).lower()}.",
+                     incident_title=_soft_title(inc["kind"]))
+    return d
 
 
 @bp.route("/api/live/replay")
