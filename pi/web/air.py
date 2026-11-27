@@ -174,14 +174,15 @@ def _acars(region_slug: str) -> dict:
     conn = A.get_db()
     try:
         rows = conn.execute("""SELECT received_at, flight, tail, label, text FROM acars_messages
-                               WHERE received_at >= ? ORDER BY received_at DESC LIMIT 30""",
-                            (int(time.time()) - 6 * 3600,)).fetchall()
+                               WHERE text IS NOT NULL AND text != '' ORDER BY received_at DESC LIMIT 30""").fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM acars_messages").fetchone()[0]
     except Exception:
-        rows = []
+        rows, total = [], 0
     conn.close()
     msgs = [{"at": r["received_at"], "flight": (r["flight"] or "").strip(), "tail": (r["tail"] or "").strip(),
              "label": r["label"], "text": (r["text"] or "")[:400]} for r in rows]
-    return {"active": bool(msgs and time.time() - msgs[0]["at"] < 300), "messages": msgs}
+    return {"active": bool(msgs and time.time() - msgs[0]["at"] < 300), "messages": msgs, "total": total,
+            "last_at": msgs[0]["at"] if msgs else None}
 
 
 @bp.route("/api/ingest/acars", methods=["POST"])
