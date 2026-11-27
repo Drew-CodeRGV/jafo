@@ -16,6 +16,9 @@ Smart 45/10 cycle (all tunable in .env):
      incident, emergency squawk, border/police/medical aircraft).
   4. Lean in — if the last ACARS window caught messages the next one is 15 s;
      after two empty windows back to the base.
+  5. Back off — keep coming up empty and the ADS-B leg doubles up to 6 min
+     (and never more than JAFO_TIMESHARE_MAX_SWITCHES ACARS windows/hour), so a
+     quiet band doesn't churn services on the Pi all day.
 
 Stands down (leaves the radio alone) when the operator picks a mode by hand:
 sdr-mode.sh writes DATA_DIR/config/timeshare.pause for adsb/acars/voice/noaa
@@ -53,6 +56,12 @@ VOICE_BAK = DATA_DIR / "config" / "config.json.bak-sdrmode"
 STATUS = DATA_DIR / "timeshare.json"
 
 ACARS_MAX = 20          # seconds, including burst extensions
+# Sustainability: every switch stops/starts two services. After empty ACARS
+# windows the ADS-B leg doubles (45→90→180→360 s) so a quiet radio costs
+# ~10 switches/hour instead of ~65; one productive window resets it.
+BACKOFF_AFTER = 2       # empty windows before backing off
+BACKOFF_MAX = 360       # longest ADS-B leg, seconds
+MAX_SWITCHES_HOUR = int(os.environ.get("JAFO_TIMESHARE_MAX_SWITCHES", "40"))
 LEAN_IN = 15            # seconds after a productive window
 BURST_TAIL = 3          # a message in the last N seconds extends the window
 BURST_STEP = 5
@@ -147,6 +156,7 @@ class Stats:
         self.state = "adsb"
         self.since = time.time()
         self.note = ""
+        self.backoff = 0
 
     def add(self, kind, seconds, msgs=0):
         now = time.time()
@@ -161,7 +171,7 @@ class Stats:
         return {
             "node": NODE_SLUG, "enabled": CFG != "off", "smart": SMART, "config": CFG,
             "state": "standby" if override else self.state, "override": override, "since": int(self.since),
-            "note": self.note, "updated": int(time.time()),
+            "note": self.note, "updated": int(time.time()), "adsb_leg": self.backoff,
             "last_hour": {"adsb_pct": round(100 * a / tot), "acars_pct": round(100 * c / tot),
                           "acars_windows": sum(1 for _, k, _, _ in self.hist if k == "acars"),
                           "skipped": sum(1 for _, k, _, _ in self.hist if k == "skip"),
@@ -238,10 +248,17 @@ def main():
             sleep_while_running(10)
             continue
         # --- ADS-B leg
+        leg = adsb_sec
+        if empty_streak >= BACKOFF_AFTER:
+            leg = min(BACKOFF_MAX, adsb_sec * 2 ** (empty_streak - BACKOFF_AFTER + 1))
+        windows_hour = sum(1 for t, k, _, _ in stats.hist if k == "acars" and t > time.time() - 3600)
+        if windows_hour >= MAX_SWITCHES_HOUR:
+            leg = max(leg, 120)
         stats.state, stats.since = "adsb", time.time()
+        stats.backoff = leg
         publish(stats)
-        sleep_while_running(adsb_sec)
-        stats.add("adsb", adsb_sec)
+        sleep_while_running(leg)
+        stats.add("adsb", leg)
         if not running or manual_override():
             continue
         skip, why = sky_check()
@@ -260,7 +277,7 @@ def main():
         if caught:
             empty_streak, next_acars = 0, (LEAN_IN if SMART else acars_base)
         else:
-            empty_streak += 1
+            empty_streak = min(empty_streak + 1, 10)
             if empty_streak >= 2:
                 next_acars = acars_base
     # always leave the RTL on ADS-B

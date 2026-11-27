@@ -28,6 +28,8 @@ WALLS = ("command", "newsroom", "grid", "pulse", "river")
 CONCEPTS = ("river", "brief", "console", "near")
 LANDING = os.environ.get("JAFO_LANDING", "live").strip().lower()   # live | classic
 _cache: dict[str, tuple[float, object]] = {}
+_proxy_cache: dict[tuple, tuple] = {}
+PROXY_TTL = float(os.environ.get("JAFO_EDGE_PROXY_TTL", "4"))
 
 
 def _hub_json(path: str, ttl: int = 600, **params):
@@ -155,6 +157,14 @@ def proxy(sub: str = ""):
         headers["Referer"] = request.referrer
     if request.content_type:
         headers["Content-Type"] = request.content_type
+    # Micro-cache GETs so several screens on jafo.local cost the Pi one hub
+    # round-trip per few seconds, not one per browser poll.
+    ck = None
+    if request.method == "GET" and request.path.startswith("/api/live/"):
+        ck = (request.full_path, "/wall/" in (request.referrer or ""), "sensitive=show" in (request.referrer or ""))
+        hit = _proxy_cache.get(ck)
+        if hit and time.time() - hit[0] < PROXY_TTL:
+            return Response(hit[1], status=hit[2], headers=hit[3])
     try:
         r = requests.request(request.method, HUB + request.path, params=request.args,
                              data=request.get_data() if request.method == "POST" else None,
@@ -164,4 +174,8 @@ def proxy(sub: str = ""):
     keep = {k: v for k, v in r.headers.items()
             if k.lower() in ("content-type", "cache-control", "x-snapshot-time", "x-snapshot-age",
                              "service-worker-allowed")}
+    if ck and r.status_code == 200:
+        if len(_proxy_cache) > 500:
+            _proxy_cache.clear()
+        _proxy_cache[ck] = (time.time(), r.content, r.status_code, keep)
     return Response(r.content, status=r.status_code, headers=keep)

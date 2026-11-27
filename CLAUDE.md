@@ -233,7 +233,17 @@ pick the closest 2-3 sites' control channels and put them in the profile's
 ## Live map, incidents & units (enricher v2) — hub
 
 The public front door of the hub is **`/live/<region>`** (`/` redirects there;
-the old fleet view is `/fleet`). It is built on an incidents/units model:
+the old fleet view is `/fleet`). Views:
+
+| URL | View | Files |
+|---|---|---|
+| `/live/<region>` | **Briefing** (front door; `?lens=near` = Near-me mode; `#i/<id>` opens a story) | `templates/live_brief.html`, `static/brief.{js,css}` |
+| `/live/<region>/map` | full-screen map (the original /live) | `templates/live.html`, `static/live.{js,css}` |
+| `/live/<region>/pro` | **Console** pro view, River timeline as a pane | `templates/pro.html`, `static/pro.{js,css}` |
+| `/live/<region>/wall/<command\|newsroom\|grid\|pulse\|river>` | wall displays | `templates/wall_*.html` |
+| `/live/<region>/v/<brief\|near\|console\|river>` | redirects to the above; `?proto=1` shows the original prototype | `templates/v_*.html` |
+
+It is built on an incidents/units model:
 
 | Piece | File |
 |---|---|
@@ -270,4 +280,14 @@ Gotchas:
   Any manual `scripts/sdr-mode.sh adsb|acars|voice|noaa` pauses it (writes
   `jafo-data/config/timeshare.pause`); `sdr-mode.sh auto` resumes. Decoded
   ACARS reaches the hub via `jafo-acars-upload` → `/api/ingest/acars`.
+- Shared APIs added for the redesign: incident list items carry `last_line` +
+  `unit_list`; incident detail has `status_history` (derived from unit_events);
+  `/api/live/places?q=` (towns/blocks JAFO has heard, then Nominatim bounded to
+  the region bbox, never house numbers); `/api/live/air/history` (`?hex=` one
+  track, or `?since=&until=` all aircraft) backed by the `air_positions` table,
+  sampled every 15 s from `/api/live/air` polls, kept `JAFO_AIR_HISTORY_HOURS`
+  (48).
+- The ADS-B cloud feed falls back adsb.lol → adsb.fi → airplanes.live
+  (adsb.lol returns 429 at times). The time-share does not skip ACARS when the
+  hub has no community feed (an empty sky may just be the Pi antenna).
 - Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).
