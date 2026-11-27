@@ -227,3 +227,34 @@ pick the closest 2-3 sites' control channels and put them in the profile's
 - **Don't reformat the talkgroups CSV.** Trunk-recorder is picky.
 - **Ask Drew before pushing breaking changes.** This is a working capture
   station as of last commit; preserve that.
+
+---
+
+## Live map, incidents & units (enricher v2) — hub
+
+The public front door of the hub is **`/live/<region>`** (`/` redirects there;
+the old fleet view is `/fleet`). It is built on an incidents/units model:
+
+| Piece | File |
+|---|---|
+| LLM prompt + schema, incident linking, unit state machine, geocoding, sweeper | `pi/services/incidents.py` |
+| Enricher loop (v2 runs when `JAFO_LLM_BACKEND=anthropic`; `JAFO_ENRICH_V2=0` to disable) | `pi/services/enricher.py` (`run_v2_loop`) |
+| Replay/backfill a window in order | `pi/services/backfill_incidents.py --hours N` |
+| `/live` pages + `/api/live/*` (incidents, units, radio, codes, stats, replay, pulse, weather, report, presence) | `pi/web/live.py` |
+| Wall displays `/live/<region>/wall/<command\|newsroom\|grid\|pulse>` | `pi/web/templates/wall_*.html`, `pi/web/static/wall_*.{js,css}` |
+| Web push alerts + manifest + service worker (`/live/sw.js`) | `pi/web/push.py`, `pi/web/static/live-sw.js` |
+| TxDOT cameras (catalog + snapshot proxy) | `pi/web/cameras.py` |
+
+Gotchas:
+- **Haiku 5.5 thinks by default** and thinking counts toward `max_tokens`. Keep
+  `output_config.effort="low"`, a generous `max_tokens`, structured outputs
+  (`output_config.format`), and read content blocks by `type`.
+- Incident locations are **block-level by design**; the house number is never
+  stored on `incidents`. Transcripts shown publicly go through the model's
+  `redact` list *and* `_redact_pii`.
+- `JAFO_PUBLIC_AUDIO=1` (hub .env) lets anyone play v2-enriched calls. Audio
+  itself is not bleeped.
+- Talkgroup city context comes from `DATA_DIR/config/talkgroups-<slug>.csv`
+  on the hub (`talkgroups-rgv.csv`, `talkgroups-austin.csv`).
+- Region → TxDOT district: `rgv→PHR`, `austin→AUS` (`JAFO_TXDOT_DISTRICTS`).
+- Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).
