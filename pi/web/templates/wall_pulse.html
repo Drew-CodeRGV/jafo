@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse · {{ region_name }} · JAFO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&family=Hanken+Grotesk:wght@300;400;500&family=Fragment+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/wall_pulse.css?v=1">
+</head>
+<body>
+<div id="stage" aria-label="Ambient radio pulse for {{ region_name }}">
+  <div id="drift">
+    <header class="top">
+      <div class="brand">
+        <div class="region">{{ region_name }}</div>
+        <div class="sub">Public-safety radio, heard live</div>
+        <div id="lag" class="lag" hidden></div>
+      </div>
+      <div class="sky">
+        <div id="wx" class="wx"></div>
+        <div id="conn" class="conn" hidden><i></i>Reconnecting</div>
+        <div id="demo-tag" class="demo-tag" hidden>Demo replay</div>
+      </div>
+    </header>
+
+    <section id="map" class="map">
+      <canvas id="map-cv"></canvas>
+      <div id="caption" class="caption" aria-live="polite"></div>
+    </section>
+
+    <section class="dial">
+      <canvas id="ring-cv"></canvas>
+      <div class="dial-center">
+        <div id="clock" class="clock">--:--</div>
+        <div id="date" class="date"></div>
+      </div>
+    </section>
+
+    <section class="voice" aria-live="polite">
+      <div id="lines" class="lines"></div>
+    </section>
+
+    <section class="tally">
+      <p id="sentence" class="sentence"></p>
+      <div id="kinds" class="kinds"></div>
+      <p class="key">Each bar is ten minutes of radio. Dots mark incidents as they opened.</p>
+    </section>
+  </div>
+</div>
+
+<nav id="nav" class="nav" aria-label="Other displays">
+  <a href="/live/{{ region_slug }}">Open live map</a>
+  <span class="sep"></span>
+  {% for w in walls %}<a href="/live/{{ region_slug }}/wall/{{ w }}"{% if w == 'pulse' %} aria-current="page"{% endif %}>{{ w }}</a>{% endfor %}
+  {% if audio %}<span class="sep"></span><button id="sound" type="button">Sound off</button>{% endif %}
+</nav>
+
+<script>
+window.PULSE_CFG = {
+  slug: {{ region_slug | tojson }},
+  name: {{ region_name | tojson }},
+  tz: {{ tz | tojson }},
+  region: {{ region | tojson }},
+  audio: {{ audio | tojson }},
+  walls: {{ walls | tojson }}
+};
+</script>
+<script src="/static/wall_pulse.js?v=1"></script>
+</body>
+</html>
