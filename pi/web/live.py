@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import statistics
 import threading
@@ -131,11 +132,32 @@ SOFT_TITLE = {"medical": "Medical emergency", "violence": "Police emergency", "f
               "other": "Emergency call"}
 
 
-def _wall() -> bool:
+WALL_SENSITIVE_DEFAULT = os.environ.get("JAFO_WALL_SENSITIVE", "soften").strip().lower()  # soften | show
+
+
+def _wall_sensitive_mode() -> str:
+    """'show' = full detail tagged sensitive; 'soften' = neutral text.
+    Set per wall with ?sensitive=show|soften on the wall URL (it rides on the
+    Referer of the wall's API calls), or hub-wide with JAFO_WALL_SENSITIVE."""
     try:
-        return request.args.get("safe") == "1" or "/wall/" in (request.referrer or "")
+        ref = request.referrer or ""
+        for src in (request.args.get("sensitive", ""), ref):
+            if "sensitive=show" in src or src == "show":
+                return "show"
+            if "sensitive=soften" in src or src == "soften":
+                return "soften"
+    except RuntimeError:
+        pass
+    return "show" if WALL_SENSITIVE_DEFAULT == "show" else "soften"
+
+
+def _wall() -> bool:
+    """True when this request should be SOFTENED (a wall page in soften mode)."""
+    try:
+        is_wall = request.args.get("safe") == "1" or "/wall/" in (request.referrer or "")
     except RuntimeError:
         return False
+    return is_wall and _wall_sensitive_mode() == "soften"
 
 
 def _is_sensitive(row) -> bool:
@@ -155,7 +177,9 @@ def _incident_brief(inc, counts, now) -> dict:
         d = _incident_brief_raw(inc, counts, now)
         d.update(title=_soft_title(inc["kind"]), summary=None, location=inc["city"] or None, softened=True)
         return d
-    return _incident_brief_raw(inc, counts, now)
+    d = _incident_brief_raw(inc, counts, now)
+    d["sensitive"] = _is_sensitive(inc)
+    return d
 
 
 def _incident_brief_raw(inc, counts, now) -> dict:
@@ -267,7 +291,7 @@ _PULSE_CACHE: dict[str, tuple[float, dict]] = {}
 
 @bp.route("/api/live/pulse")
 def api_pulse():
-    key = (request.args.get("region") or "") + ("|wall" if _wall() else "")
+    key = (request.args.get("region") or "") + ("|soft" if _wall() else "|full")
     hit = _PULSE_CACHE.get(key)
     if hit and time.time() - hit[0] < 10:
         return jsonify(hit[1])
@@ -481,6 +505,9 @@ def api_incident(iid: int):
     if _wall() and _is_sensitive(inc):
         d.update(summary=None, people=[], vehicles=[], related_news=[], trails=[])
         d["timeline"] = [_soften_call(t, inc["kind"]) for t in d["timeline"]]
+    elif d.get("sensitive"):
+        for t in d["timeline"]:
+            t["sensitive"] = True
     slug_row = conn.execute("SELECT slug FROM regions WHERE id = ?", (inc["region_id"],)).fetchone()
     conn.close()
     try:
@@ -559,6 +586,9 @@ def api_units():
             {"sensitive": u["inc_sensitive"], "title": u["inc_title"], "summary": u["inc_summary"],
              "type": u["inc_type"]}) else u["inc_title"]),
         "incident_kind": u["inc_kind"],
+        "incident_sensitive": bool(u["incident_id"]) and _is_sensitive(
+            {"sensitive": u["inc_sensitive"], "title": u["inc_title"], "summary": u["inc_summary"],
+             "type": u["inc_type"]}),
         "lat": u["inc_lat"], "lng": u["inc_lng"], "location": _scrub(u["location_text"]),
     } for u in rows]
     return jsonify({"items": items, "now": now})
@@ -646,9 +676,14 @@ def api_radio():
     for c in rows:
         d = _call_public(c, owner, {"id": c["incident_id"], "title": c["inc_title"], "kind": c["inc_kind"]}
                          if c["incident_id"] else None)
-        if wall and c["incident_id"] and _is_sensitive({"sensitive": c["inc_sensitive"], "title": c["inc_title"],
-                                                        "summary": c["inc_summary"], "type": c["inc_type"]}):
+        sens = bool(c["incident_id"]) and _is_sensitive({"sensitive": c["inc_sensitive"], "title": c["inc_title"],
+                                                          "summary": c["inc_summary"], "type": c["inc_type"]})
+        if wall and sens:
             d = _soften_call(d, c["inc_kind"])
+        elif sens:
+            d["sensitive"] = True
+            if d.get("incident"):
+                d["incident"]["sensitive"] = True
         items.append(d)
     if since and not before:
         items.reverse()
@@ -750,6 +785,7 @@ def api_stats():
     def top(sort_key, filt=lambda i: True, n=10):
         rows = sorted((i for i in incs if filt(i)), key=sort_key, reverse=True)[:n]
         return [{"id": i["id"], "title": _soft_title(i["kind"]) if _wall() and _is_sensitive(i) else i["title"],
+                 "sensitive": _is_sensitive(i) and not _wall(),
                  "at": i["first_call_at"], "kind": i["kind"],
                  "location": _scrub(i["location_text"]), "calls": i["call_count"]} for i in rows]
     sev = {"critical": 4, "high": 3, "medium": 2, "low": 1}
@@ -809,6 +845,11 @@ def _last_call_public(row):
         if inc and _is_sensitive(inc):
             d.update(call_line=f"Units are handling a {_soft_title(inc['kind']).lower()}.",
                      incident_title=_soft_title(inc["kind"]))
+    elif d.get("incident_id"):
+        conn = _db()
+        inc = conn.execute("SELECT * FROM incidents WHERE id = ?", (d["incident_id"],)).fetchone()
+        conn.close()
+        d["incident_sensitive"] = bool(inc) and _is_sensitive(inc)
     return d
 
 

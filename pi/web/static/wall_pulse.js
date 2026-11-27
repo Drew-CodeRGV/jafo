@@ -514,7 +514,7 @@
     const inc = it.incident && it.incident.title ? it.incident : null;
     return `${it.channel ? `<span class="ch">${esc(it.channel)}</span><span class="dot"></span>` : ""}`
       + `<span class="when" data-at="${it.at}">${esc(hm(it.at))} · ${esc(ago(it.at))}</span>`
-      + (inc ? `<span class="dot"></span><span class="inc">${glyph(inc.kind)}<span class="tt">${esc(inc.title)}</span></span>` : "");
+      + (inc ? `<span class="dot"></span><span class="inc">${glyph(inc.kind)}<span class="tt">${inc.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${esc(inc.title)}</span></span>` : "");
   }
   function showLine(it, animate = true) {
     const quiet = linesEl.querySelector(".quiet-note"); if (quiet) quiet.remove();
@@ -595,7 +595,7 @@
     const where = [inc.location, inc.city].filter(Boolean).join(", ") || "Location not given";
     const bits = [earlier && inc.status === "ended" ? "" : `<span class="st">${esc(st)}</span>`, `<span class="${earlier && inc.status === "ended" ? "st" : ""}">${esc(earlier && inc.status === "ended" ? when[0].toUpperCase() + when.slice(1) : when)}</span>`, inc.calls ? `${inc.calls} call${inc.calls === 1 ? "" : "s"}` : "", unitText(inc.units)].filter(Boolean);
     capEl.innerHTML = `<div class="eyebrow">${glyph(inc.kind)}<span>${esc(earlier ? "Earlier today" : KIND_SHORT[inc.kind] || "Incident")}</span></div>`
-      + `<h2><span class="t">${esc(inc.title || "Untitled incident")}</span></h2>`
+      + `<h2>${inc.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}<span class="t">${esc(inc.title || "Untitled incident")}</span></h2>`
       + `<div class="where"><span class="t">${esc(where)}</span><br><span class="t">${bits.join(" · ")}</span></div>`;
     const p = posOf(inc) || (inc._ux != null ? [inc._ux, inc._uy] : null);
     // put the caption in the quadrant away from the point

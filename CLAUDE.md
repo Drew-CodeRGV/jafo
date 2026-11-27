@@ -260,7 +260,9 @@ Gotchas:
 - Region → TxDOT district: `rgv→PHR`, `austin→AUS` (`JAFO_TXDOT_DISTRICTS`).
 - Wall displays soften sensitive incidents (self-harm, mental health, death,
   sexual assault, child abuse) for any request whose Referer is a `/wall/` page
-  or that passes `?safe=1`; `/live` keeps full detail.
+  or that passes `?safe=1`; `/live` keeps full detail. Open a wall with
+  `?sensitive=show` (or set `JAFO_WALL_SENSITIVE=show` hub-wide) to get full
+  detail with a "Sensitive" tag instead; `?sensitive=soften` forces softening.
 - The Pi's app.py is diverged (ACARS): it got live_edge registered by an
   appended block (backup `app.py.bak-live-*`), not a wholesale copy.
 - Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).

@@ -406,7 +406,7 @@
     const hi = !dim && i.severity === "high" ? '<span class="hi-pill">High</span>' : "";
     return `<li class="row${dim ? " dim" : ""}" data-id="${esc(i.id)}">
       ${kico(k)}
-      <div class="row-main"><div class="row-title">${hi}${txt(i.title || KIND_LABEL[k])}</div><div class="row-meta">${meta}</div></div>
+      <div class="row-main"><div class="row-title">${hi}${i.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${txt(i.title || KIND_LABEL[k])}</div><div class="row-meta">${meta}</div></div>
       <div class="row-right">${chip(i.status)}<span class="row-age">${esc(ago)}</span></div>
     </li>`;
   }

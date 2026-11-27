@@ -185,7 +185,7 @@ function leadHTML(brief, d, idx, total) {
       ${it.severity === "high" ? `<span class="sev">Serious</span>` : ""}
       ${rot}</div>
     ${S.quiet ? `<p class="quietnote">No incidents are active on the radio right now. Earlier today:</p>` : ""}
-    <h1 class="hl ${hlCls}">${esc(title)}</h1>
+    <h1 class="hl ${hlCls}">${it.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${esc(title)}</h1>
     <div class="deck">${deck.join("")}</div>
     <div class="lp-body k-${k}">
       ${summary ? `<p class="summary">${rich(summary)}</p>` : ""}
@@ -261,7 +261,7 @@ function renderCards(cards, activeCount) {
     const where = c.city || c.location;
     return `<div class="card${ended ? " ended" : ""}">
       <div class="ck">${kico(k, ended)}<span>${esc(KIND_SHORT[k])}</span>${ended ? "" : `<span>· ${esc(STATUS[stat(c)] || "")}</span>`}</div>
-      <div class="ct">${esc(c.title || c.type || "Incident")}</div>
+      <div class="ct">${c.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${esc(c.title || c.type || "Incident")}</div>
       <div class="cm">${where ? `<b>${esc(where)}</b>` : ""}<span>${esc(when)}</span></div></div>`;
   }).join("");
   if (!cards.length) html = `<div class="card empty">No other stories in the last 24 hours.</div>`;
@@ -346,7 +346,7 @@ function wireItem(c, isNew) {
   const inc = c.incident;
   li.innerHTML = `<div class="wm"><span class="t">${esc(fmtTime(c.at))}</span>${inc ? kico(inc.kind) : ""}<span class="ch">${esc(c.channel || "")}</span></div>
     <p class="wl">${rich(c.line || (c.speakers || []).map((s) => s.text).join(" ") || "")}</p>
-    ${inc && inc.title ? `<div class="wi-inc">${esc(inc.title)}</div>` : ""}`;
+    ${inc && inc.title ? `<div class="wi-inc">${inc.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${esc(inc.title)}</div>` : ""}`;
   return li;
 }
 function renderWire() {

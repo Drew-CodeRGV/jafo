@@ -253,7 +253,7 @@ function renderQueue(start = 0) {
   const t = nowS();
   const rows = list.map((i) => `<div class="q-row${i.id === S.spotId ? " on" : ""}" data-id="${i.id}">
       ${kchip(i.kind)}
-      <div style="min-width:0"><div class="q-t">${rich(i.title || i.type || "Incident")}</div>
+      <div style="min-width:0"><div class="q-t">${i.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${rich(i.title || i.type || "Incident")}</div>
       <div class="q-s">${rich([i.location, i.city].filter(Boolean).join(" · ") || "Location not given")}</div></div>
       <div class="q-m">${stMark(i.status)}<span class="mono">${fmtAge(t - (i.first_at || t))}</span></div></div>`);
   el.innerHTML = rows.join("");
@@ -351,7 +351,7 @@ function spotActiveHtml(it, d) {
   return `<div class="sp-eyebrow">${kchip(it.kind)}<span class="sp-kind">${esc(KIND_SHORT[it.kind] || "Other")}${it.type && it.type !== KIND_SHORT[it.kind] ? ` · ${esc(it.type)}` : ""}</span>
       <span class="spill st-${esc(it.status)}">${stMark(it.status)}</span>
       <span class="sp-age">${it.first_at ? `${fmtT(it.first_at)} · ${fmtAge(t - it.first_at)}` : ""}</span></div>
-    <div class="sp-title">${rich(it.title || it.type || "Incident")}</div>
+    <div class="sp-title">${it.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${rich(it.title || it.type || "Incident")}</div>
     ${locHtml(it)}
     <div class="sp-units">${unitsHtml(it, d)}</div>
     ${sum ? `<div class="sp-sum">${rich(sum)}</div>` : ""}
@@ -368,7 +368,7 @@ function spotQuietHtml(rc, d) {
     const sum = (d && d.summary) || rc.summary || "";
     recap = `<div class="recap"><div class="sp-eyebrow">${kchip(rc.kind)}<span class="sp-kind">Earlier · ${esc(KIND_SHORT[rc.kind] || "Other")}</span>
         <span class="sp-age">${rc.first_at ? fmtT(rc.first_at) : ""}${rc.last_at ? ` – ${fmtT(rc.last_at)}` : ""}</span></div>
-      <div class="sp-title">${rich(rc.title || "Incident")}</div>${locHtml(rc)}${sum ? `<div class="sp-sum">${rich(sum)}</div>` : ""}</div>`;
+      <div class="sp-title">${rc.sensitive ? `<span class="sens-tag">Sensitive</span> ` : ""}${rich(rc.title || "Incident")}</div>${locHtml(rc)}${sum ? `<div class="sp-sum">${rich(sum)}</div>` : ""}</div>`;
   }
   return `<div class="quiet-h"><div class="qmark"><i></i></div><div><div class="quiet-t">All quiet</div>
       <div class="quiet-s">No open incidents. Radio is being monitored.</div></div></div>

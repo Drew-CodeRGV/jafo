@@ -284,3 +284,8 @@ ol { list-style: none; }
 .walls a { color: var(--ink-3); letter-spacing: 0.04em; }
 .walls a.cur { color: var(--ink-2); text-decoration: underline; text-underline-offset: 0.2em; }
 .walls .upd { font-variant-numeric: tabular-nums; }
+
+/* Sensitive tag (wall opened with ?sensitive=show) */
+.sens-tag { display: inline-block; vertical-align: 0.18em; font: 700 clamp(11px, 0.42em, 22px)/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .08em; text-transform: uppercase; color: #c26a00; border: 1.5px solid currentColor;
+  border-radius: 0.5em; padding: 0.32em 0.6em; margin-right: 0.45em; white-space: nowrap; }
