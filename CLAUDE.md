@@ -306,3 +306,8 @@ Gotchas:
   `<details>`. Add new airline formats in `_humanize` and test with real rows
   from `acars_messages`.
 - The Pi's jafo-web caches templates: restart it after deploying template changes.
+- **Listener map:** clicking "N watching" opens `static/listeners.js`, fed by
+  `/api/live/presence/map` (per-city counts, last 75 s). Cities come from
+  `pi/web/geoip.py` using the DB-IP City Lite mmdb at `DATA_DIR/geo/` (hub only,
+  refreshed monthly, needs `maxminddb` in venv-web). IPs are never stored —
+  only the city name and centroid on the `presence` row.
