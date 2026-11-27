@@ -433,3 +433,8 @@ body.replaying .player { display: none; }
   .menu { left: 8px; right: 8px; width: auto; }
 }
 @media (prefers-reduced-motion: reduce) { .pin.s-new::after { animation: none; } * { transition: none !important; } }
+
+#bell-pop { left: 420px; top: calc(52px + env(safe-area-inset-top, 0px)); width: 300px; padding: 14px; }
+#bell-pop p { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+#bell-chip.on { background: var(--accent); color: var(--accent-ink); }
+@media (max-width: 760px) { #bell-pop { left: 12px; right: 12px; width: auto; } }

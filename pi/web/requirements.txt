@@ -5,3 +5,4 @@ python-dotenv>=1.0
 # Groq for the high-volume per-story scripts + short digests.
 anthropic>=0.39
 groq>=0.11
+pywebpush>=2.0

@@ -7247,6 +7247,12 @@ _start_coverage_thread()
 # this module and needs every helper above to exist.
 from live import bp as _live_bp  # noqa: E402
 app.register_blueprint(_live_bp)
+try:  # web push alerts (needs pywebpush in the web venv)
+    import push as _push  # noqa: E402
+    app.register_blueprint(_push.bp)
+    _push.start_notifier()
+except ImportError as _e:
+    print(f"[push] disabled: {_e}", file=sys.stderr)
 
 
 # -----------------------------------------------------------------------------

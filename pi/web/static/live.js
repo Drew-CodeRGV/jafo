@@ -1014,6 +1014,7 @@ function onClick(e) {
     const tg = +ds.chan; S.hiddenChannels.has(tg) ? S.hiddenChannels.delete(tg) : S.hiddenChannels.add(tg);
     store.set("hiddenChannels", [...S.hiddenChannels]); renderRadio(); renderChannelBox(); return;
   }
+  if (ds.push) { setPush(ds.push); return; }
   if (ds.hlList) { S.hl.list = ds.hlList; renderHighlights(); return; }
   if (ds.hlStat) { S.hl.stat = ds.hlStat; renderHighlights(); return; }
   if (ds.hlDays) { store.set("hlDays", +ds.hlDays); openHighlights(+ds.hlDays, S.hl.kind); return; }
@@ -1124,8 +1125,9 @@ function bind() {
   $("#vol").oninput = (e) => (S.audio.volume = +e.target.value);
   $("#btn-layers").onclick = (e) => { e.stopPropagation(); $("#layers-pop").hidden = !$("#layers-pop").hidden; $("#wx-pop").hidden = true; };
   $("#wx-chip").onclick = (e) => { e.stopPropagation(); renderWeatherPop(); $("#wx-pop").hidden = !$("#wx-pop").hidden; $("#layers-pop").hidden = true; };
+  $("#bell-chip").onclick = (e) => { e.stopPropagation(); renderBell(); $("#bell-pop").hidden = !$("#bell-pop").hidden; $("#layers-pop").hidden = true; $("#wx-pop").hidden = true; };
   $("#wx-alert-chip").onclick = (e) => { e.stopPropagation(); renderWeatherPop(); $("#wx-pop").hidden = false; };
-  document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btn-layers, #wx-chip, #wx-alert-chip")) { $("#layers-pop").hidden = true; $("#wx-pop").hidden = true; } });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btn-layers, #wx-chip, #wx-alert-chip, #bell-chip")) { $("#layers-pop").hidden = true; $("#wx-pop").hidden = true; $("#bell-pop").hidden = true; } });
   $$("#layers-pop [data-base]").forEach((b) => (b.onclick = () => {
     $$("#layers-pop [data-base]").forEach((x) => x.classList.toggle("on", x === b));
     if (b.dataset.base === "sat") { map.addLayer(satLayer); map.removeLayer(baseLayer); } else { map.addLayer(baseLayer); map.removeLayer(satLayer); }
@@ -1135,6 +1137,61 @@ function bind() {
   addEventListener("hashchange", routeHash);
   initSheet(); initReplayUi(); markTheme();
 }
+
+// ---------------------------------------------------------------- alerts (web push) + app install
+const PUSH = { reg: null, sub: null, level: store.get("pushLevel", "off") };
+function b64ToBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+async function initPush() {
+  if (!("serviceWorker" in navigator)) { $("#bell-chip").hidden = true; return; }
+  try {
+    PUSH.reg = await navigator.serviceWorker.register("/live/sw.js", { scope: "/live/" });
+    PUSH.sub = await PUSH.reg.pushManager?.getSubscription();
+  } catch (e) { console.warn("sw", e); }
+  if (!PUSH.sub) PUSH.level = "off";
+  markBell();
+}
+function markBell() {
+  $("#bell-chip").classList.toggle("on", PUSH.level !== "off");
+  $("#bell-l").textContent = PUSH.level === "off" ? "Alerts" : PUSH.level === "all" ? "All alerts" : "Priority alerts";
+}
+function renderBell() {
+  const ios = /iphone|ipad/i.test(navigator.userAgent), standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const supported = PUSH.reg && "PushManager" in window;
+  $("#bell-pop").innerHTML = `<b>Alerts on this device</b>
+    <div class="seg" style="margin-top:10px">${[["off", "Off"], ["priority", "Priority"], ["all", "All"]].map(([v, l]) => `<button type="button" data-push="${v}" class="${PUSH.level === v ? "on" : ""}">${l}</button>`).join("")}</div>
+    <p><b>Priority</b>: shootings, pursuits, major fires and crashes, officer emergencies — high-severity incidents only. <b>All</b> adds medium-severity incidents. Capped at 20 per hour. ${esc(CFG.regionName)} only.</p>
+    ${!supported ? `<p>${ios && !standalone ? "On iPhone, add JAFO to your Home Screen first (Share → Add to Home Screen), then turn alerts on from the app." : "This browser doesn't support push alerts."}</p>` : ""}`;
+}
+async function setPush(level) {
+  try {
+    if (level === "off") {
+      if (PUSH.sub) { await post("/api/live/push/unsubscribe", { endpoint: PUSH.sub.endpoint }); await PUSH.sub.unsubscribe(); }
+      PUSH.sub = null;
+    } else {
+      if (!PUSH.reg || !("PushManager" in window)) { toast("Push alerts aren't available here"); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { toast("Notifications are blocked for this site"); return; }
+      if (!PUSH.sub) {
+        const { key } = await api("/api/live/push/key", { region: undefined });
+        PUSH.sub = await PUSH.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+      }
+      await post("/api/live/push/subscribe", { subscription: PUSH.sub.toJSON(), level, region: CFG.region });
+      toast(level === "all" ? "You'll get all alerts" : "You'll get priority alerts");
+    }
+    PUSH.level = level; store.set("pushLevel", level);
+  } catch (e) { console.warn(e); toast("Couldn't change alerts"); }
+  markBell(); renderBell();
+}
+// Keep the screen awake while the map is open (wall / kiosk use).
+let wakeLock = null;
+async function keepAwake() {
+  try { if ("wakeLock" in navigator && !document.hidden) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) keepAwake(); });
 
 // ---------------------------------------------------------------- boot
 async function presence() {
@@ -1152,7 +1209,7 @@ async function boot() {
     if (saved !== null && el) { el.checked = saved; if (saved && ["heat", "radar"].includes(name)) toggleLayer(name, true); }
   }
   await Promise.all([loadIncidents(), loadUnits(), loadRadio(true)]);
-  loadWeather(); presence();
+  loadWeather(); presence(); initPush(); keepAwake();
   routeHash();
   if (!store.get("toured", false)) setTimeout(() => openTour(0), 600);
   setInterval(() => { if (!document.hidden) loadIncidents(); }, 10000);

@@ -7,6 +7,10 @@
 <meta name="description" content="Public-safety radio for {{ region_name }}, live on a map — transcribed, summarized and grouped into incidents.">
 <meta name="theme-color" content="#eef1f5">
 <link rel="icon" href="/static/logo.png">
+<link rel="manifest" href="/live/manifest.webmanifest?region={{ region_slug }}">
+<link rel="apple-touch-icon" href="/static/logo.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="JAFO">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
@@ -38,7 +42,12 @@
     <span id="watching-n">1</span>&nbsp;watching
   </span>
   <span class="chip static warn" id="wx-alert-chip" hidden></span>
+  <button class="chip" id="bell-chip" type="button" title="Alerts on this device" aria-haspopup="dialog">
+    <svg viewBox="0 0 24 24" class="ico"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>
+    <span id="bell-l">Alerts</span>
+  </button>
 </div>
+<div class="pop" id="bell-pop" role="dialog" aria-label="Alerts" hidden></div>
 
 <!-- ===== Map controls ===== -->
 <div class="mapctl" role="toolbar" aria-label="Map controls">
