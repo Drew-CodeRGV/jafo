@@ -293,7 +293,7 @@ function renderIncidentList() {
   const wlabel = { active: "Now", "1h": "Last hour", "6h": "Last 6 hours", "24h": "Last 24 hours", "7d": "Last 7 days" }[f.window] || "Now";
   const head = S.replay ? `Incidents at ${fmtTime(S.replay.t)}` : (S.q ? `Results for “${esc(S.q)}”` : (f.radius ? `Near you (${f.radius} mi)` : wlabel));
   let html = `<div class="sec-h">${head}${filtersActive() ? `<small><a href="#" data-act="clear-filters">Clear filters</a></small>` : ""}</div>`;
-  if (!list.length) html += `<div class="empty">${S.q ? "Nothing matches that search." : f.window === "active" ? "Nothing active right now. It's quiet out there." : "No incidents in this window."}</div>`;
+  if (!list.length) html += `<div class="empty">${S.replay ? "Nothing was happening at this moment." : S.q ? "Nothing matches that search." : f.window === "active" ? "Nothing active right now. It's quiet out there." : "No incidents in this window."}</div>`;
   else html += list.map(incRow).join("");
   if (f.window === "active" && !S.replay && !S.q && S.endedToday)
     html += `<div class="ended-row"><span>↺ ${S.endedToday} ended today</span><button type="button" data-act="show-24h">Show all</button></div>`;
@@ -863,8 +863,7 @@ function openReport(callId, incId) {
 const SPEEDS = [[1, "Real time"], [6, "1 hr in 10 min"], [10, "1 hr in 6 min"], [30, "1 hr in 2 min"], [60, "1 hr in 1 min"], [180, "3 hr in 1 min"]];
 async function openReplay(day) {
   closeModal(); openMenu(false);
-  const tz = new Date();
-  day = day || `${tz.getFullYear()}-${String(tz.getMonth() + 1).padStart(2, "0")}-${String(tz.getDate()).padStart(2, "0")}`;
+  day = day || dayKey(now());
   let d;
   try { d = await api("/api/live/replay", { day }); } catch (e) { toast("Replay unavailable"); return; }
   const prevT = S.replay?.t;
@@ -901,7 +900,7 @@ function setReplayTime(t, fetchNow = false) {
   const R = S.replay; if (!R) return;
   R.t = Math.max(R.start, Math.min(R.end - 1, Math.round(t)));
   $("#rp-cursor").style.left = `${((R.t - R.start) / (R.end - R.start)) * 100}%`;
-  $("#rp-time").textContent = new Date(R.t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  $("#rp-time").textContent = new Date(R.t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: TZ });
   const last = [...R.calls].reverse().find((c) => c.at <= R.t);
   if (last) {
     $("#rp-now").innerHTML = `<b>${esc(last.channel)}</b> · ${fmtTime(last.at)} · ${richText(last.line || "")}`;
