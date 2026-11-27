@@ -276,7 +276,13 @@ def _pulse_data() -> dict:
     latest_heard = conn.execute("SELECT MAX(start_time) FROM calls WHERE region_id IS ? AND start_time >= ?",
                                 (rid, start)).fetchone()[0]
     conn.close()
+    conn2 = _db()
+    cleared_24h = conn2.execute("""SELECT COUNT(*) FROM incidents WHERE region_id IS ? AND closed_at IS NOT NULL
+                                   AND last_call_at >= ?""", (rid, start)).fetchone()[0]
+    conn2.close()
     return ({
+        "cleared_24h": cleared_24h,
+        "active_by_severity": Counter(it["severity"] or "unknown" for it in active_items),
         "today": {"since": midnight, "incidents": today["n"] or 0, "danger": today["danger"] or 0},
         # How far behind the AI pipeline is: walls can show "catching up" honestly.
         "pipeline": {"latest_heard": latest_heard, "latest_enriched": latest_enriched,

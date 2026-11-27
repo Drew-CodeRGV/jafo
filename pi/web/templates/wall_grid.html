@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Situation board · {{ region_name }} · JAFO</title>
+<script>
+  (function () {
+    var t = new URLSearchParams(location.search).get("theme");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+    else if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/wall_grid.css?v=1">
+</head>
+<body>
+<script id="wall-cfg" type="application/json">{"slug": {{ region_slug | tojson }}, "name": {{ region_name | tojson }}, "tz": {{ tz | tojson }}, "region": {{ region | tojson }}, "audio": {{ audio | tojson }}, "walls": {{ walls | tojson }}}</script>
+
+<div class="board" id="board">
+
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4M3.5 3.5a12 12 0 0 0 0 17M20.5 3.5a12 12 0 0 1 0 17"/></svg></span>
+      <div class="brand-text">
+        <div class="brand-title">Situation board</div>
+        <div class="brand-region">{{ region_name }}</div>
+      </div>
+      <span class="demo-pill" id="demo-pill" hidden>Demo · last 24 hours shown as active</span>
+    </div>
+    <div class="top-right">
+      <nav class="walls" id="walls" aria-label="Other wall displays"></nav>
+      <div class="lag" id="lag" hidden></div>
+      <div class="fresh" id="fresh"><span class="fresh-dot"></span><span id="fresh-text">Connecting…</span></div>
+      <div class="clock"><span class="clock-time" id="clock-time">--:--</span><span class="clock-date" id="clock-date"></span></div>
+    </div>
+  </header>
+
+  <section class="banner" id="banner" hidden role="alert">
+    <span class="banner-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4.5M12 17.2v.3"/></svg></span>
+    <div class="banner-body">
+      <div class="banner-event" id="banner-event"></div>
+      <div class="banner-headline" id="banner-headline"></div>
+    </div>
+    <div class="banner-more" id="banner-more"></div>
+  </section>
+
+  <main class="grid">
+
+    <!-- (a) right now -->
+    <section class="tile now" id="t-now">
+      <div class="eyebrow">Right now</div>
+      <div class="now-main">
+        <div class="now-figure">
+          <span class="now-num" id="now-num">0</span>
+          <span class="now-unit" id="now-unit">active incidents</span>
+        </div>
+        <div class="now-quiet" id="now-quiet" hidden>
+          <span class="quiet-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7.5"/></svg></span>
+          <span class="quiet-text">All quiet <span class="quiet-sub">nothing active</span></span>
+        </div>
+      </div>
+      <p class="now-sentence" id="now-sentence">Listening to the radio…</p>
+      <div class="now-facts">
+        <div class="fact"><span class="fact-num" id="f-units">0</span><span class="fact-label">units out</span></div>
+        <div class="fact"><span class="fact-num" id="f-calls">0</span><span class="fact-label">radio calls this hour</span></div>
+        <div class="fact"><span class="fact-num" id="f-opened">0</span><span class="fact-label">opened in 24 hours</span></div>
+      </div>
+      <div class="now-last" id="now-last"></div>
+    </section>
+
+    <!-- (b) kinds + (h) weather -->
+    <section class="kinds" id="kinds"></section>
+
+    <!-- (e) top active -->
+    <section class="tile top-active" id="t-list">
+      <div class="tile-head">
+        <div class="eyebrow" id="list-title">Top active</div>
+        <div class="tile-note" id="list-note"></div>
+      </div>
+      <ol class="rows" id="rows"></ol>
+    </section>
+
+    <!-- (f) map -->
+    <section class="tile map-tile" id="t-map">
+      <div id="map"></div>
+      <div class="map-cap">
+        <div class="eyebrow">Where</div>
+        <div class="map-note" id="map-note"></div>
+      </div>
+    </section>
+
+    <!-- (c) pipeline + (d) units -->
+    <section class="tile flow" id="t-flow">
+      <div class="tile-head">
+        <div class="eyebrow">Incident status</div>
+        <div class="tile-note">active now · cleared in 24 h</div>
+      </div>
+      <div class="pipe" id="pipe"></div>
+      <div class="units-block">
+        <div class="tile-head">
+          <div class="eyebrow">Units by service</div>
+          <div class="tile-note" id="units-note">heard in the last 4 hours</div>
+        </div>
+        <div class="units" id="units"></div>
+        <div class="legend" id="units-legend"></div>
+      </div>
+    </section>
+
+    <!-- (g) 24h call volume -->
+    <section class="tile volume" id="t-vol">
+      <div class="tile-head">
+        <div class="eyebrow">Radio calls · last 24 hours</div>
+        <div class="tile-note" id="vol-note"></div>
+      </div>
+      <div class="vol-chart" id="vol-chart"></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="conn" id="conn" hidden><span class="conn-dot"></span>Reconnecting — showing last update</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/wall_grid.js?v=1"></script>
+</body>
+</html>
