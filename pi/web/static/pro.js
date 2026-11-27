@@ -507,7 +507,7 @@ function renderAir() {
   const ac = d.acars || {}, box = $("#acars");
   const msgs = (ac.messages || []).filter((m) => (m.text || "").trim());
   box.hidden = !msgs.length;
-  if (!box.hidden) box.innerHTML = `<h4>ACARS · aircraft datalink${ac.active ? "" : ` <span class="dim">· last ${ac.last_at ? age(ac.last_at) + " ago" : "—"}</span>`}</h4><ul>${msgs.slice(0, 10).map((m) => `<li><span class="tm">${fmtClock(m.at)}</span><b>${esc(m.flight || m.tail || "")}</b> ${m.label ? `<span class="tm">[${esc(m.label)}]</span>` : ""}${esc(String(m.text).trim().slice(0, 240))}</li>`).join("")}</ul>`;
+  if (!box.hidden) box.innerHTML = `<h4>ACARS · aircraft datalink${ac.active ? "" : ` <span class="dim">· last ${ac.last_at ? age(ac.last_at) + " ago" : "—"}</span>`}</h4><ul>${msgs.slice(0, 10).map((m) => `<li><span class="tm">${fmtClock(m.at)}</span><b>${esc(m.flight || m.tail || "")}</b> ${m.human ? `<span class="tm">[${esc(m.human.tag)}]</span><span title="${esc(String(m.text).trim().slice(0, 400))}" style="font-family:var(--sans, system-ui)">${esc(m.human.text)}</span>` : `${m.label ? `<span class="tm">[${esc(m.label)}]</span>` : ""}${esc(String(m.text).trim().slice(0, 240))}`}</li>`).join("")}</ul>`;
 }
 
 // ================================================================= RADIO
@@ -965,12 +965,13 @@ function renderAirDetail(a, opts) {
       <h3 class="mono">${esc(a.callsign || a.reg || a.hex)}</h3>
       <div class="dl">${esc(a.desc || a.type || a.kind || "")}${a.operator ? " · " + esc(a.operator) : ""}</div>
       <div class="dm">${a.emergency ? `<span class="tag emg">Squawk ${esc(a.emergency)} · ${a.emergency === "7700" ? "general emergency" : a.emergency === "7600" ? "radio failure" : "hijack code"}</span>` : ""}${a.role ? `<span class="tag role">${esc(ROLE_LABEL[a.role] || a.role)}</span>` : ""}${a.circling ? '<span class="tag circ">Circling</span>' : a.circled || tr?.circled ? '<span class="tag circ">Circled earlier</span>' : ""}${a.historic ? '<span class="tag">Not in range now</span>' : ""}<span>${esc(a.kind || "")}</span></div></div>
+    ${window.acProfileCard ? `<div style="padding:0 12px">${acProfileCard(a)}</div>` : ""}
     ${a.historic ? "" : `<dl class="facts"><div><dt>Altitude</dt><dd>${a.on_ground ? "ground" : num(a.alt_ft) + " ft"}</dd></div><div><dt>Speed</dt><dd>${a.gs_kt ?? "—"} kt</dd></div>
       <div><dt>Heading</dt><dd>${a.track != null ? Math.round(a.track) + "°" : "—"}</dd></div><div><dt>Squawk</dt><dd>${esc(a.squawk || "—")}</dd></div></dl>`}
     <div class="dsum">${a.historic ? `Logged ${fmtTime(a.first_at)}–${fmtTime(a.last_at)}.` : `${esc(a.label || "")}. ${esc(vs[0].toUpperCase() + vs.slice(1))}. Last seen ${a.seen_sec ?? 0}s ago.`}${first ? ` Tracked since ${fmtTime(first)}${tr?.points?.length ? ` (${tr.points.length} logged positions, dotted on the map)` : ""}.` : ""}${a.reg ? ` Registration <span class="mono">${esc(a.reg)}</span>.` : ""}</div>
     ${altProfile(a)}
     ${nearInc.length ? `<div class="dsec"><h4>Over incidents</h4><div class="dair">${nearInc.map((i) => `<button type="button" data-inc="${i.id}" style="background:var(--sel)">${kico(i.kind)}<b>${esc(i.title)}</b><span style="color:var(--text-3)">${a.near_incident?.id === i.id ? `${a.near_incident.distance_mi} mi away now` : "earlier"}</span></button>`).join("")}</div></div>` : ""}
-    ${acarsMine.length ? `<div class="dsec acars"><h4>ACARS from this flight</h4><ul>${acarsMine.map((m) => `<li><span class="tm">${fmtClock(m.at)}</span>${esc(m.text)}</li>`).join("")}</ul></div>` : ""}
+    ${acarsMine.length ? `<div class="dsec acars"><h4>ACARS from this flight</h4><ul>${acarsMine.map((m) => `<li><span class="tm">${fmtClock(m.at)}</span>${m.human && window.acarsHuman ? acarsHuman(m) : esc(m.text)}</li>`).join("")}</ul></div>` : ""}
     <div class="dfoot">${a.lat != null ? '<button type="button" data-act="zoom-air">Zoom map to aircraft</button>' : ""}${a.hex && !S.air?.demo ? `<a href="https://globe.adsbexchange.com/?icao=${esc(a.hex)}" target="_blank" rel="noopener">ADS-B Exchange ↗</a>` : ""}</div>`;
   if (opts.pan !== false) panTo(a.lat, a.lng, 12);
 }

@@ -732,7 +732,7 @@ function renderAirCluster() {
   if (!air.length && !ac.length) { slot.innerHTML = c.airborne ? `<p class="air-quiet" id="air-anchor">${I.plane}${near ? `Nothing unusual in the air near ${esc(place().name)}. ` : ""}${c.airborne} aircraft over ${esc(REGION_LABEL)}, nothing unusual.</p>` : ""; return; }
   slot.innerHTML = `<section class="sec air" id="air-anchor"><header class="sec-h"><h2>${near ? "Overhead nearby" : "In the air"}</h2><span>${c.airborne ?? 0} overhead · ${c.helicopters ?? 0} helicopter${c.helicopters === 1 ? "" : "s"}${A.demo ? " · demo sky" : ""}</span></header>
     <div class="atiles">${air.map((a) => airTile(a)).join("")}</div>
-    ${ac.length ? `<div class="acars"><h3>Messages from airliners <small>decoded ACARS</small></h3><ul>${ac.map((m) => `<li><time>${fmtTime(m.at)}</time><b>${esc(m.flight || m.tail)}</b><code>${esc(m.text)}</code></li>`).join("")}</ul></div>` : ""}</section>`;
+    ${ac.length ? `<div class="acars"><h3>Messages from airliners <small>decoded ACARS</small></h3><ul>${ac.map((m) => `<li><time>${fmtTime(m.at)}</time><b>${esc(m.flight || m.tail)}</b><div>${m.human && window.acarsHuman ? acarsHuman(m) : `<code>${esc(m.text)}</code>`}</div></li>`).join("")}</ul></div>` : ""}</section>`;
 }
 function renderAirRail() {
   const el = $("#rail-air"); const A = S.air;
@@ -748,7 +748,7 @@ function renderAirPanel() {
   $("#panel-body").innerHTML = !A ? "<p>The aircraft feed isn't available right now.</p>" :
     `<p class="dim">Aircraft broadcasting their position (ADS-B) over ${esc(REGION_LABEL)}: ${c.airborne ?? 0} in the air, ${c.helicopters ?? 0} helicopter${c.helicopters === 1 ? "" : "s"}${A.demo ? ". This is a demo sky" : ""}. We point out helicopters, Border Patrol, medical and military flights, and emergency codes.</p>
     ${air.length ? `<div class="atiles" style="margin:0;padding-inline:2px">${air.map((a) => airTile(a)).join("")}</div>` : "<p>Nothing unusual overhead right now.</p>"}
-    ${A.acars?.active && A.acars.messages?.length ? `<div class="acars"><h3>Messages from airliners <small>decoded ACARS</small></h3><ul>${A.acars.messages.slice(0, 8).map((m) => `<li><time>${fmtTime(m.at)}</time><b>${esc(m.flight || m.tail)}</b><code>${esc(m.text)}</code></li>`).join("")}</ul></div>` : ""}
+    ${A.acars?.active && A.acars.messages?.length ? `<div class="acars"><h3>Messages from airliners <small>decoded ACARS</small></h3><ul>${A.acars.messages.slice(0, 8).map((m) => `<li><time>${fmtTime(m.at)}</time><b>${esc(m.flight || m.tail)}</b><div>${m.human && window.acarsHuman ? acarsHuman(m) : `<code>${esc(m.text)}</code>`}</div></li>`).join("")}</ul></div>` : ""}
     <p style="margin-top:16px"><a href="/live/${esc(CFG.region)}/map">See every aircraft on the full map</a></p>`;
 }
 
@@ -872,7 +872,7 @@ function msIncident(i) {
     <button type="button" class="pillbtn" data-readstory="${i.id}">Read the story</button>`;
 }
 async function msAir(a) {
-  const c = $("#ms-card"); c.hidden = false; c.innerHTML = airTile(a, true);
+  const c = $("#ms-card"); c.hidden = false; c.innerHTML = (window.acProfileCard ? acProfileCard(a) : "") + airTile(a, true);
   if (!bigHist || a.source === "demo" || !a.hex) return;
   bigHist.clearLayers();
   try {  // longer track from the persisted history (up to 6 hours)

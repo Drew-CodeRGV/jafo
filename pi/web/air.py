@@ -27,6 +27,7 @@ import time
 import requests
 from flask import Blueprint, jsonify, request
 
+import acars_human
 import app as A
 
 bp = Blueprint("air", __name__)
@@ -175,14 +176,26 @@ def _acars(region_slug: str) -> dict:
     conn = A.get_db()
     try:
         rows = conn.execute("""SELECT received_at, flight, tail, label, text FROM acars_messages
-                               WHERE text IS NOT NULL AND text != '' ORDER BY received_at DESC LIMIT 30""").fetchall()
+                               WHERE text IS NOT NULL AND text != '' AND IFNULL(label,'') NOT IN ('SQ','_d','Q0')
+                               ORDER BY received_at DESC LIMIT 200""").fetchall()
         total = conn.execute("SELECT COUNT(*) FROM acars_messages").fetchone()[0]
     except Exception:
         rows, total = [], 0
     conn.close()
-    msgs = [{"at": r["received_at"], "flight": (r["flight"] or "").strip(), "tail": (r["tail"] or "").strip(),
-             "label": r["label"], "text": (r["text"] or "")[:400]} for r in rows]
+    msgs, noise = [], 0
+    for r in rows:
+        m = {"at": r["received_at"], "flight": (r["flight"] or "").strip(), "tail": (r["tail"] or "").strip(),
+             "label": r["label"], "text": acars_human._scrub((r["text"] or "")[:400])}
+        h = acars_human.humanize(m)
+        if h["noise"]:
+            noise += 1
+            continue
+        m["human"] = {"tag": h["tag"], "text": h["text"]}
+        msgs.append(m)
+        if len(msgs) >= 30:
+            break
     return {"active": bool(msgs and time.time() - msgs[0]["at"] < 300), "messages": msgs, "total": total,
+            "routine_hidden": noise,
             "last_at": msgs[0]["at"] if msgs else None}
 
 

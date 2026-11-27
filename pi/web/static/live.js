@@ -1315,9 +1315,9 @@ function renderAir() {
   const rx = (d.receivers || [])[0];
   const duty = rx ? (rx.override ? `radio in ${esc(rx.override)}` : rx.state === "acars" ? "listening now"
     : `smart time-share · ${rx.last_hour?.acars_pct ?? 0}% ACARS duty last hour · ${rx.last_hour?.acars_msgs ?? 0} msgs`) : null;
-  html += `<div class="sub-h">ACARS messages · ${duty || (ac.active ? "receiving now" : ac.last_at ? `receiver idle · last heard ${fmtDay(ac.last_at)}` : "receiver idle")}${ac.total ? ` · ${ac.total.toLocaleString()} archived` : ""}</div>`;
+  html += `<div class="sub-h">Messages from airliners (ACARS, decoded) · ${duty || (ac.active ? "receiving now" : ac.last_at ? `receiver idle · last heard ${fmtDay(ac.last_at)}` : "receiver idle")}${ac.total ? ` · ${ac.total.toLocaleString()} archived` : ""}</div>`;
   if (rx?.note && !rx.override) html += `<div class="empty" style="padding:2px 16px 6px;text-align:left;font-size:12px">${esc(rx.note)}</div>`;
-  html += (ac.messages || []).length ? `<div class="acars">${ac.messages.slice(0, 12).map((m) => `<div class="m"><b>${esc(m.flight || m.tail || "—")}</b> <span style="color:var(--text-3)">${now() - m.at > 86400 ? fmtDay(m.at) + " " : ""}${fmtTime(m.at)} · label ${esc(m.label || "")}</span><code>${esc(m.text)}</code></div>`).join("")}</div>`
+  html += (ac.messages || []).length ? `<div class="acars">${ac.messages.slice(0, 12).map((m) => `<div class="m"><b>${esc(m.flight || m.tail || "—")}</b> <span style="color:var(--text-3)">${now() - m.at > 86400 ? fmtDay(m.at) + " " : ""}${fmtTime(m.at)}</span>${m.human && window.acarsHuman ? acarsHuman(m) : `<code>${esc(m.text)}</code>`}</div>`).join("")}</div>`
     : `<div class="empty" style="padding-top:6px">No ACARS in the last few hours. The second radio switches between ADS-B and ACARS.</div>`;
   v.innerHTML = html;
 }
@@ -1339,6 +1339,7 @@ async function renderAircraftDetail(fly = false) {
     <div class="dtitle">${esc(a.callsign || a.reg || a.hex)}</div></div>
     <div class="dmeta"><span class="acico" style="width:28px;height:28px;display:grid;place-items:center">${a.kind === "helicopter" ? HELI : PLANE}</span><div><div style="color:var(--text)">${esc(a.label)}</div>
     <div>${a.emergency ? `<span class="pill alert">Squawk ${esc(a.emergency)}</span>` : ""}${a.role ? `<span class="pill role">${esc(ROLE_NAME[a.role])}</span>` : ""}${a.circling ? `<span class="pill">Circling</span>` : ""}</div></div></div>
+    ${window.acProfileCard ? `<div style="padding:0 16px">${acProfileCard({ ...a, type: a.type || look?.type_code })}</div>` : ""}
     ${look?.photo ? `<div style="padding:0 16px"><img class="ac-photo" src="${esc(look.photo)}" alt=""></div>` : ""}
     ${a.near_incident ? `<div class="overhead" data-inc-link="${a.near_incident.id}">Over <b>${esc(a.near_incident.title)}</b> · ${a.near_incident.distance_mi} mi away →</div>` : ""}
     <div class="kv">

@@ -18,3 +18,7 @@ calls/
 .idea/
 *.swp
 .claude/settings.local.json
+
+# licensed aircraft art is local-only
+pi/web/static/ac-art/*
+!pi/web/static/ac-art/README.md
