@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO River · {{ region_name }}</title>
+<meta name="description" content="{{ region_name }} public-safety radio as a live timeline: every incident, unit, aircraft and transmission on one river of time.">
+<meta name="theme-color" content="#f2f4f8">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="apple-touch-icon" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;1,800;1,900&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/v_river.css">
+<script>
+  try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  window.JAFO_LIVE = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    regionInfo: {{ region | tojson }},
+    owner: {{ owner | tojson }},
+    audio: {{ audio | tojson }},
+    tz: {{ tz | tojson }},
+    concepts: {{ concepts | list | tojson }},
+    concept: {{ concept | tojson }},
+  };
+</script>
+</head>
+<body>
+<div class="app" id="app">
+
+<header class="top">
+  <a class="brand" href="/live/{{ region_slug }}" title="JAFO Live — classic map view">
+    <img src="/static/jafo-heli.png" alt="" width="84" height="52">
+    <span class="wm"><b>JAFO</b><i>river</i></span>
+  </a>
+  <div class="where">
+    <span class="rname">{{ region_name }}</span>
+    <span class="clock"><span class="livedot" id="livedot"></span><span id="clock">--:--</span> <span id="conn">Connecting</span><span class="demo-tag" id="demo-tag" hidden>demo</span></span>
+  </div>
+  <div class="headline" id="headline" aria-live="polite"></div>
+  <div class="topright">
+    <button class="chip" id="wx-chip" type="button" hidden title="Weather"><svg viewBox="0 0 24 24" class="ico"><path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9H7z"/></svg><span id="wx-temp">–</span></button>
+    <span class="chip warn" id="wx-alert" hidden></span>
+    <span class="chip quiet" id="watching" title="People watching now"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span id="watching-n">1</span></span>
+    <button class="chip icon" id="theme-btn" type="button" title="Switch light / dark"><svg viewBox="0 0 24 24" class="ico"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
+    <button class="chip icon" id="menu-btn" type="button" title="More" aria-haspopup="menu"><svg viewBox="0 0 24 24" class="ico"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</header>
+
+<nav class="controls" aria-label="Filters">
+  <div class="zoomseg" role="radiogroup" aria-label="Time span" id="zoomseg">
+    <button type="button" data-span="3600">1h</button>
+    <button type="button" data-span="10800" class="on">3h</button>
+    <button type="button" data-span="21600">6h</button>
+    <button type="button" data-span="86400">24h</button>
+  </div>
+  <div class="kinds" id="kinds" role="group" aria-label="Kinds"></div>
+  <div class="svcs" id="svcs" role="group" aria-label="Service">
+    <button type="button" data-svc="" class="on">All</button>
+    <button type="button" data-svc="police">Police</button>
+    <button type="button" data-svc="fire">Fire</button>
+    <button type="button" data-svc="ems">EMS</button>
+  </div>
+  <label class="search"><svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><input id="q" type="search" placeholder="Search incidents, streets, units" autocomplete="off"></label>
+  <button type="button" class="chip" id="near-btn" aria-pressed="false" title="Only incidents within 3 miles of you"><svg viewBox="0 0 24 24" class="ico"><path d="M3 11 21 3l-8 18-2-8-8-2z"/></svg>Near me</button>
+  <button type="button" class="chip" id="live-btn" hidden title="Jump back to now">Back to live ▸</button>
+</nav>
+
+<main class="stage">
+  <section class="river" id="river" aria-label="Timeline of incidents, aircraft and radio">
+    <div class="rail-labels" aria-hidden="true">
+      <div class="rl rl-air"><span>Air</span></div>
+      <div class="rl rl-load"><span>Open</span></div>
+      <div class="rl rl-inc"><span>Incidents</span></div>
+      <div class="rl rl-radio"><span>Radio</span><em>Police</em><em>Fire</em><em>EMS</em><em>Other</em></div>
+    </div>
+    <div class="canvas" id="canvas">
+      <div class="axis" id="axis"></div>
+      <div class="lane-air" id="lane-air"></div>
+      <div class="lane-load" id="lane-load"></div>
+      <div class="lane-inc" id="lane-inc"><div class="inc-inner" id="inc-inner"></div></div>
+      <div class="lane-radio" id="lane-radio"></div>
+      <div class="nowline" id="nowline"><span id="now-l">now</span></div>
+      <div class="cursor" id="cursor" hidden><span></span></div>
+    </div>
+  </section>
+
+  <aside class="side" id="side">
+    <div class="mapbox" id="mapbox">
+      <div id="map" aria-label="Map of incidents"></div>
+      <button type="button" class="map-x" id="map-toggle" title="Show or hide the map">Map</button>
+    </div>
+    <div class="panel" id="panel"></div>
+  </aside>
+</main>
+
+<div class="legend" id="legend" aria-label="Legend"></div>
+
+<div class="player" id="player" hidden>
+  <button type="button" id="pl-btn" class="plbtn" title="Pause">❚❚</button>
+  <div class="pl-meta"><b id="pl-t"></b><span id="pl-s"></span></div>
+  <div class="pl-bar"><i id="pl-prog"></i></div>
+  <button type="button" id="pl-x" class="plx" title="Stop">×</button>
+  <audio id="audio" preload="none"></audio>
+</div>
+
+<div class="tip" id="tip" role="tooltip" hidden></div>
+<div class="menu" id="menu" role="menu" hidden></div>
+<div class="modal" id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true"><button type="button" class="modal-x" data-act="close-modal" title="Close">×</button><div id="modal-body"></div></div></div>
+<div class="toast" id="toast" hidden></div>
+</div>
+<script src="/static/v_river.js"></script>
+</body>
+</html>
