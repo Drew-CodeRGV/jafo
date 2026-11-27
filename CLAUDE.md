@@ -291,3 +291,18 @@ Gotchas:
   (adsb.lol returns 429 at times). The time-share does not skip ACARS when the
   hub has no community feed (an empty sky may just be the Pi antenna).
 - Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).
+- **Aircraft side profiles:** `static/acprofile.js` draws original parametric
+  SVG profiles by type family in operator colours (`acProfileCard(a)`), used by
+  the map detail, Console aircraft pane and Briefing map card. Add a type to
+  `TYPES`/`FAMILY`, an airline to `AIRLINES` (colours only, no logos).
+  Licensed stock illustrations go in `static/ac-art/` + `manifest.json`
+  (`"UAL_A319": "file.webp"` or `"A319": …`); the folder is gitignored except
+  its README. Norebbo-style stock art needs a licence covering web/app display.
+- **ACARS in plain English:** `pi/web/acars_human.py` `humanize()` decodes the
+  formats heard here (OOOI, position reports, ramp/weather/ATIS/landing-data
+  requests, ETAs, faults, free text); `air._acars` hides noise (pings, link
+  tests, machine data), scrubs crew names, and adds `human:{tag,text}` to each
+  message. Frontends render it via `window.acarsHuman(m)` with raw text in a
+  `<details>`. Add new airline formats in `_humanize` and test with real rows
+  from `acars_messages`.
+- The Pi's jafo-web caches templates: restart it after deploying template changes.
