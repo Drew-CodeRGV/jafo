@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO Near · {{ region_name }}</title>
+<meta name="description" content="What's going on around the places you care about in {{ region_name }} — from JAFO's own radio receivers.">
+<meta name="theme-color" content="#eef2f0">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="apple-touch-icon" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/v_near.css?v=1">
+<script>
+  try { const t = localStorage.getItem("jafo.near.theme"); if (t) document.documentElement.dataset.theme = JSON.parse(t); } catch (e) {}
+  window.JAFO_NEAR = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    regionBox: {{ region | tojson }},
+    owner: {{ owner | tojson }},
+    audio: {{ audio | tojson }},
+    tz: {{ tz | tojson }},
+  };
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <a class="brand" href="/live/{{ region_slug }}" title="JAFO Live — full map">
+      <img src="/static/jafo-heli.png" alt="" width="78" height="40">
+      <span class="wm"><b>JAFO</b><i>near</i></span>
+    </a>
+    <div class="top-r">
+      <button class="wx" id="wx" type="button" hidden title="Weather"></button>
+      <button class="iconbtn" id="theme" type="button" aria-label="Switch light or dark">
+        <svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      </button>
+      <button class="iconbtn" id="menu-btn" type="button" aria-label="More" aria-haspopup="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+    <nav class="menu" id="menu" hidden>
+      <a href="/live/{{ region_slug }}">Full city map</a>
+      <a href="/live/{{ region_slug }}#replay">Replay a day</a>
+      <a href="/live/{{ region_slug }}/wall/command">Wall displays</a>
+      <button type="button" data-act="report">Report a problem</button>
+      <div class="menu-sep">Other redesign concepts</div>
+      {% for c in concepts %}<a href="/live/{{ region_slug }}/v/{{ c }}"{% if c == concept %} aria-current="page"{% endif %}>{{ c }}</a>{% endfor %}
+    </nav>
+  </header>
+
+  <div class="alert-strip" id="alerts" hidden></div>
+
+  <div class="stage">
+    <div class="mapwrap">
+      <div id="map" aria-label="Map around your place"></div>
+      <div class="map-hint" id="pick-hint" hidden>Tap the map to drop your place <button type="button" data-act="cancel-pick">Cancel</button></div>
+      <div class="map-ctl">
+        <button type="button" data-act="recenter" title="Back to my place">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <aside class="panel" id="panel">
+      <div class="grab" aria-hidden="true"></div>
+      <section class="placebar">
+        <div class="places" id="places" role="tablist" aria-label="Your places"></div>
+        <form class="find" id="find" role="search" autocomplete="off">
+          <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+          <input id="q" type="search" placeholder="Search a street, town or incident" aria-label="Search a place or incident">
+          <button type="button" class="locate" data-act="locate" title="Use my location">
+            <svg viewBox="0 0 24 24"><path d="M12 2 4 20l8-4 8 4-8-18z"/></svg><span>Locate me</span>
+          </button>
+          <div class="results" id="results" hidden></div>
+        </form>
+      </section>
+
+      <div class="views">
+        <div class="view" id="home-view">
+          <section class="verdict" id="verdict" aria-live="polite"></section>
+          <section class="scope" aria-label="Distance and time">
+            <div class="seg" id="radius" role="radiogroup" aria-label="Distance"></div>
+            <div class="seg" id="when" role="radiogroup" aria-label="Time"></div>
+          </section>
+          <section class="kinds" id="kinds" aria-label="Show kinds"></section>
+          <section class="block" id="otw-block" hidden><h3>On the way</h3><div id="otw"></div></section>
+          <section class="block"><h3 id="list-h">Around you</h3><ol class="near-list" id="list"></ol></section>
+          <section class="block" id="air-block"><h3>Overhead</h3><div id="air"></div></section>
+          <section class="block" id="hist-block"><h3 id="hist-h">This week here</h3><div id="hist"></div></section>
+          <section class="block"><h3>On the radio <span class="h-sub" id="radio-sub"></span></h3>
+            <div class="seg small" id="radio-scope" role="radiogroup" aria-label="Radio">
+              <button type="button" role="radio" data-r="near" aria-checked="true">Nearby calls</button>
+              <button type="button" role="radio" data-r="all" aria-checked="false">Everything heard</button>
+            </div>
+            <ol class="radio" id="radio"></ol>
+            <button type="button" class="more" id="radio-more">Show earlier</button>
+          </section>
+          <section class="block" id="units-block"><h3>Crews out</h3><div id="units"></div></section>
+          <footer class="foot" id="foot"></footer>
+        </div>
+        <div class="view" id="story-view" hidden></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true" id="modal-card"></div></div>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/v_near.js?v=1"></script>
+</body>
+</html>
