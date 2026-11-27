@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO Ops · {{ region_name }}</title>
+<meta name="theme-color" content="#070b10">
+<link rel="icon" href="/static/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/wall_command.css?v=1">
+<script>
+  window.JAFO_WALL = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    tz: {{ tz | tojson }},
+    bounds: {{ region | tojson }},
+    audio: {{ audio | tojson }},
+    walls: {{ walls | tojson }},
+    wall: "command",
+  };
+</script>
+</head>
+<body>
+<div id="wall">
+  <!-- ================= top bar ================= -->
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><i></i></span>
+      <div class="brand-t">
+        <div class="b1">JAFO <span>Ops center</span></div>
+        <div class="b2">{{ region_name }}</div>
+      </div>
+    </div>
+    <div class="ticker" id="ticker" aria-live="polite">
+      <span class="tk-l"><span class="livedot"></span>Last call</span>
+      <div class="tk-body" id="tkBody"><span class="tk-empty">Listening…</span></div>
+    </div>
+    <div class="wx" id="wx"></div>
+    <div class="clock">
+      <div class="c-time" id="cTime">--:--</div>
+      <div class="c-date" id="cDate"></div>
+    </div>
+  </header>
+
+  <!-- ================= map ================= -->
+  <section class="stage">
+    <div id="map" aria-label="Map of active incidents"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="alerts" id="alerts" hidden></div>
+    <div class="demo-tag" id="demoTag" hidden>Demo · last 24 h shown as active</div>
+    <article class="spot" id="spot" aria-live="polite">
+      <div class="spot-in" id="spotIn"></div>
+      <div class="spot-foot">
+        <div class="spot-prog"><i id="spotBar"></i></div>
+        <div class="spot-count" id="spotCount"></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ================= rail ================= -->
+  <aside class="rail">
+    <section class="heads">
+      <div class="hero">
+        <div class="lbl">Active incidents</div>
+        <div class="hero-row">
+          <div class="hero-n" id="hActive">–</div>
+          <div class="hero-mix" id="hMix"></div>
+        </div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Calls, last hour</div><div class="tile-n" id="hCalls">–</div><div class="tile-d" id="hCallsD"></div></div>
+        <div class="tile"><div class="lbl">Units out</div><div class="tile-n" id="hUnits">–</div><div class="tile-d" id="hUnitsD"></div></div>
+        <div class="tile"><div class="lbl">Opened, 24 h</div><div class="tile-n" id="hOpened">–</div><div class="tile-d" id="hOpenedD"></div></div>
+      </div>
+    </section>
+    <section class="queue">
+      <div class="sec-h"><span>Incident board</span><span class="sec-c" id="qCount"></span></div>
+      <div class="q-list" id="qList"></div>
+    </section>
+    <section class="units">
+      <div class="sec-h"><span>Units out</span><span class="sec-c" id="uCount"></span></div>
+      <div class="u-board" id="uBoard"></div>
+      <div class="u-legend" id="uLegend"></div>
+    </section>
+  </aside>
+
+  <!-- ================= activity strip ================= -->
+  <footer class="strip">
+    <div class="strip-h">
+      <div class="lbl">Radio calls, last 24 h <span class="lbl-sub">10-minute bins</span></div>
+      <div class="strip-note" id="stripNote"></div>
+    </div>
+    <div class="chart" id="chart"></div>
+    <div class="meta">
+      <span class="conn" id="conn"><span class="cdot"></span><span id="connT">Connecting</span></span>
+      <span class="lag" id="lag" hidden></span>
+      <span class="updated" id="updated"></span>
+      <nav class="walls" id="walls"></nav>
+    </div>
+  </footer>
+</div>
+<script src="/static/wall_command.js?v=1"></script>
+</body>
+</html>

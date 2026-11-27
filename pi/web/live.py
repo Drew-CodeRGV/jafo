@@ -126,6 +126,7 @@ def _incident_brief(inc, counts, now) -> dict:
         "city": inc["city"], "lat": inc["lat"], "lng": inc["lng"], "precision": inc["geo_precision"],
         "first_at": inc["first_call_at"], "last_at": inc["last_call_at"], "calls": inc["call_count"],
         "units": counts.get(inc["id"], {}), "closed": bool(inc["closed_at"]),
+        "summary": _scrub(inc["summary"]),
     }
 
 
@@ -263,7 +264,9 @@ def _pulse_data() -> dict:
     unit_status = defaultdict(lambda: defaultdict(int))
     for u in units:
         unit_status[u["service"]][u["status"] or "unknown"] += u["n"]
-    last_call = conn.execute("""SELECT c.start_time, c.call_line, c.talkgroup_tag, c.talkgroup, c.incident_id
+    last_call = conn.execute("""SELECT c.start_time, c.call_line, c.talkgroup_tag, c.talkgroup, c.incident_id,
+                                       (SELECT kind FROM incidents WHERE id = c.incident_id) incident_kind,
+                                       (SELECT title FROM incidents WHERE id = c.incident_id) incident_title
                                 FROM calls c WHERE c.region_id IS ? AND c.enriched_v2_at IS NOT NULL
                                 ORDER BY c.start_time DESC LIMIT 1""", (rid,)).fetchone()
     calls_1h = sum(b["calls"] for b in bins[-6:])
