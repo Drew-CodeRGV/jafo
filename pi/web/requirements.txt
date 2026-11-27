@@ -6,3 +6,4 @@ python-dotenv>=1.0
 anthropic>=0.39
 groq>=0.11
 pywebpush>=2.0
+maxminddb>=2.5   # local city-level IP lookup for the listener map (hub)

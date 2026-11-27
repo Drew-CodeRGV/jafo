@@ -29,6 +29,7 @@ import requests
 from flask import Blueprint, abort, jsonify, redirect, render_template, request
 
 import app as A  # the main Flask module (already fully imported when this loads)
+import geoip
 
 bp = Blueprint("live", __name__)
 
@@ -1140,22 +1141,66 @@ def api_report():
     return jsonify({"ok": True})
 
 
+_presence_cols = False
+
+
+def _presence_schema(conn):
+    """City-level place for each viewer (never the IP itself)."""
+    global _presence_cols
+    if _presence_cols:
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(presence)")}
+    for c, t in (("place", "TEXT"), ("lat", "REAL"), ("lng", "REAL")):
+        if c not in cols:
+            conn.execute(f"ALTER TABLE presence ADD COLUMN {c} {t}")
+    _presence_cols = True
+
+
+def _viewer_ip() -> str:
+    return (request.headers.get("X-Real-IP") or request.remote_addr or "").strip()
+
+
 @bp.route("/api/live/presence", methods=["POST"])
 def api_presence():
     body = request.get_json(silent=True) or {}
     cid = str(body.get("client_id") or "")[:64]
     now = int(time.time())
     conn = _db()
+    _presence_schema(conn)
     r = _region(conn, body.get("region"))
     if cid:
-        conn.execute("INSERT OR REPLACE INTO presence (client_id, region_id, seen_at) VALUES (?, ?, ?)",
-                     (cid, r.get("id"), now))
+        geoip.maybe_refresh()
+        g = geoip.lookup(_viewer_ip())
+        conn.execute("INSERT OR REPLACE INTO presence (client_id, region_id, seen_at, place, lat, lng) VALUES (?, ?, ?, ?, ?, ?)",
+                     (cid, r.get("id"), now, g and g["name"], g and g["lat"], g and g["lng"]))
         conn.execute("DELETE FROM presence WHERE seen_at < ?", (now - 600,))
         conn.commit()
     n = conn.execute("SELECT COUNT(*) FROM presence WHERE region_id IS ? AND seen_at >= ?",
                      (r.get("id"), now - 75)).fetchone()[0]
     conn.close()
     return jsonify({"watching": max(1, n)})
+
+
+@bp.route("/api/live/presence/map")
+def api_presence_map():
+    """Where people are watching from right now, by city. Counts only; no IPs,
+    no client ids, nothing finer than a city centroid."""
+    now = int(time.time())
+    conn = _db()
+    _presence_schema(conn)
+    r = _region(conn, request.args.get("region"))
+    rows = conn.execute("""SELECT place, lat, lng, COUNT(*) n FROM presence
+                           WHERE region_id IS ? AND seen_at >= ? GROUP BY place, lat, lng ORDER BY n DESC""",
+                        (r.get("id"), now - 75)).fetchall()
+    allr = conn.execute("SELECT COUNT(*) FROM presence WHERE seen_at >= ?", (now - 75,)).fetchone()[0]
+    conn.close()
+    places = [{"name": x["place"], "lat": x["lat"], "lng": x["lng"], "n": x["n"]} for x in rows if x["place"]]
+    unknown = sum(x["n"] for x in rows if not x["place"])
+    resp = jsonify({"region": r.get("slug"), "watching": max(1, sum(x["n"] for x in rows)), "places": places,
+                    "unknown": unknown, "all_regions": allr, "window_sec": 75,
+                    "source": "City estimated from internet address (IP to City Lite by DB-IP.com, CC BY 4.0)"})
+    resp.headers["Cache-Control"] = "public, max-age=10"
+    return resp
 
 
 # --- weather / warnings (NWS, no key; cached) ---------------------------------
