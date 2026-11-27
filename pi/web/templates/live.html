@@ -147,7 +147,7 @@
     <button type="button" data-theme-set="dark">Dark</button>
     <button type="button" data-theme-set="">Auto</button>
   </div>
-  <div class="menu-foot"><a href="/r/{{ region_slug }}">Classic dashboard</a> · <a href="/live/{{ region_slug }}/wall">Wall displays</a> · <a href="/fleet">Fleet</a></div>
+  <div class="menu-foot">{% if edge %}<a href="/classic">Classic dashboard</a> · <a href="/live/{{ region_slug }}/wall">Wall displays</a> · <a href="https://jafo.live/live/{{ region_slug }}">jafo.live</a>{% else %}<a href="/r/{{ region_slug }}">Classic dashboard</a> · <a href="/live/{{ region_slug }}/wall">Wall displays</a> · <a href="/fleet">Fleet</a>{% endif %}</div>
 </nav>
 
 <!-- ===== Modal (highlights / codes / key / about / tour) ===== -->

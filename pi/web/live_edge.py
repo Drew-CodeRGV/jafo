@@ -17,7 +17,7 @@ import os
 import time
 
 import requests
-from flask import Blueprint, Response, abort, redirect, render_template, request
+from flask import Blueprint, Response, abort, current_app, redirect, render_template, request
 
 bp = Blueprint("live_edge", __name__)
 
@@ -25,6 +25,8 @@ HUB = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
 NODE_SLUG = os.environ.get("JAFO_NODE_SLUG", "").strip()
 TZ = os.environ.get("JAFO_TZ", "America/Chicago")
 WALLS = ("command", "newsroom", "grid", "pulse")
+CONCEPTS = ("river", "brief", "console", "near")
+LANDING = os.environ.get("JAFO_LANDING", "live").strip().lower()   # live | classic
 _cache: dict[str, tuple[float, object]] = {}
 
 
@@ -71,6 +73,29 @@ def _regions() -> list[dict]:
         return []
 
 
+@bp.before_app_request
+def _landing():
+    # jafo.local opens on the live map like jafo.live; the classic dashboard
+    # stays one click away at /classic.
+    if request.path == "/" and LANDING == "live" and request.method == "GET":
+        return redirect("/live")
+    return None
+
+
+@bp.route("/classic")
+def classic():
+    return current_app.view_functions["index"]()
+
+
+@bp.route("/live/<slug>/v/<name>")
+def concept_page(slug: str, name: str):
+    if name not in CONCEPTS:
+        abort(404)
+    r = _region(slug)
+    return render_template(f"v_{name}.html", region_slug=slug, region_name=r.get("name") or slug, region=r,
+                           tz=TZ, concepts=CONCEPTS, concept=name, audio=True, owner=True)
+
+
 @bp.route("/live")
 def live_root():
     return redirect(f"/live/{_my_region()}")
@@ -81,7 +106,7 @@ def live_page(slug: str):
     r = _region(slug)
     return render_template("live.html", region_slug=slug, region_name=r.get("name") or slug,
                            regions=_regions() or [{"slug": slug, "name": r.get("name") or slug}],
-                           owner=True, audio=True, tz=TZ)
+                           owner=True, audio=True, tz=TZ, edge=True)
 
 
 @bp.route("/live/<slug>/wall")
