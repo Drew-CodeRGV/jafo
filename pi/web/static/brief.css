@@ -365,7 +365,7 @@ abbr.code { text-decoration: underline dotted var(--ink-3); text-underline-offse
 .ms-card[hidden] { display: none; }
 .ms-card .pillbtn { margin-top: 14px; }
 .ms-card .atile.wide { background: none; padding: 0; }
-.leaflet-container { font-family: var(--f-body); }
+.leaflet-container { font-family: var(--f-body); isolation: isolate; z-index: 0; }  /* keep Leaflet panes (z 400+) under sheets, header and filters */
 .basemap-tiles { filter: var(--map-filter); }
 .leaflet-control-zoom { margin-top: 64px !important; }
 .mk { width: var(--s); height: var(--s); border-radius: 50%; display: grid; place-items: center; background: var(--kc); color: #fff; box-shadow: 0 0 0 2.5px var(--card), 0 2px 8px rgba(0,0,0,.35); }
@@ -589,3 +589,9 @@ body.lens-near .minimap-box { display: none; }
 .sec-h { flex-wrap: wrap; row-gap: 2px; }
 .near.noplace .places, .near.noplace .find .locate, .near.noplace .ring-ctl .seg { display: none; }
 .near.noplace .find { margin-top: 0; }
+
+/* Stacking: map overlays (z 500+) stay inside their map box, and sheets sit
+   above the dock, player and everything else on the page. */
+.ringbox, .minimap-box { isolation: isolate; }
+.sheet { z-index: 1000; }
+.toast { z-index: 1100; }
