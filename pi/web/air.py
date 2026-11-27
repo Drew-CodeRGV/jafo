@@ -184,6 +184,41 @@ def _acars(region_slug: str) -> dict:
     return {"active": bool(msgs and time.time() - msgs[0]["at"] < 300), "messages": msgs}
 
 
+@bp.route("/api/ingest/acars", methods=["POST"])
+def ingest_acars():
+    """Edge nodes push decoded ACARS here (Bearer node token). Body:
+    {"messages": [{received_at, freq_mhz, channel, mode, tail, flight, label,
+    block_id, msg_no, text}, ...]} — duplicates are skipped."""
+    nid = A._node_id_from_token(request)
+    if nid is None:
+        return jsonify({"error": "bad token"}), 401
+    body = request.get_json(silent=True) or {}
+    msgs = body.get("messages") or []
+    if not isinstance(msgs, list) or len(msgs) > 2000:
+        return jsonify({"error": "bad batch"}), 400
+    conn = A.get_db()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(acars_messages)")}
+    if "node_id" not in cols:
+        conn.execute("ALTER TABLE acars_messages ADD COLUMN node_id INTEGER")
+    conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_acars_dedupe
+                    ON acars_messages(received_at, IFNULL(tail,''), IFNULL(label,''), IFNULL(msg_no,''), IFNULL(block_id,''))""")
+    n = 0
+    for m in msgs:
+        try:
+            cur = conn.execute("""INSERT OR IGNORE INTO acars_messages
+                (received_at, freq_mhz, channel, mode, tail, flight, label, block_id, msg_no, text, raw_json, node_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)""",
+                (int(m["received_at"]), m.get("freq_mhz"), m.get("channel"), m.get("mode"), m.get("tail"),
+                 m.get("flight"), m.get("label"), m.get("block_id"), m.get("msg_no"),
+                 (m.get("text") or "")[:4000], nid))
+            n += cur.rowcount
+        except (KeyError, TypeError, ValueError):
+            continue
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "inserted": n, "received": len(msgs)})
+
+
 @bp.route("/api/live/air")
 def api_air():
     region = request.args.get("region") or "rgv"

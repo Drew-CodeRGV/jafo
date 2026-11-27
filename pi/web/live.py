@@ -107,6 +107,9 @@ def _haversine_mi(a_lat, a_lng, b_lat, b_lng):
     return 2 * r * math.asin(math.sqrt(h))
 
 
+_UNIT_LISTS: dict[int, list] = {}
+
+
 def _unit_counts(conn, ids: list[int]) -> dict[int, dict]:
     out: dict[int, dict] = defaultdict(lambda: {"police": 0, "fire": 0, "ems": 0, "other": 0})
     if not ids:
@@ -117,6 +120,49 @@ def _unit_counts(conn, ids: list[int]) -> dict[int, dict]:
         FROM unit_events e JOIN units u ON u.id = e.unit_id
         WHERE e.incident_id IN ({q}) GROUP BY e.incident_id, u.service""", ids):
         out[r["incident_id"]][r["service"] or "other"] += r["n"]
+    for iid in ids:
+        _UNIT_LISTS.pop(iid, None)
+    for r in conn.execute(f"""
+        SELECT DISTINCT e.incident_id, u.callsign, u.role, u.service
+        FROM unit_events e JOIN units u ON u.id = e.unit_id WHERE e.incident_id IN ({q})""", ids):
+        _UNIT_LISTS.setdefault(r["incident_id"], []).append((r["callsign"] or "", r["role"] or "", r["service"] or ""))
+    return out
+
+
+# --- who is responding (icons on incidents) ----------------------------------
+# Specialised resources detected from unit callsigns/roles, and — for things that
+# are requested rather than heard (tow, utility, examiner) — from the summary.
+RESPONDER_RULES = [
+    ("hazmat", "Hazmat", re.compile(r"haz ?-?mat|\bhm ?\d|decon", re.I), True),
+    ("air", "Air unit", re.compile(r"\bair ?\d|helicopter|\bheli|aviation|air evac|life ?flight|airlife|\bomaha\b", re.I), True),
+    ("k9", "K-9", re.compile(r"\bk-? ?9\b", re.I), True),
+    ("swat", "SWAT / tactical", re.compile(r"\bswat\b|tactical|\bsrt\b|bomb squad", re.I), True),
+    ("command", "Command", re.compile(r"battalion|\bbc ?\d|\bchief\b|incident command|\bcommand\b|supervisor|sergeant|lieutenant|captain", re.I), False),
+    ("rescue", "Rescue", re.compile(r"\brescue\b|\bsquad\b|extricat", re.I), True),
+    ("ladder", "Ladder truck", re.compile(r"ladder|\btruck ?\d|\bquint\b|aerial|tower ?\d", re.I), False),
+    ("tow", "Tow truck", re.compile(r"wrecker|\btow\b|tow truck|towing", re.I), True),
+    ("utility", "Utility crew", re.compile(r"\baep\b|magic valley|power company|electric co|utility|gas company|texas gas|water dept", re.I), True),
+    ("examiner", "Medical examiner", re.compile(r"medical examiner|justice of the peace|\bjp\b|coroner", re.I), True),
+    ("border", "Border Patrol", re.compile(r"border patrol|\busbp\b|\bcbp\b", re.I), True),
+    ("dps", "State troopers", re.compile(r"\bdps\b|trooper|highway patrol", re.I), True),
+]
+
+
+def _responders(iid: int, counts: dict, text: str) -> list[dict]:
+    c = counts.get(iid) or {}
+    out = []
+    for key, label in (("police", "Police"), ("fire", "Fire"), ("ems", "EMS")):
+        if c.get(key):
+            out.append({"key": key, "label": label, "n": c[key]})
+    units = _UNIT_LISTS.get(iid, [])
+    for key, label, rx, from_text in RESPONDER_RULES:
+        n = sum(1 for cs, role, _svc in units if rx.search(f"{cs} {role}"))
+        if not n and from_text and text and rx.search(text):
+            n = 1
+        if n:
+            out.append({"key": key, "label": label, "n": n})
+    if not out and c.get("other"):
+        out.append({"key": "other", "label": "Units", "n": c["other"]})
     return out
 
 
@@ -191,6 +237,7 @@ def _incident_brief_raw(inc, counts, now) -> dict:
         "first_at": inc["first_call_at"], "last_at": inc["last_call_at"], "calls": inc["call_count"],
         "units": counts.get(inc["id"], {}), "closed": bool(inc["closed_at"]),
         "summary": _scrub(inc["summary"]),
+        "responders": _responders(inc["id"], counts, f"{inc['title'] or ''} {inc['summary'] or ''}"),
     }
 
 

@@ -27,6 +27,43 @@ const KIND_LABEL = {
   property: "Property and alarms", suspicious: "Suspicious and disputes", fire: "Fire", other: "Other calls",
 };
 const KINDS = Object.keys(KIND_LABEL);
+// Who is responding: icons for police / fire / EMS and specialised resources.
+const RESP_ICON = {
+  police: '<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3z"/>',
+  fire: '<path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 3-5.6 3.6-9.3 2.2 1.4 3.2 3.4 3.3 5.3 1-.8 1.6-2 1.8-3.3 2.3 1.9 4.3 4.6 4.3 7.5C18.5 18.4 16 21 12 21z"/>',
+  ems: '<path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z"/>',
+  hazmat: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path d="M12 8v5M12 15.8v.4"/>',
+  air: '<path d="M3 5h15M11 5v3M6.5 13c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5-2.2 4-5 4-5-1.5-5-4zM16.5 12.5H22M8 20h9M10 17.3V20M14 17.3V20"/>',
+  k9: '<circle cx="7" cy="9" r="1.8"/><circle cx="11" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/><circle cx="18.5" cy="9.5" r="1.8"/><path d="M8 17c0-3 2-5.5 4.5-5.5S17 14 17 17c0 2-1.8 2.5-4.5 2.5S8 19 8 17z"/>',
+  swat: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  command: '<path d="M5 9l7-4 7 4M5 14l7-4 7 4M5 19l7-4 7 4"/>',
+  rescue: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><path d="M15 9l3-3M9 9 6 6M15 15l3 3M9 15l-3 3"/>',
+  ladder: '<path d="M8 3v18M16 3v18M8 7h8M8 11h8M8 15h8M8 19h8"/>',
+  tow: '<path d="M2 16V8h8v8M10 11h5l3 3v2h-3M2 16h16"/><circle cx="6" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/><path d="M18 5v3a2 2 0 0 0 4 0"/>',
+  utility: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  examiner: '<path d="M8 4h8v3H8zM6 6H5v15h14V6h-1M9 12h6M9 16h4"/>',
+  border: '<path d="M4 21V4M4 4h13l-2.5 4L17 12H4"/>',
+  dps: '<path d="M12 3l2.6 5.6 6 .6-4.5 4 1.3 6-5.4-3.1-5.4 3.1 1.3-6-4.5-4 6-.6z"/>',
+  other: '<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>',
+};
+const respSvg = (k) => `<svg viewBox="0 0 24 24">${RESP_ICON[k] || RESP_ICON.other}</svg>`;
+function responders(it) {
+  const list = [...(it.responders || [])];
+  const over = (AIR.data?.aircraft || []).filter((a) => a.near_incident?.id === it.id);
+  if (over.length && !list.some((r) => r.key === "air")) list.push({ key: "air", label: over[0].kind === "helicopter" ? "Helicopter overhead" : "Aircraft overhead", n: over.length, live: true });
+  return list;
+}
+function respStrip(it, max = 5) {
+  const list = responders(it);
+  if (!list.length) return "";
+  const shown = list.slice(0, max);
+  return `<span class="resp">${shown.map((r) => `<i class="r-${r.key}${r.live ? " live" : ""}" title="${esc(r.label)}${r.n > 1 ? " ×" + r.n : ""}">${respSvg(r.key)}${r.n > 1 ? `<b>${r.n}</b>` : ""}</i>`).join("")}${list.length > max ? `<i class="more">+${list.length - max}</i>` : ""}</span>`;
+}
+function respChips(it) {
+  const list = responders(it);
+  if (!list.length) return "";
+  return `<div class="resp-chips"><span class="rc-l">Responding</span>${list.map((r) => `<span class="rc r-${r.key}${r.live ? " live" : ""}">${respSvg(r.key)}${esc(r.label)}${r.n > 1 ? ` <b>×${r.n}</b>` : ""}</span>`).join("")}</div>`;
+}
 const kindSvg = (k) => `<svg viewBox="0 0 24 24">${KIND_ICON[k] || KIND_ICON.other}</svg>`;
 const kico = (k) => `<span class="kico k-${esc(k || "other")}">${kindSvg(k)}</span>`;
 const ICO = {
@@ -277,9 +314,7 @@ function setTab(tab) {
 function setHash(h) { const want = h ? "#" + h : " "; if (location.hash !== (h ? "#" + h : "")) history.replaceState(null, "", h ? "#" + h : location.pathname); }
 
 function incRow(it) {
-  const u = it.units || {};
-  const police = (u.police || 0) + (u.other || 0), fire = (u.fire || 0) + (u.ems || 0);
-  const units = [police ? `${ICO.shield}${police}` : "", fire ? `${ICO.flame}${fire}` : ""].filter(Boolean).join(" ");
+  const units = respStrip(it);
   const faded = ["ended", "quiet"].includes(it.status) ? " faded" : "";
   const dist = it.distance_mi != null ? ` · ${it.distance_mi} mi` : "";
   return `<div class="row${faded}" data-inc="${it.id}" tabindex="0">
@@ -378,6 +413,7 @@ function renderIncidentDetail() {
     ${canReplay ? `<button type="button" class="pillbtn" data-act="replay-incident">${ICO.play} Replay</button>` : ""}</div>
     <div class="dmeta">${kico(d.kind)}<div><div style="color:var(--text)">${esc(d.location || "Location not given")}${d.precision && ["city", "street"].includes(d.precision) ? " <small>(approximate)</small>" : ""}</div>
     <div>${fmtTime(d.first_at)}${d.last_at - d.first_at > 120 ? ` – ${fmtTime(d.last_at)}` : ""} · ${esc(STATUS_LABEL[d.status] || d.status)}${d.city ? " · " + esc(d.city) : ""}</div></div></div>`;
+  html += respChips(d);
   if (d.summary) html += `<div class="dsum">${richText(d.summary)}</div>`;
   html += `<div id="overhead-slot"></div>`;
   html += `<div class="dtabs">
