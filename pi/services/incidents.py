@@ -122,7 +122,10 @@ Radio channels are NOT units ("Ground 2", "Fireground 3", "TAC 1", "Main"), nor 
 fix those (reuse the exact spelling from \
 "Units recently heard" when it is the same unit), with the status THIS transmission implies for it: \
 dispatched (assigned), en_route, on_scene (arrived/10-97/10-23), transporting (to hospital/jail), \
-busy (on a traffic stop/report/out of service), available (clear/10-8/back in service), unknown.
+busy (on a traffic stop/report/out of service), available (clear/10-8/back in service), unknown. \
+role = what the unit IS, 1-3 words, with agency/area when known ("Fire engine", "Ambulance", \
+"McAllen patrol", "DPS trooper", "Battalion chief", "Sheriff deputy"); null if unclear. Never describe \
+the radio exchange ("addressed unit", "responding unit").
 - location: the street address/intersection/landmark as said (corrected). Split it into house_number \
 (digits only), street, cross_street, place (business/landmark), city. These are used to place a map \
 pin at block level; the house number is never shown publicly.
@@ -546,7 +549,8 @@ def _upsert_unit(conn, region_id, u: dict, at: int) -> int | None:
                        (region_id, key)).fetchone()
     if row:
         conn.execute("""UPDATE units SET last_heard = MAX(COALESCE(last_heard,0), ?),
-                        service = COALESCE(service, ?), role = COALESCE(role, ?) WHERE id = ?""",
+                        service = CASE WHEN service IS NULL OR service = 'other' THEN ? ELSE service END,
+                        role = COALESCE(?, role) WHERE id = ?""",
                      (at, u.get("service"), u.get("role"), row["id"]))
         return row["id"]
     cur = conn.execute("""INSERT INTO units (region_id, callsign, callsign_key, service, role,
