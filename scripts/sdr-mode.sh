@@ -19,6 +19,9 @@ DATA="$(dirname "$REPO")/jafo-data/config"
 BAK="$DATA/config.json.bak-sdrmode"
 
 mode="${1:-status}"
+PAUSE="$DATA/timeshare.pause"
+# Any manual mode pauses jafo-sdr-timeshare; `auto` hands the RTL back to it.
+pause_timeshare() { touch "$PAUSE"; }
 active() { systemctl is-active "$1" 2>/dev/null || true; }
 
 stop_all_rtl() {
@@ -38,27 +41,32 @@ leave_voice() {
 
 case "$mode" in
   adsb)
-    leave_voice; stop_all_rtl; sleep 1
+    pause_timeshare; leave_voice; stop_all_rtl; sleep 1
     sudo systemctl start readsb.service jafo-adsb-serve.service
     echo "→ ADS-B mode (RTL → 1090 MHz)."
     ;;
   acars)
-    leave_voice; stop_all_rtl; sleep 1
+    pause_timeshare; leave_voice; stop_all_rtl; sleep 1
     sudo systemctl start jafo-acars.service
     echo "→ ACARS mode (RTL → ~131 MHz)."
     ;;
   noaa)
-    leave_voice; stop_all_rtl; sleep 1
+    pause_timeshare; leave_voice; stop_all_rtl; sleep 1
     sudo systemctl start jafo-noaa.service
     echo "→ NOAA mode (RTL → 162.400 MHz SAME alerts)."
     ;;
   voice)
-    stop_all_rtl; sleep 1
+    pause_timeshare; stop_all_rtl; sleep 1
     [ -f "$BAK" ] || cp "$DATA/config.json" "$BAK"
     cp "$REPO/config/profiles/airspy-p25-rtl-rail.json" "$DATA/config.json"
     cp "$REPO/config/talkgroups-rail.csv" "$DATA/rail-talkgroups.csv"
     sudo systemctl restart jafo-recorder
     echo "→ VOICE mode (RTL → VHF rail into trunk-recorder; P25 stays on Airspy)."
+    ;;
+  auto)
+    rm -f "$PAUSE"; leave_voice
+    sudo systemctl restart jafo-sdr-timeshare.service 2>/dev/null || true
+    echo "→ AUTO: smart ADS-B/ACARS time-share (JAFO_TIMESHARE, default 45:10)."
     ;;
   status)
     cur="unknown"
@@ -68,10 +76,11 @@ case "$mode" in
     elif [ "$(active readsb.service)" = "active" ]; then cur="adsb"
     fi
     echo "readsb:$(active readsb.service) acars:$(active jafo-acars.service) noaa:$(active jafo-noaa.service) recorder:$(active jafo-recorder.service)"
+    [ -f "$PAUSE" ] || [ "$(active jafo-sdr-timeshare.service)" != "active" ] || cur="auto ($cur now)"
     echo "MODE=$cur"
     ;;
   *)
-    echo "usage: sdr-mode.sh {adsb|acars|voice|noaa|status}" >&2
+    echo "usage: sdr-mode.sh {auto|adsb|acars|voice|noaa|status}" >&2
     exit 1
     ;;
 esac

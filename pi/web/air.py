@@ -220,6 +220,33 @@ def ingest_acars():
     return jsonify({"ok": True, "inserted": n, "received": len(msgs)})
 
 
+_SDR_STATUS: dict[int, dict] = {}
+
+
+@bp.route("/api/ingest/sdr-status", methods=["POST"])
+def ingest_sdr_status():
+    """Edge time-share status (ADS-B ⇄ ACARS duty), Bearer node token."""
+    nid = A._node_id_from_token(request)
+    if nid is None:
+        return jsonify({"error": "bad token"}), 401
+    body = request.get_json(silent=True) or {}
+    body["received"] = int(time.time())
+    _SDR_STATUS[nid] = {k: body.get(k) for k in ("node", "enabled", "smart", "config", "state", "override",
+                                                  "since", "note", "updated", "last_hour", "received")}
+    return jsonify({"ok": True})
+
+
+def _receiver_status(region_slug: str) -> list[dict]:
+    if not _SDR_STATUS:
+        return []
+    conn = A.get_db()
+    ids = {r["id"] for r in conn.execute("""SELECT n.id FROM nodes n JOIN regions r ON r.id = n.region_id
+                                            WHERE r.slug = ?""", (region_slug,))}
+    conn.close()
+    now = time.time()
+    return [v for k, v in _SDR_STATUS.items() if k in ids and now - (v.get("received") or 0) < 300]
+
+
 @bp.route("/api/live/air")
 def api_air():
     region = request.args.get("region") or "rgv"
@@ -260,6 +287,7 @@ def api_air():
         "now": int(time.time()), "demo": False, "aircraft": out,
         "airports": data.get("airports") or [], "acars": _acars(region),
         "counts": _counts(out), "source": data.get("data_source"),
+        "receivers": _receiver_status(region),
     })
 
 

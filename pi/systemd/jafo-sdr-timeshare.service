@@ -1,0 +1,24 @@
+[Unit]
+Description=jafo — smart ADS-B/ACARS time-share of the RTL-SDR (JAFO_TIMESHARE, default 45:10)
+After=network-online.target readsb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/jafo-data
+EnvironmentFile=/home/pi/jafo/.env
+Environment=JAFO_DATA_DIR=/home/pi/jafo-data
+Environment=PYTHONPATH=/home/pi/jafo/pi/services
+ExecStart=/home/pi/jafo-data/venv-services/bin/python /home/pi/jafo/pi/services/sdr_timeshare.py
+# On stop the service returns the RTL to ADS-B before exiting.
+KillSignal=SIGTERM
+TimeoutStopSec=40
+Restart=always
+RestartSec=20
+StandardOutput=journal
+StandardError=journal
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
