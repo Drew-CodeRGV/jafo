@@ -84,7 +84,7 @@ def _jl(s, default=None):
 
 
 def _audio_url(row, owner: bool):
-    if not owner or not row["opus_path"] or row["audio_deleted"]:
+    if not (owner or A.PUBLIC_AUDIO) or not row["opus_path"] or row["audio_deleted"]:
         return None
     return f"/audio/{row['opus_path']}"
 
@@ -185,7 +185,92 @@ def live_page(slug: str):
     if not r:
         abort(404)
     return render_template("live.html", region_slug=r["slug"], region_name=r["name"],
-                           regions=[dict(x) for x in regions], owner=_owner(), tz=str(A_TZ()))
+                           regions=[dict(x) for x in regions], owner=_owner(), tz=str(A_TZ()),
+                           audio=_owner() or A.PUBLIC_AUDIO)
+
+
+WALLS = ("command", "newsroom", "grid", "pulse")
+
+
+@bp.route("/live/<slug>/wall")
+def wall_index(slug: str):
+    return redirect(f"/live/{slug}/wall/command")
+
+
+@bp.route("/live/<slug>/wall/<name>")
+def wall_page(slug: str, name: str):
+    """Office wall displays (always-on dashboards). Each layout lives in
+    templates/wall_<name>.html + static/wall_<name>.{js,css}."""
+    if name not in WALLS:
+        abort(404)
+    conn = _db()
+    r = conn.execute("SELECT * FROM regions WHERE slug = ?", (slug,)).fetchone()
+    conn.close()
+    if not r:
+        abort(404)
+    r = dict(r)
+    return render_template(f"wall_{name}.html", region_slug=slug, region_name=r["name"],
+                           region=r, tz=str(A_TZ()), walls=WALLS, wall=name,
+                           audio=_owner() or A.PUBLIC_AUDIO)
+
+
+@bp.route("/api/live/pulse")
+def api_pulse():
+    """One cheap call with everything an ambient wall display needs:
+    24h activity in 10-minute bins (calls, by service), incidents opened per
+    hour by kind, active counts by kind/status, units by status/service, and
+    headline numbers. Poll every 15-30 s."""
+    now = int(time.time())
+    conn = _db()
+    r = _region(conn, request.args.get("region"))
+    rid = r.get("id")
+    start = now - 86400
+    bins = [{"calls": 0, "police": 0, "fire": 0, "ems": 0, "other": 0} for _ in range(144)]
+    for c in conn.execute("""SELECT start_time, COALESCE(call_service,'other') svc FROM calls
+                             WHERE region_id IS ? AND start_time >= ? AND status = 'kept'""", (rid, start)):
+        i = min(143, max(0, (c["start_time"] - start) // 600))
+        bins[i]["calls"] += 1
+        bins[i][c["svc"] if c["svc"] in ("police", "fire", "ems") else "other"] += 1
+    hourly = [{k: 0 for k in KIND_LABELS} for _ in range(24)]
+    opened_24h = Counter()
+    for i in conn.execute("""SELECT first_call_at, COALESCE(kind,'other') kind FROM incidents
+                             WHERE region_id IS ? AND first_call_at >= ?""", (rid, start)):
+        h = min(23, (i["first_call_at"] - start) // 3600)
+        hourly[h][i["kind"]] = hourly[h].get(i["kind"], 0) + 1
+        opened_24h[i["kind"]] += 1
+    active = conn.execute("""SELECT * FROM incidents WHERE region_id IS ? AND closed_at IS NULL
+                             ORDER BY last_call_at DESC""", (rid,)).fetchall()
+    counts = _unit_counts(conn, [a["id"] for a in active])
+    active_items = [_incident_brief(a, counts, now) for a in active]
+    for it, a in zip(active_items, active):
+        it["summary"] = _scrub(a["summary"])
+    units = conn.execute("""SELECT COALESCE(service,'other') service, status, COUNT(*) n FROM units
+                            WHERE region_id IS ? AND last_heard >= ? GROUP BY 1, 2""",
+                         (rid, now - 4 * 3600)).fetchall()
+    unit_status = defaultdict(lambda: defaultdict(int))
+    for u in units:
+        unit_status[u["service"]][u["status"] or "unknown"] += u["n"]
+    last_call = conn.execute("""SELECT c.start_time, c.call_line, c.talkgroup_tag, c.talkgroup, c.incident_id
+                                FROM calls c WHERE c.region_id IS ? AND c.enriched_v2_at IS NOT NULL
+                                ORDER BY c.start_time DESC LIMIT 1""", (rid,)).fetchone()
+    calls_1h = sum(b["calls"] for b in bins[-6:])
+    calls_prev_1h = sum(b["calls"] for b in bins[-12:-6])
+    conn.close()
+    return jsonify({
+        "now": now, "region": {k: r.get(k) for k in ("slug", "name", "default_lat", "default_lng",
+                                                     "bbox_north", "bbox_south", "bbox_east", "bbox_west")},
+        "bins_10min": bins, "bins_start": start,
+        "incidents_by_hour": hourly, "opened_24h": opened_24h,
+        "active": active_items,
+        "active_by_kind": Counter(it["kind"] for it in active_items),
+        "active_by_status": Counter(it["status"] for it in active_items),
+        "units_by_service_status": {k: dict(v) for k, v in unit_status.items()},
+        "headline": {"active": len(active_items), "calls_1h": calls_1h, "calls_prev_1h": calls_prev_1h,
+                     "opened_24h": sum(opened_24h.values()),
+                     "units_out": sum(n for svc in unit_status.values() for st, n in svc.items()
+                                      if st in ACTIVE_STATUSES)},
+        "last_call": dict(last_call) if last_call else None,
+    })
 
 
 # -----------------------------------------------------------------------------

@@ -19,6 +19,7 @@
     regionName: {{ region_name | tojson }},
     regions: {{ regions | tojson }},
     owner: {{ owner | tojson }},
+    audio: {{ audio | tojson }},
     tz: {{ tz | tojson }},
   };
 </script>
@@ -145,7 +146,7 @@
     <div class="np-top"><span id="np-chan">Live</span><span class="sep">·</span><a href="#" id="np-inc"></a><span class="ago" id="np-ago"></span></div>
     <div class="np-line" id="np-line">Waiting for the next call…</div>
   </div>
-  <div class="vol" id="vol-wrap" {% if not owner %}hidden{% endif %}>
+  <div class="vol" id="vol-wrap" {% if not audio %}hidden{% endif %}>
     <svg viewBox="0 0 24 24" class="ico"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
     <input type="range" id="vol" min="0" max="1" step="0.05" value="0.9" aria-label="Volume">
   </div>

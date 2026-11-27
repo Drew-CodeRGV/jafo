@@ -45,6 +45,12 @@ from common import (
 import osint  # edge/sandbox-only OSINT exposure demo (gated; see _osint_viewer)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+# Pick up template edits without a restart (cheap stat per render).
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
+# Public audio on the hub (JAFO_PUBLIC_AUDIO=1): calls that have been through
+# the v2 enricher may be played by anyone, like a public scanner feed.
+PUBLIC_AUDIO = os.environ.get("JAFO_PUBLIC_AUDIO", "").strip().lower() in ("1", "true", "yes")
 
 # -----------------------------------------------------------------------------
 # Static-asset cache busting.
@@ -2125,6 +2131,14 @@ def _audio_serve_allowed(rel_path: str) -> bool:
         conn.close()
     if not row:
         return False  # unknown path: deny rather than leak
+    if PUBLIC_AUDIO:
+        pub = get_db()
+        try:
+            ok = pub.execute("SELECT enriched_v2_at IS NOT NULL FROM calls WHERE id = ?", (row["id"],)).fetchone()
+        finally:
+            pub.close()
+        if ok and ok[0]:
+            return True
     nid = _node_id_from_token(request)
     if nid is not None and nid == row["node_id"]:
         return True
