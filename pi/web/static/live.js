@@ -758,7 +758,7 @@ async function openHighlights(days = store.get("hlDays", 30), kind = "") {
 }
 function renderHighlights() {
   const { d, days, kind, list, stat } = S.hl;
-  const lists = [["serious", "Serious"], ["pursuits", "Pursuits"], ["fires", "Fires"], ["traffic", "Traffic"], ["animals", "Animals"], ["most_units", "Most units"], ["most_calls", "Most radio"], ["longest", "Longest"]];
+  const lists = [["serious", "Serious"], ["pursuits", "Pursuits"], ["fires", "Fires"], ["traffic", "Traffic"], ["animals", "Animals"], ["funniest", "Funniest"], ["strangest", "Strangest"], ["most_units", "Most units"], ["most_calls", "Most radio"], ["longest", "Longest"]];
   const items = d.lists[list] || [];
   const pl = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const val = (it) => list === "longest" ? fmtDur(it.minutes * 60) : list === "most_units" || it.units ? pl(it.units ?? 0, "unit") : pl(it.calls, "call");

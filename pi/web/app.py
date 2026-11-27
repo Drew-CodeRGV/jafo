@@ -448,6 +448,14 @@ def index():
                                is_hub=not _is_edge_node(),
                                osint_demo=_osint_viewer(request),
                                tomtom_key=os.environ.get("JAFO_TOMTOM_KEY", "").strip() or None)
+    # Hub landing: the live incident map (busiest region). Fleet lives at /fleet.
+    if os.environ.get("JAFO_LANDING", "live").strip().lower() == "live" and not _is_edge_node():
+        return redirect("/live")
+    return render_template("fleet.html", node_name=NODE_NAME)
+
+
+@app.route("/fleet")
+def fleet():
     return render_template("fleet.html", node_name=NODE_NAME)
 
 
@@ -2625,7 +2633,7 @@ RUNDOWN_MAX_ITEMS          = int(os.environ.get("JAFO_RUNDOWN_MAX_ITEMS", "14"))
 # billing pool). This keeps /news alive even when the Anthropic balance is zero.
 # Each leg is independently overridable via env to 'groq' or 'anthropic'.
 NEWS_MODEL                 = os.environ.get("JAFO_NEWS_MODEL", "claude-sonnet-4-6").strip()
-NEWS_GROQ_MODEL            = os.environ.get("JAFO_NEWS_GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+NEWS_GROQ_MODEL            = os.environ.get("JAFO_NEWS_GROQ_MODEL", "qwen/qwen3.8-27b").strip()
 NEWS_SCRIPT_BACKEND        = os.environ.get("JAFO_NEWS_SCRIPT_BACKEND",  "groq").strip().lower()       # per-story anchor scripts
 NEWS_DIGEST_BACKEND        = os.environ.get("JAFO_NEWS_DIGEST_BACKEND",  "groq").strip().lower()       # short 20-min IG-Story digests
 NEWS_RUNDOWN_BACKEND       = os.environ.get("JAFO_NEWS_RUNDOWN_BACKEND", "anthropic").strip().lower()  # hourly <90s reels rundown

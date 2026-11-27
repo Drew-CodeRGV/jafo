@@ -152,6 +152,11 @@ disturbances, noise), fire (fires, smoke, gas, hazmat), other.
 - people / vehicles: involved parties as roles + descriptions WITHOUT names or plates \
 ("Subject - armed with a kitchen knife", "White sedan - several weapons reported inside").
 - severity: low | medium | high | critical | unknown.
+- notable: "animal" when the event centers on an animal (loose livestock, a dog bite, a snake in a house, \
+an alligator); "funny" when it is genuinely light-hearted and nobody is hurt or in distress (a goat on a \
+roof, a man stuck in a playground slide); "strange" when it is truly odd or unusual; otherwise "none". \
+Never mark anything involving injury, death, violence, mental-health crises, domestic calls or \
+children in danger as funny or strange.
 - type: short category such as "Traffic Stop", "MVA", "Disturbance", "Domestic", "Medical", "Fire", \
 "Suspicious Person", "Welfare Check", "Theft", "Burglary", "Pursuit", "Arrest", "Alarm", \
 "Status Update", "Records Check", "Radio Chatter", "Other"."""
@@ -168,7 +173,7 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
     "required": ["chatter", "type", "kind", "service", "severity", "call_line", "speakers",
                  "self_id", "redact", "codes", "units", "location", "incident",
-                 "incident_title", "incident_summary", "people", "vehicles"],
+                 "incident_title", "incident_summary", "people", "vehicles", "notable"],
     "properties": {
         "chatter": {"type": "boolean"},
         "type": _STR,
@@ -206,6 +211,7 @@ OUTPUT_SCHEMA = {
                 "id": _nullable({"type": "integer"})}},
         "incident_title": _nullable(_STR),
         "incident_summary": _nullable(_STR),
+        "notable": {"type": "string", "enum": ["none", "funny", "strange", "animal"]},
         "people": {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["role", "desc"],
             "properties": {"role": _STR, "desc": _STR}}},
@@ -609,6 +615,7 @@ def apply_result(conn, call, region: dict, res: dict, cands, srcs: list[int]) ->
                 inc_id, action = row["id"], "attach"
                 break
 
+    notable = res.get("notable") if res.get("notable") in ("funny", "strange", "animal") else None
     if action == "new":
         cur = conn.execute("""INSERT INTO incidents (region_id, kind, service, type, title, summary,
                 severity, location_text, street, cross_street, city, geo_precision, status,
@@ -621,6 +628,8 @@ def apply_result(conn, call, region: dict, res: dict, cands, srcs: list[int]) ->
              json.dumps(res.get("people") or []), json.dumps(res.get("vehicles") or []),
              at, at, str(call["talkgroup"] or ""), now))
         inc_id = cur.lastrowid
+        if notable:
+            conn.execute("UPDATE incidents SET notable = ? WHERE id = ?", (notable, inc_id))
         _geocode_incident(conn, region, inc_id, loc)
     elif action == "attach" and inc_id:
         row = conn.execute("SELECT * FROM incidents WHERE id = ?", (inc_id,)).fetchone()
@@ -643,6 +652,8 @@ def apply_result(conn, call, region: dict, res: dict, cands, srcs: list[int]) ->
             ((res.get("incident_title") or None) and res["incident_title"][:90],
              res.get("incident_summary") or None, severity, res.get("kind"),
              json.dumps(people), json.dumps(vehicles), ",".join(tgs), at, at, now, inc_id))
+        if notable:
+            conn.execute("UPDATE incidents SET notable = COALESCE(notable, ?) WHERE id = ?", (notable, inc_id))
         if better_loc:
             conn.execute("""UPDATE incidents SET location_text = ?, street = ?, cross_street = ?,
                             city = COALESCE(?, city), geo_precision = ? WHERE id = ?""",
@@ -809,7 +820,7 @@ def enrich_call(conn, client, call) -> int | None:
                "severity": "low", "call_line": "Acknowledgement." if transcript else "No speech.",
                "speakers": [{"who": "?", "text": transcript}] if transcript else [],
                "self_id": None, "redact": [], "codes": [], "units": [],
-               "location": {}, "incident": {"action": "none", "id": None},
+               "location": {}, "incident": {"action": "none", "id": None}, "notable": "none",
                "incident_title": None, "incident_summary": None, "people": [], "vehicles": []}
         return apply_result(conn, call, region, res, [], srcs)
     msg, cands, srcs = build_user_message(conn, call, region)

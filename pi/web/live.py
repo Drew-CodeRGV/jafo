@@ -664,8 +664,10 @@ def api_stats():
         "pursuits": top(lambda i: i["call_count"], kw_filter("pursuit", "chase", "fled", "fleeing", "evading")),
         "fires": top(lambda i: i["call_count"], lambda i: i["kind"] == "fire"),
         "traffic": top(lambda i: (unit_n[i["id"]], i["call_count"]), lambda i: i["kind"] == "traffic"),
-        "animals": top(lambda i: i["call_count"], kw_filter("animal", "dog", "cow", "horse", "cattle",
-                                                            "snake", "goat", "livestock", "loose")),
+        "animals": top(lambda i: i["call_count"], lambda i: i["notable"] == "animal" or kw_filter(
+            "animal", "dog", "cow", "horse", "cattle", "snake", "goat", "livestock", "loose")(i)),
+        "funniest": top(lambda i: i["call_count"], lambda i: i["notable"] == "funny"),
+        "strangest": top(lambda i: i["call_count"], lambda i: i["notable"] == "strange"),
         "most_units": top(lambda i: unit_n[i["id"]]),
         "most_calls": top(lambda i: i["call_count"]),
         "longest": top(lambda i: (i["last_call_at"] or 0) - (i["first_call_at"] or 0)),

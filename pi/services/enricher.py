@@ -38,7 +38,7 @@ BACKEND     = os.environ.get("JAFO_LLM_BACKEND", "ollama").strip().lower()
 LLM_MODEL   = os.environ.get("JAFO_LLM_MODEL", "gemma2:2b").strip()
 LLM_HOST    = os.environ.get("JAFO_LLM_HOST", "http://127.0.0.1:11434").strip().rstrip("/")
 CLAUDE_MODEL = "claude-haiku-5-5"
-GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
+GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "qwen/qwen3.8-27b").strip()
 
 # Enricher v2 (incident linking + units + speaker turns + redaction). Runs on
 # the anthropic backend (the hub). Calls older than V2_MAX_AGE_HOURS when the
