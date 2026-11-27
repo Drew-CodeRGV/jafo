@@ -265,4 +265,9 @@ Gotchas:
   detail with a "Sensitive" tag instead; `?sensitive=soften` forces softening.
 - The Pi's app.py is diverged (ACARS): it got live_edge registered by an
   appended block (backup `app.py.bak-live-*`), not a wholesale copy.
+- **RTL time-share (Pi):** `jafo-sdr-timeshare` shares the RTL between ADS-B
+  and ACARS (`JAFO_TIMESHARE=45:10`, `JAFO_TIMESHARE_SMART=1` in the Pi .env).
+  Any manual `scripts/sdr-mode.sh adsb|acars|voice|noaa` pauses it (writes
+  `jafo-data/config/timeshare.pause`); `sdr-mode.sh auto` resumes. Decoded
+  ACARS reaches the hub via `jafo-acars-upload` → `/api/ingest/acars`.
 - Push VAPID key: `DATA_DIR/config/vapid_private.pem` (never commit).
