@@ -105,7 +105,7 @@ def manifest():
         "description": "Public-safety radio, live on a map.",
         "start_url": f"/live/{slug}" if slug else "/live", "scope": "/live/",
         "display": "standalone", "background_color": "#e9edf2", "theme_color": "#1f6fe0",
-        "icons": [{"src": "/static/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}],
+        "icons": [{"src": "/static/jafo-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}],
     }
     return Response(json.dumps(m), mimetype="application/manifest+json")
 

@@ -10,8 +10,8 @@ self.addEventListener("push", (e) => {
     body: d.body || "",
     tag: d.tag,
     renotify: false,
-    icon: "/static/logo.png",
-    badge: "/static/logo.png",
+    icon: "/static/jafo-icon-512.png",
+    badge: "/static/jafo-heli-192.png",
     data: { url: d.url || "/live" },
   }));
 });

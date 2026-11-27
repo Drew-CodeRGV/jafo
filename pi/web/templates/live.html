@@ -6,15 +6,15 @@
 <title>JAFO Live · {{ region_name }}</title>
 <meta name="description" content="Public-safety radio for {{ region_name }}, live on a map — transcribed, summarized and grouped into incidents.">
 <meta name="theme-color" content="#eef1f5">
-<link rel="icon" href="/static/logo.png">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
 <link rel="manifest" href="/live/manifest.webmanifest?region={{ region_slug }}">
-<link rel="apple-touch-icon" href="/static/logo.png">
+<link rel="apple-touch-icon" href="/static/jafo-icon-512.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="JAFO">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<link rel="stylesheet" href="/static/live.css?v=3">
+<link rel="stylesheet" href="/static/live.css?v=5">
 <script>
   // Apply the saved theme before paint.
   try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -33,6 +33,7 @@
 
 <!-- ===== Top chips ===== -->
 <div class="chips" role="group" aria-label="Conditions">
+  <a class="chip brand-chip" href="/live/{{ region_slug }}" title="JAFO Live"><img src="/static/jafo-heli-192.png" alt="" width="34" height="22"><b>JAFO</b></a>
   <button class="chip" id="wx-chip" type="button" aria-haspopup="dialog" hidden>
     <svg viewBox="0 0 24 24" class="ico"><path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9H7z"/></svg>
     <span id="wx-temp">–</span>
@@ -84,10 +85,17 @@
 <!-- ===== Side card ===== -->
 <aside class="card" id="card" aria-label="Live activity">
   <div class="grip" id="grip" aria-hidden="true"></div>
-  <div class="searchrow">
+  <div class="brandrow">
+    <a class="brand" href="/live/{{ region_slug }}" title="JAFO Live — {{ region_name }}">
+      <img class="heli" src="/static/jafo-heli.png" alt="JAFO helicopter" width="92" height="59">
+      <span class="wm"><b>JAFO</b><i>Live</i><small>{{ region_name }}</small></span>
+    </a>
+    <span class="live-dot" title="Receiving radio"><i></i>On air</span>
     <button type="button" class="iconbtn" id="btn-menu" title="Menu" aria-haspopup="menu">
       <svg viewBox="0 0 24 24" class="ico"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
+  </div>
+  <div class="searchrow">
     <label class="search">
       <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg>
       <input id="q" type="search" placeholder="Streets, places, units or calls" autocomplete="off" aria-label="Search">
@@ -114,7 +122,7 @@
 <!-- ===== Menu ===== -->
 <div class="scrim" id="scrim" hidden></div>
 <nav class="menu" id="menu" hidden aria-label="Menu">
-  <div class="brand"><span class="logo">JAFO</span><span class="where">{{ region_name }}</span></div>
+  <div class="brand"><img src="/static/jafo-heli-192.png" alt="" width="56" height="36"><span class="logo">JAFO</span><span class="where">{{ region_name }}</span></div>
   <button type="button" data-open="highlights"><svg viewBox="0 0 24 24" class="ico"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3"/></svg>Highlights</button>
   <button type="button" data-open="replay"><svg viewBox="0 0 24 24" class="ico"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>Replay</button>
   <button type="button" data-open="cameras"><svg viewBox="0 0 24 24" class="ico"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3"/></svg>Cameras</button>
@@ -184,6 +192,6 @@
 
 <div class="toast" id="toast" role="status" hidden></div>
 
-<script src="/static/live.js?v=3"></script>
+<script src="/static/live.js?v=4"></script>
 </body>
 </html>
