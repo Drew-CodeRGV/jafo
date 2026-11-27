@@ -1228,7 +1228,7 @@ const PLANE = '<svg viewBox="0 0 24 24"><path d="M12 2c.8 0 1.3.9 1.3 2v5.2l7.7 
 const HELI = '<svg viewBox="0 0 24 24"><path d="M11 3h2v3h7v1.6h-7V9c2.7.3 4.5 2.4 4.5 5 0 2.4-1.6 4-4 4.4V20h3v1.4H7.5V20h3v-1.6c-2.4-.4-4-2-4-4.4 0-2.6 1.8-4.7 4.5-5V7.6H4V6h7V3z"/></svg>';
 const ROLE_NAME = { border: "Border Patrol", medical: "Medical", police: "Police", military: "Military", news: "News" };
 async function loadAir() {
-  try { AIR.data = await api("/api/live/air", DEMO ? { demo: 1 } : {}); } catch (e) { return; }
+  try { AIR.data = await api("/api/live/air", DEMO ? { demo: 1 } : {}); AIR.recvAt = Date.now(); } catch (e) { return; }
   const c = AIR.data.counts || {};
   $("#n-air").textContent = c.interesting || c.total || "";
   renderAirMap();
@@ -1249,17 +1249,47 @@ function acIcon(a) {
     html: `<div class="${cls}">${(a.kind === "helicopter" ? HELI : PLANE).replace("<svg", `<svg style="transform:rotate(${rot}deg)"`)}${tag}</div>` });
 }
 function renderAirMap() {
+  // Persistent markers keyed by ICAO hex; positions are animated between polls
+  // by dead reckoning (ground speed + track), so traffic moves continuously.
   if (!map) return;
-  if (!AIR.layer) { AIR.layer = L.layerGroup().addTo(map); AIR.trails = L.layerGroup().addTo(map); }
-  AIR.layer.clearLayers(); AIR.trails.clearLayers();
-  if (!$('[data-layer="aircraft"]').checked || S.replay || !AIR.data) return;
-  for (const a of AIR.data.aircraft || []) {
+  if (!AIR.layer) { AIR.layer = L.layerGroup().addTo(map); AIR.trails = L.layerGroup().addTo(map); AIR.markers = new Map(); }
+  AIR.trails.clearLayers();
+  const show = $('[data-layer="aircraft"]').checked && !S.replay && AIR.data;
+  const seen = new Set();
+  if (show) for (const a of AIR.data.aircraft || []) {
     if (a.lat == null) continue;
+    seen.add(a.hex);
     if (a.trail?.length > 1 && (a.interesting || AIR.sel === a.hex))
       L.polyline(a.trail.map((p) => [p[0], p[1]]), { pane: "trails", color: a.emergency ? "#d4372f" : a.role ? "#7a3ff2" : "#5b6575", weight: AIR.sel === a.hex ? 3 : 1.6, opacity: 0.7, dashArray: a.kind === "helicopter" ? "2 4" : null }).addTo(AIR.trails);
-    L.marker([a.lat, a.lng], { icon: acIcon(a), pane: "units", zIndexOffset: a.emergency ? 900 : a.interesting ? 500 : 0 })
-      .on("click", () => openAircraft(a.hex)).addTo(AIR.layer);
+    const icon = acIcon(a);
+    let m = AIR.markers.get(a.hex);
+    if (!m) {
+      m = { marker: L.marker([a.lat, a.lng], { icon, pane: "units" }).on("click", () => openAircraft(a.hex)).addTo(AIR.layer) };
+      AIR.markers.set(a.hex, m);
+    } else if (m.html !== icon.options.html) m.marker.setIcon(icon);
+    m.html = icon.options.html;
+    m.a = a; m.at = AIR.recvAt - (a.seen_sec || 0) * 1000;
+    m.marker.setZIndexOffset(a.emergency ? 900 : a.interesting ? 500 : 0);
   }
+  for (const [hex, m] of AIR.markers) if (!seen.has(hex)) { AIR.layer.removeLayer(m.marker); AIR.markers.delete(hex); }
+  if (!AIR.anim) AIR.anim = requestAnimationFrame(animateAir);
+}
+function animateAir() {
+  AIR.anim = null;
+  if (!AIR.markers?.size || document.hidden) { AIR.anim = setTimeout(() => (AIR.anim = requestAnimationFrame(animateAir)), 500); return; }
+  const now = Date.now();
+  for (const m of AIR.markers.values()) {
+    const a = m.a;
+    if (!a || a.on_ground || !a.gs_kt || a.track == null) continue;
+    const dt = Math.min(15, Math.max(0, (now - m.at) / 1000));   // never extrapolate more than 15 s
+    const dist = (a.gs_kt * 1.852 / 3600) * dt;                    // km travelled
+    const br = a.track * Math.PI / 180, R = 6371;
+    const la1 = a.lat * Math.PI / 180, lo1 = a.lng * Math.PI / 180;
+    const la2 = Math.asin(Math.sin(la1) * Math.cos(dist / R) + Math.cos(la1) * Math.sin(dist / R) * Math.cos(br));
+    const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(dist / R) * Math.cos(la1), Math.cos(dist / R) - Math.sin(la1) * Math.sin(la2));
+    m.marker.setLatLng([la2 * 180 / Math.PI, lo2 * 180 / Math.PI]);
+  }
+  AIR.anim = requestAnimationFrame(animateAir);
 }
 function airRow(a) {
   const cls = ["row", "airrow", a.role ? "role" : "", a.emergency ? "emergency" : ""].join(" ");
@@ -1402,7 +1432,9 @@ async function boot() {
   }
   await Promise.all([loadIncidents(), loadUnits(), loadRadio(true)]);
   loadWeather(); presence(); initPush(); keepAwake(); loadAir();
-  setInterval(() => { if (!document.hidden && !S.replay) loadAir(); }, DEMO ? 5000 : 10000);
+  // Real-time air: poll every 2.5 s (hub refreshes its receiver feed every 2 s);
+  // markers glide between polls in animateAir().
+  setInterval(() => { if (!document.hidden && !S.replay && $('[data-layer="aircraft"]').checked) loadAir(); }, 2500);
   routeHash();
   if (!store.get("toured", false)) setTimeout(() => openTour(0), 600);
   setInterval(() => { if (!document.hidden) loadIncidents(); }, 10000);

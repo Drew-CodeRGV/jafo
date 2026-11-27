@@ -6654,7 +6654,8 @@ def map_config():
 # -----------------------------------------------------------------------------
 _AIRCRAFT_CACHE: dict[str, dict] = {}   # region_slug → {"ts", "payload"}
 _AIRCRAFT_LOCK = threading.Lock()
-AIRCRAFT_TTL_SEC = 20  # poll adsb.lol every 20s for smoother in-flight tracking
+AIRCRAFT_TTL_SEC = 20  # poll adsb.lol every 20s (local readsb refreshes every 2s)
+_AIRCRAFT_CLOUD_CACHE: dict = {}  # region -> (ts, adsb.lol payload)
 
 # Local ADS-B feed — written by a co-resident decoder every ~1s.
 # We prefer this over adsb.lol when available: faster updates, better
@@ -6758,7 +6759,9 @@ def api_aircraft():
         # When the cached payload came from local readsb, it's cheap to
         # refresh (file read), so use a much tighter cache window for
         # near-real-time updates of choppers etc. that motivated this work.
-        cache_ttl = 2 if (cached and cached.get("payload", {}).get("data_source") == "readsb-local") else AIRCRAFT_TTL_SEC
+        # Real-time: the merged payload refreshes every 2 s (local readsb is a
+        # file read); only the adsb.lol pull below keeps its own slower cache.
+        cache_ttl = 2
         if cached and now - cached["ts"] < cache_ttl:
             return jsonify(cached["payload"])
 
@@ -6773,7 +6776,11 @@ def api_aircraft():
             local_data = _load_local_readsb()
 
             cloud_data = None
-            try:
+            _cc = _AIRCRAFT_CLOUD_CACHE.get(region_slug)
+            if _cc and now - _cc[0] < AIRCRAFT_TTL_SEC:
+                cloud_data = _cc[1]
+            else:
+              try:
                 import requests as _r
                 lat_c = (north + south) / 2.0
                 lon_c = (east + west) / 2.0
@@ -6786,9 +6793,10 @@ def api_aircraft():
                               headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
                 resp.raise_for_status()
                 cloud_data = resp.json() or {}
-            except Exception as e:
-                # Cloud miss isn't fatal — we'll fall through to local-only.
-                cloud_data = None
+                _AIRCRAFT_CLOUD_CACHE[region_slug] = (now, cloud_data)
+              except Exception as e:
+                # Cloud miss isn't fatal — reuse the last good pull briefly, else local-only.
+                cloud_data = _cc[1] if (_cc and now - _cc[0] < 120) else None
 
             # Merge by hex. Local fields win when both have a value (lower
             # latency, fewer hops). For metadata that's typically richer on
