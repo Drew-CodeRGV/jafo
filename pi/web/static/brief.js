@@ -187,7 +187,11 @@ const S = {
   hist: null, picking: false,
 };
 S.audio.preload = "none";
-if (!["active", "24h", "7d"].includes(S.f.win)) S.f.win = "active";
+if (!["active", "4h", "8h", "12h", "24h", "7d"].includes(S.f.win)) S.f.win = "active";
+const WIN_PHRASE = { "4h": "in the last 4 hours", "8h": "in the last 8 hours", "12h": "in the last 12 hours", "24h": "in the last 24 hours", "7d": "this week" };
+const WIN_LABEL = { active: "Right now", "4h": "Last 4 hours", "8h": "Last 8 hours", "12h": "Last 12 hours", "24h": "Last 24 hours", "7d": "This week" };
+const winPhrase = () => WIN_PHRASE[S.f.win] || "today";
+const byScore = (a, b) => (b.score || 0) - (a.score || 0) || b.last_at - a.last_at;
 const place = () => (S.placeId === "tmp" && S.temp) ? S.temp : (S.places.find((p) => p.id === S.placeId) || S.places[0] || S.temp || null);
 const savePlaces = () => { store.set("places", S.places); store.set("sel", S.placeId); };
 const allItems = () => { const m = new Map(); for (const i of [...S.extra.values(), ...S.wrapped, ...S.items]) m.set(i.id, i); return [...m.values()]; };
@@ -368,10 +372,10 @@ function renderBrief() {
   const act = S.items.filter((i) => !i.closed).filter(passes).sort(byImportance);
   const where = `across ${esc(REGION_LABEL)}`, fl = filtered();
   const out = [];
-  if (S.f.win !== "active") {
-    const n = S.items.filter(passes).length;
-    out.push(`${numw(n)} ${n === 1 ? "story" : "stories"} ${S.f.win === "7d" ? "this week" : "in the last 24 hours"}${fl ? " match your filters" : ""}.`);
-  } else if (!act.length) {
+  $("#brief-label").textContent = WIN_LABEL[S.f.win] || "Right now";
+  document.body.classList.toggle("span", S.f.win !== "active");
+  if (S.f.win !== "active") out.push(...recap(fl));
+  else if (!act.length) {
     const w = S.wrapped.filter(passes).length;
     out.push(`It's quiet ${where}. Nothing ${fl ? "matching your filters " : ""}is active on the radio right now${w ? `, and ${numw(w, true)} ${w === 1 ? "call has" : "calls have"} wrapped up today` : ""}.`);
   } else {
@@ -400,6 +404,37 @@ function renderBrief() {
     $("#vitals").innerHTML = `<div><b>${h.calls_1h ?? "–"}</b> radio calls in the last hour${trend ? `, ${trend}` : ""}</div>
       <div><b>${h.units_out ?? 0}</b> units out · <b>${wr}</b> wrapped up ${S.f.win === "active" && !DEMO ? "today" : "in 24 hours"}${p.pipeline?.lag_sec > 300 ? ` · <span class="lag">running ${fmtDur(p.pipeline.lag_sec)} behind</span>` : ""}</div>`;
   }
+}
+
+// A plain-English recap of a time window: how busy, what kinds, and the biggest
+// incidents (server-ranked by severity, units, radio, special resources, length).
+const KIND_SHORT = { violence: "safety calls", traffic: "traffic calls", medical: "medical calls", property: "property calls",
+  suspicious: "suspicious-activity calls", fire: "fire calls", other: "other calls" };
+function recap(fl) {
+  const all = S.items.filter(passes), out = [];
+  const ph = winPhrase();
+  if (!all.length) return [`Nothing ${fl ? "matching your filters " : ""}came over the radio ${ph}.`];
+  const kinds = {};
+  for (const i of all) if (i.kind && i.kind !== "other") kinds[i.kind] = (kinds[i.kind] || 0) + 1;
+  const top = Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${numw(n, true)} ${KIND_SHORT[k] || "other calls"}`);
+  const live = all.filter((i) => !i.closed).length;
+  out.push(`${cap(ph)}, JAFO followed ${numw(all.length, true)} ${all.length === 1 ? "incident" : "incidents"} across ${esc(REGION_LABEL)}${fl ? " that match your filters" : ""}${top.length > 1 ? `: mostly ${top.slice(0, -1).join(", ")} and ${top[top.length - 1]}` : ""}.`);
+  const big = all.slice().sort(byScore).slice(0, 3);
+  const town = (i) => i.city && !(i.title || "").toLowerCase().includes(i.city.toLowerCase()) ? ` in ${esc(i.city)}` : "";
+  const told = (i) => `${ent(i)}${town(i)}${bigDetail(i)}`;
+  if (big[0]) out.push(`The biggest was ${told(big[0])}.`);
+  if (big[1]) out.push(`Also notable: ${told(big[1])}${big[2] ? `, and ${told(big[2])}` : ""}.`);
+  if (live) out.push(`${cap(numw(live, true))} ${live === 1 ? "is" : "are"} still going.`);
+  return out;
+}
+function bigDetail(i) {
+  const bits = [], u = (i.unit_list || []).length;
+  if (u >= 2) bits.push(`${numw(u, true)} units`);
+  else if ((i.calls || 0) >= 6) bits.push(`${i.calls} radio calls`);
+  const sp = (i.responders || []).filter((r) => !["police", "fire", "ems", "other", "command"].includes(r.key)).map((r) => RESP_SHORT[r.key] || r.label);
+  if (sp.length) bits.push(sp.slice(0, 2).join(" and "));
+  const when = i.closed ? `from ${fmtTime(i.first_at)}` : `since ${fmtTime(i.first_at)}, still going`;
+  return ` (${[when, ...bits].join(", ")})`;
 }
 
 // ---------------------------------------------------------------- sparkline (24h of 10-min bins)
@@ -563,10 +598,14 @@ function render(force) {
   if (extra.length) h += sec("From your link", "", extra.map(card).join(""));
   if (near && p) h += nearStream(ns);
   else if (S.f.win !== "active") {
-    const live = act.filter((i) => !i.closed), done = act.filter((i) => i.closed);
+    const big = act.slice().sort(byScore).slice(0, act.length > 8 ? 5 : 3).filter((i) => (i.score || 0) >= 15);
+    const bigIds = new Set(big.map((i) => i.id));
+    const live = act.filter((i) => !i.closed && !bigIds.has(i.id));
+    const done = act.filter((i) => i.closed && !bigIds.has(i.id)).sort((a, b) => b.last_at - a.last_at);
+    if (big.length) h += sec("The big ones", `biggest ${esc(winPhrase())}`, big.map(card).join(""));
     if (live.length) h += sec("Still going", `${live.length}`, live.map(card).join(""));
     h += airSlot();
-    if (done.length) h += sec(S.f.win === "7d" ? "Earlier this week" : "Earlier today and overnight", `${done.length}`, list(done, showAllWrapped ? 500 : 20, "allwrapped"), "wrapped");
+    if (done.length) h += sec(S.f.win === "7d" ? "Earlier this week" : `Everything else ${esc(winPhrase())}`, `${done.length}`, list(done, showAllWrapped ? 500 : 20, "allwrapped"), "wrapped");
     if (!act.length) h += emptyHtml();
   } else {
     const dev = act.filter(isDeveloping), rest = act.filter((i) => !isDeveloping(i));
@@ -585,7 +624,7 @@ function nearStream(ns) {
   let h = "";
   const live = ns.inR.filter((i) => !i.closed), done = ns.inR.filter((i) => i.closed);
   if (live.length) h += sec(`Within ${RWORD[r]} of ${esc(p.name)}`, "nearest first", live.map(card).join(""));
-  else h += `<div class="empty"><p><b>Nothing ${S.f.win === "active" ? "active" : "on the radio"} within ${RWORD[r]} of ${esc(p.name)}${S.f.win === "active" ? " right now" : S.f.win === "7d" ? " this week" : " in the last 24 hours"}.</b> ${filtered() ? "Some stories may be hidden by your filters." : r < 3 ? "" : "That's a good thing."}</p>
+  else h += `<div class="empty"><p><b>Nothing ${S.f.win === "active" ? "active" : "on the radio"} within ${RWORD[r]} of ${esc(p.name)}${S.f.win === "active" ? " right now" : " " + winPhrase()}.</b> ${filtered() ? "Some stories may be hidden by your filters." : r < 3 ? "" : "That's a good thing."}</p>
       ${r < 10 ? `<button type="button" class="pillbtn ghost" data-radius="${RADII[RADII.indexOf(r) + 1]}">Widen to ${RWORD[RADII[RADII.indexOf(r) + 1]]}</button>` : ""}</div>`;
   if (done.length) h += sec(S.f.win === "active" ? "Wrapped up nearby today" : "Handled nearby", `${done.length}`, list(done, 6, "allwrapped"), "wrapped");
   if (ns.rough.length) h += sec("Somewhere in town", "the radio only named the city, so we can't say how close", list(ns.rough, 4, "allwrapped"), "wrapped");
@@ -888,7 +927,7 @@ function renderVerdict(ns) {
   const danger = live.some((i) => ["violence", "fire"].includes(i.kind) && (i.dist ?? 99) < 1);
   el.className = "verdict " + (live.length ? (danger ? "busy alerting" : "busy") : "quiet");
   const where = `near ${esc(p.name)}`, rTxt = `within ${RWORD[S.radius]}`;
-  const phrase = S.f.win === "active" ? "today" : S.f.win === "7d" ? "this week" : "in the last 24 hours";
+  const phrase = winPhrase();
   let h1; const ps = [];
   if (!live.length) {
     h1 = done.length ? `<em>Calm</em> ${where}` : `<em>Quiet</em> ${where}`;
@@ -1183,10 +1222,10 @@ function openReport(callId, incId) {
 // ---------------------------------------------------------------- controls
 function syncChips() {
   $$("#chips-service [data-svc]").forEach((b) => b.classList.toggle("on", b.dataset.svc === S.f.svc && !(b.dataset.svc === "" && S.f.kinds.length)));
-  $$("#seg-window [data-win]").forEach((b) => b.classList.toggle("on", b.dataset.win === S.f.win));
+  $$("#seg-window [data-win], #when [data-win]").forEach((b) => b.classList.toggle("on", b.dataset.win === S.f.win));
   $("#kchips").innerHTML = KINDS.map((k) => `<button type="button" data-kind="${k}" class="${S.f.kinds.includes(k) ? "on" : ""}" aria-pressed="${S.f.kinds.includes(k)}">${kico(k)}${esc(KIND_LABEL[k])}</button>`).join("");
-  const more = S.f.win !== "active" || S.f.kinds.length;
-  $("#chip-more").textContent = more ? `More · ${[S.f.win !== "active" ? (S.f.win === "7d" ? "week" : "24 h") : "", S.f.kinds.length ? `${S.f.kinds.length} kind${S.f.kinds.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ")}` : "More";
+  const more = S.f.win === "7d" || S.f.kinds.length;
+  $("#chip-more").textContent = more ? `More · ${[S.f.win === "7d" ? "week" : "", S.f.kinds.length ? `${S.f.kinds.length} kind${S.f.kinds.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ")}` : "More";
   $("#chip-more").classList.toggle("on", !!more);
   const qn = $("#qnote"); qn.hidden = !S.q; if (S.q) qn.innerHTML = `Showing stories that mention “${esc(S.q)}” <button type="button" class="link sm" data-clearq>Clear</button>`;
 }

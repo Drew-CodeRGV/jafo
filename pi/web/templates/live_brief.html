@@ -20,7 +20,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Newsreader:ital,opsz,wght@1,6..72,400..500&family=Public+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<link rel="stylesheet" href="/static/brief.css?v=3">
+<link rel="stylesheet" href="/static/brief.css?v=4">
 <script>
   try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
   window.JAFO_LIVE = {
@@ -106,7 +106,16 @@
         <span class="wx" id="wx" hidden></span>
       </div>
       <div class="alert-bar" id="wx-alert" hidden></div>
-      <h1 id="brief-h" class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span>Right now</h1>
+      <div class="when-row">
+        <h1 id="brief-h" class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span><span id="brief-label">Right now</span></h1>
+        <div class="when" id="when" role="group" aria-label="What time span to brief">
+          <button type="button" data-win="active" class="on">Now</button>
+          <button type="button" data-win="4h">4h</button>
+          <button type="button" data-win="8h">8h</button>
+          <button type="button" data-win="12h">12h</button>
+          <button type="button" data-win="24h">24h</button>
+        </div>
+      </div>
       <p class="lede" id="lede" aria-live="polite">Listening to the radio…</p>
       <div class="vitals">
         <figure class="spark" id="spark" aria-label="Radio traffic, last 24 hours"></figure>
@@ -212,6 +221,6 @@
 </div>
 
 <div class="toast" id="toast" hidden role="status"></div>
-<script src="/static/brief.js?v=1"></script>
+<script src="/static/brief.js?v=2"></script>
 </body>
 </html>

@@ -34,7 +34,7 @@ bp = Blueprint("live", __name__)
 
 ACTIVE_STATUSES = ("dispatched", "en_route", "on_scene", "transporting", "busy")
 QUIET_AFTER_SEC = 20 * 60
-WINDOWS = {"1h": 3600, "3h": 3 * 3600, "6h": 6 * 3600, "12h": 12 * 3600, "24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400}
+WINDOWS = {"1h": 3600, "3h": 3 * 3600, "4h": 4 * 3600, "6h": 6 * 3600, "8h": 8 * 3600, "12h": 12 * 3600, "24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400}
 KIND_LABELS = {
     "violence": "Violence and danger", "traffic": "Traffic", "medical": "Medical and welfare",
     "property": "Property and alarms", "suspicious": "Suspicious and disputes", "fire": "Fire",
@@ -577,6 +577,7 @@ def _attach_list_extras(conn, items):
         it["on_scene_at"] = st.get("on_scene")
         it["transport_at"] = st.get("transporting")
         it["cleared_at"] = st.get("cleared")
+        it["score"] = _importance(it)
         lr = last.get(it["id"])
         if it.get("softened"):
             it["last_line"] = {"text": f"Units are handling a {it['title'].lower()}.",
@@ -586,6 +587,21 @@ def _attach_list_extras(conn, items):
         else:
             it["last_line"] = None
         it["unit_list"] = units.get(it["id"], [])[:12]
+
+
+SEV_WEIGHT = {"critical": 40, "high": 25, "medium": 10, "moderate": 10, "low": 3}
+BIG_RESOURCES = {"hazmat", "air", "swat", "rescue", "examiner", "ladder", "dps", "k9"}
+
+
+def _importance(it) -> float:
+    """How big an incident was: severity, how many units, how much radio,
+    special resources and how long it ran. Used to pick 'the
+    biggest' for recaps; not shown as a number."""
+    units = len(it.get("unit_list") or [])
+    specials = sum(1 for r in it.get("responders") or [] if r["key"] in BIG_RESOURCES)
+    mins = max(0, (it.get("last_at") or 0) - (it.get("first_at") or 0)) / 60
+    return round(SEV_WEIGHT.get(it.get("severity"), 2) + 4 * min(units, 12) + 1.5 * min(it.get("calls") or 0, 20)
+                 + 8 * specials + min(mins, 120) / 6, 1)
 
 
 STATUS_LABELS = {"reported": "Reported", "dispatched": "Units dispatched", "en_route": "Units en route",

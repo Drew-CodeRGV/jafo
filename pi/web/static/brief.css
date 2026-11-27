@@ -595,3 +595,14 @@ body.lens-near .minimap-box { display: none; }
 .ringbox, .minimap-box { isolation: isolate; }
 .sheet { z-index: 1000; }
 .toast { z-index: 1100; }
+
+/* Briefing time span: Now · 4h · 8h · 12h · 24h */
+.when-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 26px 0 10px; }
+.when-row .eyebrow { margin: 0; }
+.when { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--sunk); box-shadow: inset 0 0 0 1px var(--rule); }
+.when button { border: 0; background: transparent; color: var(--ink-2); font: 600 13.5px/1 var(--f-body); padding: 8px 12px; border-radius: 999px; cursor: pointer; min-width: 44px; }
+.when button:hover { color: var(--ink); }
+.when button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 1px var(--rule); }
+.when button:focus-visible { outline: 2px solid var(--accent, #257de0); outline-offset: 1px; }
+body.span .brief .eyebrow .pulse-dot { background: var(--ink-3, #8a94a6); animation: none; box-shadow: none; }
+@media (max-width: 420px) { .when button { padding: 8px 9px; min-width: 38px; } }
