@@ -438,3 +438,16 @@ body.replaying .player { display: none; }
 #bell-pop p { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 #bell-chip.on { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 760px) { #bell-pop { left: 12px; right: 12px; width: auto; } }
+
+/* cameras */
+.cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 6px 16px 12px; }
+.modal .cams { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); padding: 0; }
+.cam { border-radius: 12px; overflow: hidden; background: var(--hover); cursor: zoom-in; position: relative; }
+.cam img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: #111; }
+.cam .cap { padding: 6px 9px 8px; font-size: 12.5px; line-height: 1.3; }
+.cam .cap small { display: block; color: var(--text-3); }
+.cam .age { position: absolute; top: 6px; left: 6px; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.6); color: #fff; }
+.cam .age.stale { background: var(--alert); }
+.cam-pin { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--panel-solid); color: var(--text-2); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.cam-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+.cam-big img { width: 100%; border-radius: 12px; display: block; }

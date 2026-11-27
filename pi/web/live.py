@@ -398,7 +398,14 @@ def api_incident(iid: int):
     d["trails"] = _unit_trails(conn, [u["id"] for u in units], inc["first_call_at"] - 3 * 3600,
                                inc["last_call_at"], iid)
     d["related_news"] = _related_news(conn, inc)
+    slug_row = conn.execute("SELECT slug FROM regions WHERE id = ?", (inc["region_id"],)).fetchone()
     conn.close()
+    try:
+        import cameras
+        d["cameras"] = cameras.nearby(slug_row["slug"] if slug_row else None, inc["lat"], inc["lng"]) \
+            if inc["lat"] is not None and inc["geo_precision"] not in ("city",) else []
+    except Exception:
+        d["cameras"] = []
     return jsonify(d)
 
 

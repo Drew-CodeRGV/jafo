@@ -380,7 +380,7 @@ function renderIncidentDetail() {
   html += `<div class="dtabs">
     <button type="button" data-dtab="timeline" class="${tab === "timeline" ? "on" : ""}">Timeline <span class="n">${d.timeline.length}</span></button>
     <button type="button" data-dtab="involved" class="${tab === "involved" ? "on" : ""}">Involved <span class="n">${ucount + d.people.length + d.vehicles.length}</span></button>
-    <button type="button" data-dtab="nearby" class="${tab === "nearby" ? "on" : ""}">Nearby</button>
+    <button type="button" data-dtab="nearby" class="${tab === "nearby" ? "on" : ""}">Nearby${d.cameras?.length ? ` <span class="n">${d.cameras.length}</span>` : ""}</button>
     <span class="spacer"></span>
     ${tab === "timeline" ? `<button type="button" class="words-tog ${S.words ? "on" : ""}" data-act="words">${S.words ? "✓ " : ""}Words</button>` : ""}</div>`;
   if (tab === "timeline") {
@@ -405,11 +405,49 @@ function renderIncidentDetail() {
   } else {
     const near = S.incidents.filter((x) => x.id !== d.id && x.lat != null && d.lat != null)
       .map((x) => ({ ...x, dm: miles(d.lat, d.lng, x.lat, x.lng) })).filter((x) => x.dm <= 1.5).sort((a, b) => a.dm - b.dm).slice(0, 10);
+    if (d.cameras?.length) html += `<div class="sub-h">Nearby cameras</div><div class="cams">${d.cameras.map(camCard).join("")}</div>`;
     html += `<div class="sub-h">Other incidents within 1½ miles</div>`;
     html += near.length ? near.map((x) => incRow({ ...x, distance_mi: Math.round(x.dm * 10) / 10 })).join("") : `<div class="empty">Nothing else nearby in the current view.</div>`;
     if (d.related_news?.length) html += `<div class="sub-h">On the News Desk</div>` + d.related_news.map((n) => `<a class="row" href="${esc(n.url)}" style="text-decoration:none;color:inherit"><div class="main"><div class="t">${esc(n.title)}</div></div></a>`).join("");
   }
   v.innerHTML = html;
+}
+const CAM_ICO = '<svg viewBox="0 0 24 24"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3"/></svg>';
+function camCard(c) {
+  const bust = Math.floor(Date.now() / 60000);
+  return `<div class="cam" data-cam="${esc(c.img)}" data-camname="${esc(c.name)}"><img loading="lazy" src="${esc(c.img)}&t=${bust}" alt="${esc(c.name)}" onload="window.__camAge&&window.__camAge(this)">
+    <span class="age" hidden></span><div class="cap">${esc(c.name)}${c.distance_mi != null ? `<small>${c.distance_mi} mi away${c.dir ? " · looking " + esc(c.dir.toLowerCase()) : ""}</small>` : c.dir ? `<small>Looking ${esc(c.dir.toLowerCase())}</small>` : ""}</div></div>`;
+}
+// Snapshot age comes back in a header; fetch it lazily (HEAD is cached 60 s server-side).
+window.__camAge = async (img) => {
+  try {
+    const r = await fetch(img.src, { method: "HEAD" });
+    const age = +r.headers.get("X-Snapshot-Age");
+    const el = img.parentElement.querySelector(".age");
+    if (!el || !r.headers.get("X-Snapshot-Age")) return;
+    el.hidden = false;
+    el.textContent = age > 900 ? "Not updating" : age < 120 ? "Just now" : `${Math.round(age / 60)} min ago`;
+    el.classList.toggle("stale", age > 900);
+  } catch (e) {}
+};
+let camCache = null;
+async function loadCams() { if (!camCache) camCache = (await api("/api/live/cameras")).items || []; return camCache; }
+async function openCameras() {
+  openModal(`<h2>Cameras</h2><div class="empty">Loading…</div>`);
+  const cams = await loadCams().catch(() => []);
+  $("#modal-body").innerHTML = `<h2>Cameras <small style="font-size:13px;color:var(--text-3);font-weight:500">${cams.length} TxDOT cameras · stills refresh every minute</small></h2>
+    ${cams.length ? `<div class="cams">${cams.map(camCard).join("")}</div>` : `<div class="empty">No cameras for this region.</div>`}`;
+}
+function openCamBig(src, name) {
+  openModal(`<h2>${esc(name)}</h2><div class="cam-big"><img src="${esc(src)}&t=${Date.now()}" alt="${esc(name)}"></div>`, true);
+}
+let camLayer = null;
+async function toggleCamLayer(on) {
+  if (camLayer) { camLayer.remove(); camLayer = null; }
+  if (!on) return;
+  const cams = await loadCams().catch(() => []);
+  camLayer = L.layerGroup(cams.map((c) => L.marker([c.lat, c.lng], { pane: "units", icon: L.divIcon({ className: "", html: `<span class="cam-pin">${CAM_ICO}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
+    .on("click", () => openCamBig(c.img, c.name)))).addTo(map);
 }
 function miles(a, b, c, d) {
   const R = 3958.8, p1 = a * Math.PI / 180, p2 = c * Math.PI / 180, dp = p2 - p1, dl = (d - b) * Math.PI / 180;
@@ -715,6 +753,7 @@ function renderWeatherPop() {
 }
 async function toggleLayer(name, on) {
   if (name === "units") renderMapUnits();
+  if (name === "cameras") toggleCamLayer(on);
   if (name === "warnings") loadWeather();
   if (name === "radar") {
     if (on) {
@@ -985,7 +1024,7 @@ function back() {
   setTab(S.tab);
 }
 function onClick(e) {
-  const t = e.target.closest("button, [data-inc], [data-unit], [data-inc-link], [data-toggle-words], a, .unit-ref");
+  const t = e.target.closest("button, [data-inc], [data-unit], [data-inc-link], [data-toggle-words], [data-cam], a, .unit-ref");
   if (!t) return;
   const ds = t.dataset;
   if (t.matches(".unit-ref")) { e.preventDefault(); openUnit(+ds.unit); return; }
@@ -1015,13 +1054,14 @@ function onClick(e) {
     store.set("hiddenChannels", [...S.hiddenChannels]); renderRadio(); renderChannelBox(); return;
   }
   if (ds.push) { setPush(ds.push); return; }
+  if (ds.cam) { openCamBig(ds.cam, ds.camname); return; }
   if (ds.hlList) { S.hl.list = ds.hlList; renderHighlights(); return; }
   if (ds.hlStat) { S.hl.stat = ds.hlStat; renderHighlights(); return; }
   if (ds.hlDays) { store.set("hlDays", +ds.hlDays); openHighlights(+ds.hlDays, S.hl.kind); return; }
   if (ds.tour !== undefined) { +ds.tour < TOUR.length ? openTour(+ds.tour) : closeModal(); return; }
   if (ds.open) {
     openMenu(false);
-    ({ highlights: () => openHighlights(), replay: () => openReplay(), codes: openCodes, key: openKey, about: openAbout, tour: () => openTour(0) })[ds.open]?.();
+    ({ highlights: () => openHighlights(), cameras: openCameras, replay: () => openReplay(), codes: openCodes, key: openKey, about: openAbout, tour: () => openTour(0) })[ds.open]?.();
     return;
   }
   if (ds.themeSet !== undefined) {
@@ -1203,10 +1243,10 @@ async function boot() {
   bind();
   try { S.config = await api("/api/live/config"); } catch (e) { S.config = { region: {} }; }
   initMap(S.config);
-  for (const name of ["units", "heat", "radar", "warnings"]) {
+  for (const name of ["units", "heat", "radar", "warnings", "cameras"]) {
     const saved = store.get("layer." + name, null);
     const el = $(`[data-layer="${name}"]`);
-    if (saved !== null && el) { el.checked = saved; if (saved && ["heat", "radar"].includes(name)) toggleLayer(name, true); }
+    if (saved !== null && el) { el.checked = saved; if (saved && ["heat", "radar", "cameras"].includes(name)) toggleLayer(name, true); }
   }
   await Promise.all([loadIncidents(), loadUnits(), loadRadio(true)]);
   loadWeather(); presence(); initPush(); keepAwake();

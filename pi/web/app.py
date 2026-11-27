@@ -7247,6 +7247,8 @@ _start_coverage_thread()
 # this module and needs every helper above to exist.
 from live import bp as _live_bp  # noqa: E402
 app.register_blueprint(_live_bp)
+import cameras as _cameras  # noqa: E402  TxDOT traffic cameras
+app.register_blueprint(_cameras.bp)
 try:  # web push alerts (needs pywebpush in the web venv)
     import push as _push  # noqa: E402
     app.register_blueprint(_push.bp)
