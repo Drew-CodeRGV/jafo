@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO River · {{ region_name }}</title>
+<meta name="theme-color" content="#070b10">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/wall_river.css?v=2">
+<script>
+  window.JAFO_WALL = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    tz: {{ tz | tojson }},
+    bounds: {{ region | tojson }},
+    audio: {{ audio | tojson }},
+    walls: {{ walls | tojson }},
+    wall: "river",
+  };
+</script>
+</head>
+<body>
+<div id="wall">
+  <!-- ================= top bar ================= -->
+  <header class="top">
+    <div class="brand">
+      <img class="heli-mark" src="/static/jafo-heli.png" alt="JAFO">
+      <div class="brand-t">
+        <div class="b1">JAFO <span>River</span></div>
+        <div class="b2">{{ region_name }}</div>
+      </div>
+    </div>
+    <div class="heads" id="heads" aria-live="polite"></div>
+    <div class="clock">
+      <div class="c-time" id="cTime">--:--</div>
+      <div class="c-date" id="cDate"></div>
+    </div>
+  </header>
+
+  <!-- ================= river ================= -->
+  <section class="river" id="river" aria-label="Timeline of incidents, aircraft and radio">
+    <div class="gutter" aria-hidden="true">
+      <div class="gl-axis"></div>
+      <div class="gl-air" id="glAir"><span>Air</span></div>
+      <div class="gl-inc"><span>Incidents</span></div>
+      <div class="gl-radio"><span>Radio</span><em>Police</em><em>Fire</em><em>EMS</em><em>Other</em></div>
+    </div>
+    <div class="canvas" id="canvas">
+      <div class="slide" id="slide">
+        <div class="grid" id="grid"></div>
+        <div class="axis" id="axis"></div>
+        <div class="lane-air" id="laneAir"></div>
+        <div class="lane-inc" id="laneInc"></div>
+        <div class="lane-radio" id="laneRadio"><canvas id="radioCv"></canvas><div class="gaps" id="gaps"></div></div>
+        <div class="nowline" id="nowline"><span id="nowL">now</span></div>
+      </div>
+      <div class="edge-fade" aria-hidden="true"></div>
+      <div class="more-note" id="moreNote" hidden></div>
+    </div>
+  </section>
+
+  <!-- ================= rail ================= -->
+  <aside class="rail">
+    <section class="open">
+      <div class="sec-h"><span>Open now</span><span class="sec-c" id="oCount"></span></div>
+      <div class="o-list" id="oList"></div>
+    </section>
+    <section class="sky">
+      <div class="sec-h"><span>In the air</span><span class="sec-c" id="aCount"></span></div>
+      <div class="a-list" id="aList"></div>
+    </section>
+    <footer class="meta">
+      <div class="legend" id="legend"></div>
+      <div class="meta-row">
+        <span class="conn" id="conn"><span class="cdot"></span><span id="connT">Connecting</span></span>
+        <span class="updated" id="updated"></span>
+      </div>
+      <span class="lag" id="lag" hidden></span>
+      <nav class="walls" id="walls" aria-label="Other wall displays"></nav>
+    </footer>
+  </aside>
+</div>
+<script src="/static/wall_river.js?v=2"></script>
+</body>
+</html>

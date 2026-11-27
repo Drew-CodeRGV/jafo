@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO Pro · {{ region_name }}</title>
+<meta name="description" content="Pro console for {{ region_name }} public-safety radio: incidents, map, radio, units, aircraft and a live timeline, linked and keyboard-driven.">
+<meta name="theme-color" content="#0b0e13">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="apple-touch-icon" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,75..100,400..800;1,75..100,800..900&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/pro.css?v=1">
+<script>
+  try { const t = localStorage.getItem("jafo.pro.theme"); if (t) document.documentElement.dataset.theme = JSON.parse(t); } catch (e) {}
+  window.JAFO_LIVE = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    regionInfo: {{ region | tojson }},
+    regions: {{ regions | tojson }},
+    tz: {{ tz | tojson }},
+    audio: {{ audio | tojson }},
+    owner: {{ owner | tojson }},
+    edge: {{ edge | tojson }},
+    walls: {{ walls | list | tojson }},
+    view: {{ view | tojson }},
+  };
+</script>
+</head>
+<body data-river="strip">
+
+<header class="top" role="banner">
+  <a class="brand" href="/live/{{ region_slug }}" title="JAFO Live — {{ region_name }} briefing">
+    <img src="/static/jafo-heli.png" alt="" width="78" height="40">
+    <span class="wm"><b>JAFO</b><i>pro</i></span>
+  </a>
+  <nav class="views" aria-label="Views">
+    <a href="/live/{{ region_slug }}" title="Briefing">Briefing</a>
+    <a href="/live/{{ region_slug }}/map" title="Full-screen map">Map</a>
+    <a href="/live/{{ region_slug }}/pro" aria-current="page">Pro</a>
+    <div class="wallmenu">
+      <button type="button" id="btn-walls" aria-haspopup="true" aria-expanded="false">Walls <span aria-hidden="true">▾</span></button>
+      <div class="wallpop" id="wallpop" hidden>
+        {% for w in walls %}<a href="/live/{{ region_slug }}/wall/{{ w }}">{{ w | capitalize }}</a>{% endfor %}
+      </div>
+    </div>
+  </nav>
+  <span class="region" title="Region">{{ region_name }}</span>
+
+  <label class="search" title="Search incidents (/)">
+    <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+    <input id="q" type="search" placeholder="Search incidents, streets, units" autocomplete="off" spellcheck="false" aria-label="Search incidents">
+    <kbd>/</kbd>
+  </label>
+
+  <div class="filters" role="group" aria-label="Filters">
+    <div class="seg" id="f-window" role="radiogroup" aria-label="Incident list window">
+      <button type="button" data-v="active" title="Open incidents">Active</button>
+      <button type="button" data-v="1h">1h</button>
+      <button type="button" data-v="6h">6h</button>
+      <button type="button" data-v="24h">24h</button>
+      <button type="button" data-v="7d">7d</button>
+    </div>
+    <div class="seg" id="f-service" role="radiogroup" aria-label="Service">
+      <button type="button" data-v="">All</button>
+      <button type="button" data-v="police">Police</button>
+      <button type="button" data-v="fire">Fire</button>
+      <button type="button" data-v="ems">EMS</button>
+    </div>
+    <div class="kinds" id="f-kinds" role="group" aria-label="Kinds"></div>
+  </div>
+
+  <div class="topright">
+    <button type="button" class="tbtn wx" id="wx" title="Weather" hidden></button>
+    <span class="tstat" id="watching" title="People watching now"><b id="watching-n">1</b> watching</span>
+    <button type="button" class="tbtn" id="btn-listen" title="Listen live (l)" aria-pressed="false">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg><span>Listen</span><kbd>L</kbd>
+    </button>
+    <button type="button" class="tbtn" id="btn-follow" title="Follow live: the map pans to each call (f)" aria-pressed="false">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M3 11 21 3l-8 18-2-8-8-2z"/></svg><span>Follow</span><kbd>F</kbd>
+    </button>
+    <button type="button" class="tbtn" id="btn-palette" title="Command palette (Ctrl/⌘ K)">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M5 7h14M5 12h14M5 17h9"/></svg><kbd>⌘K</kbd>
+    </button>
+    <button type="button" class="tbtn icon" id="btn-theme" title="Light / dark (t)" aria-label="Light or dark theme">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <button type="button" class="tbtn icon" id="btn-help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+  </div>
+</header>
+
+<div class="alertbar" id="alertbar" hidden></div>
+
+<main class="grid" id="grid">
+  <!-- ===== Left column: queue / air ===== -->
+  <div class="col col-l" id="col-l">
+    <section class="pane" id="p-queue" data-pane="queue" tabindex="-1" aria-label="Incident queue">
+      <header class="ph"><kbd class="pk">1</kbd><h2>Incidents</h2><span class="pc" id="queue-count"></span>
+        <span class="ph-sub" id="queue-sub"></span>
+        <span class="sp"></span>
+        <button type="button" class="chipbtn" id="queue-lines" aria-pressed="true" title="Show each incident's latest radio line">Last line</button>
+      </header>
+      <div class="tablewrap">
+        <table class="queue" id="queue">
+          <thead><tr>
+            <th data-sort="status" title="Status">St</th>
+            <th data-sort="kind" title="Kind">K</th>
+            <th data-sort="title" class="t">Incident</th>
+            <th data-sort="age" class="n" title="Since last radio">Age</th>
+            <th data-sort="units" class="n" title="Units">U</th>
+            <th data-sort="calls" class="n" title="Calls">C</th>
+          </tr></thead>
+          <tbody id="queue-body"></tbody>
+        </table>
+        <div class="empty" id="queue-empty" hidden></div>
+      </div>
+    </section>
+    <div class="split h" data-split="--rl" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+    <section class="pane" id="p-air" data-pane="air" data-slot="air" tabindex="-1" aria-label="Aircraft">
+      <header class="ph"><kbd class="pk">5</kbd><h2>Air</h2><span class="pc" id="air-count"></span>
+        <span class="ph-sub" id="air-sub"></span><span class="sp"></span>
+        <span class="rx" id="air-rx" hidden></span>
+        <button type="button" class="chipbtn" id="air-only" aria-pressed="false" title="Show only interesting aircraft">Interesting</button>
+      </header>
+      <div class="airbody">
+        <div class="airlist" id="air-list"></div>
+        <div class="acars" id="acars" hidden></div>
+      </div>
+    </section>
+  </div>
+  <div class="gut" data-gut="--c1" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+
+  <!-- ===== Center column: map / units ===== -->
+  <div class="col col-c" id="col-c">
+    <section class="pane mappane" id="p-map" data-pane="map" tabindex="-1" aria-label="Map">
+      <header class="ph"><kbd class="pk">2</kbd><h2>Map</h2>
+        <div class="place" id="place">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>
+          <input id="place-q" type="search" placeholder="Jump to a place" autocomplete="off" spellcheck="false" aria-label="Jump to a place" aria-controls="place-res">
+          <kbd>.</kbd>
+          <ul class="place-res" id="place-res" role="listbox" hidden></ul>
+        </div>
+        <span class="sp"></span>
+        <div class="seg sm" id="map-layers" role="group" aria-label="Map layers">
+          <button type="button" data-l="inc" aria-pressed="true">Incidents</button>
+          <button type="button" data-l="units" aria-pressed="true">Units</button>
+          <button type="button" data-l="air" aria-pressed="true">Aircraft</button>
+          <button type="button" data-l="cams" aria-pressed="false">Cameras</button>
+        </div>
+        <button type="button" class="chipbtn" id="map-fit" title="Fit region (g)">Fit</button>
+      </header>
+      <div id="map" aria-label="Map of incidents, units and aircraft"></div>
+      <div class="maplegend" id="maplegend"></div>
+    </section>
+    <div class="split h" data-split="--rc" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+    <section class="pane" id="p-units" data-pane="units" data-slot="units" tabindex="-1" aria-label="Units board">
+      <header class="ph"><kbd class="pk">4</kbd><h2>Units</h2><span class="pc" id="units-count"></span>
+        <span class="ph-sub" id="units-sub"></span><span class="sp"></span>
+        <div class="seg sm" id="units-scope" role="radiogroup" aria-label="Which units">
+          <button type="button" data-v="out">Working</button>
+          <button type="button" data-v="all">All heard</button>
+        </div>
+      </header>
+      <div class="board" id="board"></div>
+    </section>
+  </div>
+  <div class="gut" data-gut="--c3" data-rev="1" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+
+  <!-- ===== Right column: detail / radio ===== -->
+  <div class="col col-r" id="col-r">
+    <section class="pane detail" id="p-detail" data-pane="detail" tabindex="-1" aria-label="Detail" hidden>
+      <header class="ph"><kbd class="pk">6</kbd><h2 id="detail-h">Incident</h2><span class="pc" id="detail-id"></span><span class="sp"></span>
+        <button type="button" class="chipbtn" id="detail-words" aria-pressed="true" title="Show every spoken word (w)">Words</button>
+        <button type="button" class="chipbtn" id="detail-play" title="Play this incident's radio in order">▶ Play all</button>
+        <button type="button" class="x" id="detail-close" title="Close (Esc)" aria-label="Close detail">×</button>
+      </header>
+      <div class="dbody" id="detail-body"></div>
+    </section>
+    <div class="split h" data-split="--rr" id="split-r" role="separator" aria-orientation="horizontal" title="Drag to resize" hidden></div>
+    <section class="pane" id="p-radio" data-pane="radio" data-slot="radio" tabindex="-1" aria-label="Radio stream">
+      <header class="ph"><kbd class="pk">3</kbd><h2>Radio</h2><span class="pc" id="radio-count"></span><span class="sp"></span>
+        <button type="button" class="chipbtn" id="radio-chan" title="Choose channels">Channels <b id="radio-chan-n">all</b></button>
+        <button type="button" class="chipbtn" id="radio-chatter" aria-pressed="false" title="Hide chatter with no incident">Hide chatter</button>
+        <button type="button" class="chipbtn" id="radio-inc" aria-pressed="false" title="Only the selected incident's calls">This incident</button>
+      </header>
+      <div class="spark" id="spark" aria-label="Radio calls per 10 minutes, last 24 hours"></div>
+      <div class="chanpop" id="chanpop" hidden></div>
+      <ol class="stream" id="stream"></ol>
+      <button type="button" class="more" id="radio-more">Load earlier calls</button>
+    </section>
+  </div>
+
+  <!-- ===== River: bottom strip, or swapped into the Units / Air / Radio slot ===== -->
+  <div class="split strip-split" data-split-px="--rs" id="split-river" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+  <section class="pane riverpane" id="p-river" data-pane="river" tabindex="-1" aria-label="River timeline">
+    <header class="ph"><kbd class="pk">7</kbd><h2>River</h2><span class="pc" id="river-count"></span>
+      <span class="ph-sub" id="river-sub"></span><span class="sp"></span>
+      <button type="button" class="chipbtn live-btn" id="river-live" hidden title="Back to now (0)">Back to now ▸</button>
+      <div class="seg sm" id="river-span" role="radiogroup" aria-label="River time window">
+        <button type="button" data-v="10800">3h</button>
+        <button type="button" data-v="21600">6h</button>
+        <button type="button" data-v="43200">12h</button>
+        <button type="button" data-v="86400">24h</button>
+      </div>
+      <div class="seg sm" id="river-at" role="radiogroup" aria-label="Where River sits (r)" title="Where River sits (r cycles)">
+        <button type="button" data-v="strip" title="Bottom strip">Strip</button>
+        <button type="button" data-v="units" title="In place of Units">Units</button>
+        <button type="button" data-v="air" title="In place of Air">Air</button>
+        <button type="button" data-v="radio" title="In place of Radio">Radio</button>
+        <button type="button" data-v="off" title="Hide River">Off</button>
+      </div>
+    </header>
+    <div class="river" id="river">
+      <div class="r-axis" id="r-axis"></div>
+      <div class="r-sky" id="r-air"><span class="r-lab">Sky</span><div class="r-air-in" id="r-air-in"></div></div>
+      <div class="r-inc" id="r-inc"><div class="r-inc-in" id="r-inc-in"></div></div>
+      <div class="r-now" id="r-now"><span id="r-now-l">now</span></div>
+      <div class="r-tip" id="r-tip" hidden></div>
+    </div>
+  </section>
+</main>
+
+<footer class="status" id="statusbar">
+  <span class="live" id="sb-live"><i></i><b>LIVE</b> <span id="sb-lag">—</span></span>
+  <span class="sbi demo" id="sb-demo" hidden>DEMO SKY</span>
+  <span class="sbi" id="sb-counts"></span>
+  <span class="sbi onair" id="sb-onair"></span>
+  <span class="sp"></span>
+  <span class="sbi" id="sb-play" hidden></span>
+  <span class="keys"><kbd>j</kbd><kbd>k</kbd> move <kbd>↵</kbd> open <kbd>1</kbd>–<kbd>7</kbd> panes <kbd>r</kbd> river <kbd>/</kbd> search <kbd>?</kbd> all keys</span>
+</footer>
+
+<!-- phone: jump links into the single scrolling column -->
+<nav class="mtabs" id="mtabs" aria-label="Jump to pane">
+  <button type="button" data-m="queue"><svg viewBox="0 0 24 24" class="ico"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Incidents</button>
+  <button type="button" data-m="map"><svg viewBox="0 0 24 24" class="ico"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>Map</button>
+  <button type="button" data-m="river"><svg viewBox="0 0 24 24" class="ico"><path d="M3 7h9M7 12h12M3 17h7"/></svg>River</button>
+  <button type="button" data-m="radio"><svg viewBox="0 0 24 24" class="ico"><path d="M4 10h16v10H4zM8 10l9-6"/><circle cx="9" cy="15" r="2"/></svg>Radio</button>
+  <button type="button" data-m="units"><svg viewBox="0 0 24 24" class="ico"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>Units</button>
+  <button type="button" data-m="air"><svg viewBox="0 0 24 24" class="ico"><path d="M12 2.5c.8 0 1.4.9 1.4 2v5.2l7.6 4.4v2l-7.6-2.3v4.6l2.2 1.7v1.6L12 20.6l-3.6 1.1v-1.6l2.2-1.7v-4.6L3 16.1v-2l7.6-4.4V4.5c0-1.1.6-2 1.4-2z"/></svg>Air</button>
+</nav>
+
+<!-- command palette -->
+<div class="scrim" id="palette" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="pin"><svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      <input id="pal-q" type="text" placeholder="Jump to an incident, unit, place, channel, aircraft or command…" autocomplete="off" spellcheck="false" aria-label="Command"></div>
+    <ul class="pres" id="pal-res" role="listbox"></ul>
+    <div class="pfoot"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> go <kbd>esc</kbd> close</div>
+  </div>
+</div>
+
+<!-- generic modal (help, report, weather) -->
+<div class="scrim" id="modal" hidden><div class="modal" role="dialog" aria-modal="true" id="modal-box"></div></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/static/pro.js?v=2"></script>
+</body>
+</html>

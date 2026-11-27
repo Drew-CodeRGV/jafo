@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO Live · {{ region_name }}</title>
+<meta name="description" content="What's happening right now in {{ region_name }}, written in plain English from live public-safety radio.">
+<meta name="theme-color" content="#eef2f8">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="apple-touch-icon" href="/static/jafo-icon-512.png">
+<link rel="manifest" href="/live/manifest.webmanifest?region={{ region_slug }}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="JAFO">
+<script>
+  // Old map links: #u/<unit> and #a/<hex> belong to the full map.
+  (function () { var h = location.hash; if (/^#(u|a)\//.test(h)) location.replace("/live/{{ region_slug }}/map" + location.search + h); })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Newsreader:ital,opsz,wght@1,6..72,400..500&family=Public+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/static/brief.css?v=1">
+<script>
+  try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  window.JAFO_LIVE = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    regionBox: {{ region | tojson }},
+    regions: {{ regions | tojson }},
+    owner: {{ owner | tojson }},
+    audio: {{ audio | tojson }},
+    tz: {{ tz | tojson }},
+    edge: {{ edge | tojson }},
+    walls: {{ walls | list | tojson }},
+  };
+</script>
+</head>
+<body>
+<a class="skip" href="#stream">Skip to the stories</a>
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="/live/{{ region_slug }}" aria-label="JAFO Live, {{ region_name }}">
+      <img src="/static/jafo-heli.png" alt="" width="78" height="38">
+      <span class="wm"><b>JAFO</b><span class="place">{{ region_name }}</span></span>
+    </a>
+    <div class="lens" role="tablist" aria-label="View">
+      <button type="button" role="tab" id="lens-brief" data-lens="brief" aria-selected="true">Briefing</button>
+      <button type="button" role="tab" id="lens-near" data-lens="near" aria-selected="false">
+        <svg viewBox="0 0 24 24" class="ico sm" aria-hidden="true"><path d="M3 11 21 3l-8 18-2-8-8-2z"/></svg>Near me</button>
+    </div>
+    <nav class="toplinks" aria-label="Other views">
+      <a href="/live/{{ region_slug }}/map">Map</a>
+      <a href="/live/{{ region_slug }}/pro">Pro</a>
+      <a href="/live/{{ region_slug }}/wall/command">Walls</a>
+    </nav>
+    <div class="top-act">
+      <button type="button" class="ibtn" id="btn-search" aria-label="Search stories" aria-expanded="false">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      </button>
+      <button type="button" class="ibtn wide-only" id="btn-bell" aria-label="Alerts on this device" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><i class="bell-dot" hidden></i>
+      </button>
+      <button type="button" class="ibtn wide-only" id="btn-theme" aria-label="Switch light or dark theme">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
+      </button>
+      <button type="button" class="ibtn" id="btn-menu" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+  <form class="searchbar" id="searchbar" hidden role="search">
+    <input id="q" type="search" placeholder="Search stories: a street, city or kind of call" aria-label="Search stories" autocomplete="off">
+    <button type="button" id="q-clear">Done</button>
+  </form>
+  <div class="pop" id="bell-pop" role="dialog" aria-label="Alerts" hidden></div>
+  <nav class="menu" id="menu" hidden aria-label="Menu">
+    <div class="menu-sec">Views</div>
+    <a href="/live/{{ region_slug }}/map"><svg viewBox="0 0 24 24" class="ico sm"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4z"/><path d="M9 4v13.5M15 6.5V20"/></svg>Full map</a>
+    <a href="/live/{{ region_slug }}/pro"><svg viewBox="0 0 24 24" class="ico sm"><path d="M3 5h18v14H3zM9 5v14M3 11h6"/></svg>Pro console</a>
+    <a href="/live/{{ region_slug }}/wall/command"><svg viewBox="0 0 24 24" class="ico sm"><path d="M3 4h18v12H3zM8 20h8M12 16v4"/></svg>Wall displays</a>
+    <div class="menu-sec">On this page</div>
+    <button type="button" data-open="radio"><svg viewBox="0 0 24 24" class="ico sm"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>Live radio</button>
+    <button type="button" data-open="air"><svg viewBox="0 0 24 24" class="ico sm"><path d="M3 5h18M12 5v3"/><path d="M6.5 13.5c0-3 2.4-5.5 5.5-5.5h1.5c2.5 0 4.5 2 4.5 4.5V14H6.5z"/><path d="M8 18h9M10 14v4M15 14v4"/></svg>In the air</button>
+    <button type="button" data-open="cams"><svg viewBox="0 0 24 24" class="ico sm"><path d="M3 8h13v9H3zM16 11l5-3v9l-5-3"/></svg>Traffic cameras</button>
+    <button type="button" data-open="codes"><svg viewBox="0 0 24 24" class="ico sm"><path d="M4 6h16M4 12h10M4 18h13"/></svg>Radio codes explained</button>
+    <button type="button" data-open="bell" class="narrow-only"><svg viewBox="0 0 24 24" class="ico sm"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span id="menu-bell-l">Alerts</span></button>
+    <button type="button" data-open="theme" class="narrow-only"><svg viewBox="0 0 24 24" class="ico sm"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>Light or dark</button>
+    <button type="button" data-open="about"><svg viewBox="0 0 24 24" class="ico sm"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>How this works</button>
+    <button type="button" data-open="report"><svg viewBox="0 0 24 24" class="ico sm"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>Report a problem</button>
+    {% if regions|length > 1 %}
+    <div class="menu-sec">Region</div>
+    <div class="regions">{% for r in regions %}<a href="/live/{{ r.slug }}"{% if r.slug == region_slug %} aria-current="page" class="on"{% endif %}>{{ r.name }}</a>{% endfor %}</div>
+    {% endif %}
+    {% if edge %}<div class="menu-foot"><a href="/classic">Classic dashboard</a> · <a href="https://jafo.live/live/{{ region_slug }}">jafo.live</a></div>{% endif %}
+  </nav>
+</header>
+
+<div class="page">
+  <main class="col" id="main">
+    <!-- Briefing lens -->
+    <section class="brief" id="brief" aria-labelledby="brief-h">
+      <div class="dateline">
+        <span id="dateline">Today</span>
+        <span class="wx" id="wx" hidden></span>
+      </div>
+      <div class="alert-bar" id="wx-alert" hidden></div>
+      <h1 id="brief-h" class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span>Right now</h1>
+      <p class="lede" id="lede" aria-live="polite">Listening to the radio…</p>
+      <div class="vitals">
+        <figure class="spark" id="spark" aria-label="Radio traffic, last 24 hours"></figure>
+        <div class="vital-txt" id="vitals"></div>
+      </div>
+    </section>
+
+    <!-- Near-me lens -->
+    <section class="near" id="near" hidden aria-labelledby="near-h">
+      <div class="places" id="places" role="tablist" aria-label="Your places"></div>
+      <form class="find" id="find" role="search" autocomplete="off">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+        <input id="pq" type="search" placeholder="Add a place: street, town or landmark" aria-label="Search for a place" autocomplete="off">
+        <button type="button" class="locate" data-act="locate" title="Use my location"><svg viewBox="0 0 24 24" class="ico sm"><path d="M12 2 4 20l8-4 8 4-8-18z"/></svg><span>Locate me</span></button>
+        <div class="results" id="presults" hidden></div>
+      </form>
+      <div class="verdict" id="verdict" aria-live="polite"></div>
+      <div class="ringbox" id="ringbox">
+        <div id="ringmap" class="ringmap" aria-label="Map around your place"></div>
+        <div class="ring-hint" id="pick-hint" hidden>Tap the map to drop your place <button type="button" data-act="cancel-pick">Cancel</button></div>
+        <div class="ring-ctl">
+          <div class="seg" id="radius" role="radiogroup" aria-label="Distance"></div>
+          <button type="button" class="ringbtn" data-act="pick" title="Drop a pin on the map"><svg viewBox="0 0 24 24" class="ico sm"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg><span>Drop pin</span></button>
+        </div>
+      </div>
+      <div class="hist" id="hist"></div>
+    </section>
+
+    <div class="filters" role="toolbar" aria-label="Filter stories">
+      <div class="chips" id="chips-service">
+        <button type="button" data-svc="" class="on">Everything</button>
+        <button type="button" data-svc="police">Police</button>
+        <button type="button" data-svc="fire">Fire</button>
+        <button type="button" data-svc="ems">EMS</button>
+        <button type="button" id="chip-more" aria-expanded="false">More</button>
+      </div>
+      <div class="more" id="more" hidden>
+        <div class="seg" id="seg-window" role="group" aria-label="Time">
+          <button type="button" data-win="active" class="on">Now</button>
+          <button type="button" data-win="24h">Last 24 hours</button>
+          <button type="button" data-win="7d">This week</button>
+        </div>
+        <div class="kchips" id="kchips"></div>
+      </div>
+      <div class="qnote" id="qnote" hidden></div>
+    </div>
+
+    <div id="stream" class="stream" aria-live="polite"><div class="loading">Loading the stories…</div></div>
+
+    <footer class="foot">
+      <p>JAFO listens to public-safety radio with its own receivers. Speech-to-text writes down each call, and an AI writes it in plain English and groups calls into stories. Locations are rounded to the block, private details are hidden, and transcripts can be wrong. Encrypted channels aren't heard. This is not an emergency service: call 911 if you need help.</p>
+      <p><button type="button" data-open="about" class="link">How this works</button> · <button type="button" data-open="report" class="link">Report a problem</button> · <a href="/live/{{ region_slug }}/map">Full map</a> · <span id="watching"></span></p>
+    </footer>
+  </main>
+
+  <aside class="rail" aria-label="Map, aircraft and live radio">
+    <div class="rail-in">
+      <div class="rbox minimap-box" id="minibox">
+        <div id="minimap" class="minimap" role="button" tabindex="0" aria-label="Open the map"></div>
+        <button type="button" class="minimap-open" id="minimap-open">Open map</button>
+      </div>
+      <div class="rbox" id="rail-air" hidden></div>
+      <div class="rbox ticker-box">
+        <div class="rh"><span class="pulse-dot" aria-hidden="true"></span>Live radio <button type="button" class="link sm" data-open="radio">See all</button></div>
+        <ol class="ticker" id="ticker"></ol>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- phone dock -->
+<nav class="dock" aria-label="Quick views">
+  <button type="button" data-open="map"><svg viewBox="0 0 24 24" class="ico"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4z"/><path d="M9 4v13.5M15 6.5V20"/></svg>Map</button>
+  <button type="button" data-open="radio"><svg viewBox="0 0 24 24" class="ico"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>Radio</button>
+</nav>
+
+<!-- now playing (only ever started by a tap) -->
+<div class="player" id="player" hidden>
+  <button type="button" class="pp" id="pp" aria-label="Pause"></button>
+  <div class="pl-txt"><b id="pl-chan"></b><span id="pl-line"></span></div>
+  <button type="button" class="ibtn" id="pl-x" aria-label="Stop">
+    <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg>
+  </button>
+</div>
+
+<!-- quick map sheet -->
+<div class="sheet mapsheet" id="mapsheet" hidden role="dialog" aria-modal="true" aria-label="Map">
+  <div id="bigmap" class="bigmap"></div>
+  <div class="ms-top">
+    <button type="button" class="pillbtn" data-close="map"><svg viewBox="0 0 24 24" class="ico"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
+    <a class="pillbtn ghost ms-full" href="/live/{{ region_slug }}/map">Full map</a>
+    <div class="ms-legend" id="ms-legend"></div>
+  </div>
+  <div class="ms-card" id="ms-card" hidden></div>
+</div>
+
+<!-- generic sheet (radio, codes, cameras, about, report, places) -->
+<div class="sheet panel" id="panel" hidden role="dialog" aria-modal="true" aria-labelledby="panel-h">
+  <div class="panel-in">
+    <div class="panel-head"><h2 id="panel-h"></h2><button type="button" class="ibtn" data-close="panel" aria-label="Close"><svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="panel-body" id="panel-body"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status"></div>
+<script src="/static/brief.js?v=1"></script>
+</body>
+</html>

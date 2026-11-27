@@ -34,7 +34,7 @@ bp = Blueprint("live", __name__)
 
 ACTIVE_STATUSES = ("dispatched", "en_route", "on_scene", "transporting", "busy")
 QUIET_AFTER_SEC = 20 * 60
-WINDOWS = {"1h": 3600, "6h": 6 * 3600, "24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400}
+WINDOWS = {"1h": 3600, "3h": 3 * 3600, "6h": 6 * 3600, "12h": 12 * 3600, "24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400}
 KIND_LABELS = {
     "violence": "Violence and danger", "traffic": "Traffic", "medical": "Medical and welfare",
     "property": "Property and alarms", "suspicious": "Suspicious and disputes", "fire": "Fire",
@@ -555,11 +555,28 @@ def _attach_list_extras(conn, items):
     units = defaultdict(list)
     for r in conn.execute(f"""
         SELECT e.incident_id, u.callsign, u.service,
-               CASE WHEN u.incident_id = e.incident_id THEN u.status ELSE 'left' END st, MIN(e.at) first_at
+               CASE WHEN u.incident_id = e.incident_id THEN u.status ELSE 'left' END st, MIN(e.at) first_at,
+               CASE WHEN u.incident_id = e.incident_id THEN u.status_since ELSE MAX(e.at) END since
         FROM unit_events e JOIN units u ON u.id = e.unit_id WHERE e.incident_id IN ({q})
         GROUP BY e.incident_id, u.id ORDER BY first_at""", ids):
-        units[r["incident_id"]].append({"callsign": r["callsign"], "service": r["service"], "status": r["st"]})
+        units[r["incident_id"]].append({"callsign": r["callsign"], "service": r["service"], "status": r["st"],
+                                        "since": r["since"]})
+    times = defaultdict(list)
+    for r in conn.execute(f"""SELECT incident_id, start_time FROM calls WHERE incident_id IN ({q})
+                              ORDER BY start_time""", ids):
+        times[r["incident_id"]].append(int(r["start_time"]))
+    stages = defaultdict(dict)
+    for r in conn.execute(f"""SELECT incident_id, status, MIN(at) at FROM unit_events WHERE incident_id IN ({q})
+                              AND status IN ('dispatched','en_route','on_scene','transporting','cleared')
+                              GROUP BY incident_id, status""", ids):
+        stages[r["incident_id"]][r["status"]] = r["at"]
     for it in items:
+        it["call_times"] = times.get(it["id"], [])[-200:]
+        st = stages.get(it["id"], {})
+        it["en_route_at"] = st.get("en_route") or st.get("dispatched")
+        it["on_scene_at"] = st.get("on_scene")
+        it["transport_at"] = st.get("transporting")
+        it["cleared_at"] = st.get("cleared")
         lr = last.get(it["id"])
         if it.get("softened"):
             it["last_line"] = {"text": f"Units are handling a {it['title'].lower()}.",
@@ -590,6 +607,9 @@ def _status_history(conn, inc) -> list[dict]:
         out.append({"at": r["at"], "status": r["status"], "label": STATUS_LABELS[r["status"]], "unit": r["callsign"]})
     if inc["closed_at"]:
         out.append({"at": inc["closed_at"], "status": "closed", "label": "Closed", "unit": None})
+    # canonical stage order (radio is messy: a transport can be heard before "on scene")
+    rank = {k: n for n, k in enumerate(STATUS_LABELS)}
+    out.sort(key=lambda x: rank[x["status"]])
     return out
 
 
