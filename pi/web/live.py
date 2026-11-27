@@ -295,36 +295,55 @@ def live_root():
     return redirect(f"/live/{r['slug']}")
 
 
-@bp.route("/live/<slug>")
-def live_page(slug: str):
+def _page_ctx(slug: str) -> dict:
     conn = _db()
-    r = conn.execute("SELECT slug, name FROM regions WHERE slug = ?", (slug,)).fetchone()
+    r = conn.execute("SELECT * FROM regions WHERE slug = ?", (slug,)).fetchone()
     regions = conn.execute("SELECT slug, name FROM regions ORDER BY id").fetchall()
     conn.close()
     if not r:
         abort(404)
-    return render_template("live.html", region_slug=r["slug"], region_name=r["name"],
-                           regions=[dict(x) for x in regions], owner=_owner(), tz=str(A_TZ()),
-                           audio=_owner() or A.PUBLIC_AUDIO)
+    return dict(region_slug=r["slug"], region_name=r["name"], region=dict(r),
+                regions=[dict(x) for x in regions], owner=_owner(), tz=str(A_TZ()),
+                audio=_owner() or A.PUBLIC_AUDIO, edge=False, walls=WALLS, concepts=CONCEPTS)
 
 
-WALLS = ("command", "newsroom", "grid", "pulse")
-CONCEPTS = ("river", "brief", "console", "near")   # /live redesign prototypes
+@bp.route("/live/<slug>")
+def live_page(slug: str):
+    """Front door: the Briefing (with the Near-me lens)."""
+    return render_template(["live_brief.html", "v_brief.html"], view="brief", concept="brief", **_page_ctx(slug))
+
+
+@bp.route("/live/<slug>/map")
+def live_map(slug: str):
+    """The full-screen map (the original /live)."""
+    return render_template("live.html", view="map", **_page_ctx(slug))
+
+
+@bp.route("/live/<slug>/pro")
+def live_pro(slug: str):
+    """Console: the multi-pane pro view, with the River timeline as a pane."""
+    return render_template(["pro.html", "v_console.html"], view="pro", concept="console", **_page_ctx(slug))
+
+
+WALLS = ("command", "newsroom", "grid", "pulse", "river")
+CONCEPTS = ("river", "brief", "console", "near")   # /live redesign prototypes (now redirects)
+CONCEPT_HOME = {"brief": "", "near": "?lens=near", "console": "/pro", "river": "/wall/river"}
 
 
 @bp.route("/live/<slug>/v/<name>")
 def concept_page(slug: str, name: str):
-    """Redesign prototypes of the /live experience: templates/v_<name>.html."""
+    """The redesign prototypes graduated; old links land on their new homes.
+    ?proto=1 still renders the original prototype."""
     if name not in CONCEPTS:
         abort(404)
-    conn = _db()
-    r = conn.execute("SELECT * FROM regions WHERE slug = ?", (slug,)).fetchone()
-    conn.close()
-    if not r:
-        abort(404)
-    return render_template(f"v_{name}.html", region_slug=slug, region_name=r["name"], region=dict(r),
-                           tz=str(A_TZ()), concepts=CONCEPTS, concept=name,
-                           audio=_owner() or A.PUBLIC_AUDIO, owner=_owner())
+    if request.args.get("proto") != "1":
+        home = CONCEPT_HOME[name]
+        qs = request.query_string.decode()
+        url = f"/live/{slug}{home}"
+        if qs:
+            url += ("&" if "?" in url else "?") + qs
+        return redirect(url)
+    return render_template(f"v_{name}.html", concept=name, **_page_ctx(slug))
 
 
 @bp.route("/live/<slug>/wall")
@@ -344,7 +363,8 @@ def wall_page(slug: str, name: str):
     if not r:
         abort(404)
     r = dict(r)
-    return render_template(f"wall_{name}.html", region_slug=slug, region_name=r["name"],
+    return render_template([f"wall_{name}.html"] + (["v_river.html"] if name == "river" else []),
+                           concept=name, concepts=CONCEPTS, owner=False, region_slug=slug, region_name=r["name"],
                            region=r, tz=str(A_TZ()), walls=WALLS, wall=name,
                            audio=_owner() or A.PUBLIC_AUDIO)
 
@@ -510,6 +530,7 @@ def api_incidents():
             items.sort(key=lambda it: it["distance_mi"])
         except ValueError:
             pass
+    _attach_list_extras(conn, items)
     kinds = Counter(it["kind"] for it in items)
     ended_today = 0
     if window == "active" and not at:
@@ -519,6 +540,122 @@ def api_incidents():
     conn.close()
     return jsonify({"region": r.get("slug"), "now": now, "items": items, "kinds": kinds,
                     "ended_today": ended_today})
+
+
+def _attach_list_extras(conn, items):
+    """Latest radio line + responding units on each list item (one query each)."""
+    ids = [it["id"] for it in items]
+    if not ids:
+        return
+    q = ",".join("?" * len(ids))
+    last = {r["incident_id"]: r for r in conn.execute(f"""
+        SELECT incident_id, call_line, start_time, talkgroup_tag FROM calls WHERE id IN (
+          SELECT MAX(id) FROM calls WHERE incident_id IN ({q}) AND call_line IS NOT NULL
+          AND call_line != '' GROUP BY incident_id)""", ids)}
+    units = defaultdict(list)
+    for r in conn.execute(f"""
+        SELECT e.incident_id, u.callsign, u.service,
+               CASE WHEN u.incident_id = e.incident_id THEN u.status ELSE 'left' END st, MIN(e.at) first_at
+        FROM unit_events e JOIN units u ON u.id = e.unit_id WHERE e.incident_id IN ({q})
+        GROUP BY e.incident_id, u.id ORDER BY first_at""", ids):
+        units[r["incident_id"]].append({"callsign": r["callsign"], "service": r["service"], "status": r["st"]})
+    for it in items:
+        lr = last.get(it["id"])
+        if it.get("softened"):
+            it["last_line"] = {"text": f"Units are handling a {it['title'].lower()}.",
+                               "at": lr["start_time"] if lr else it["last_at"], "channel": None}
+        elif lr:
+            it["last_line"] = {"text": _scrub(lr["call_line"]), "at": lr["start_time"], "channel": lr["talkgroup_tag"]}
+        else:
+            it["last_line"] = None
+        it["unit_list"] = units.get(it["id"], [])[:12]
+
+
+STATUS_LABELS = {"reported": "Reported", "dispatched": "Units dispatched", "en_route": "Units en route",
+                 "on_scene": "On scene", "transporting": "Transporting", "cleared": "Units clearing",
+                 "closed": "Closed"}
+
+
+def _status_history(conn, inc) -> list[dict]:
+    """Milestones derived from unit events: first time each stage was reached."""
+    out = [{"at": inc["first_call_at"], "status": "reported", "label": "Reported", "unit": None}]
+    seen = set()
+    for r in conn.execute("""SELECT e.status, e.at, u.callsign FROM unit_events e JOIN units u ON u.id = e.unit_id
+                             WHERE e.incident_id = ? AND e.status IN
+                             ('dispatched','en_route','on_scene','transporting','cleared')
+                             ORDER BY e.at""", (inc["id"],)):
+        if r["status"] in seen:
+            continue
+        seen.add(r["status"])
+        out.append({"at": r["at"], "status": r["status"], "label": STATUS_LABELS[r["status"]], "unit": r["callsign"]})
+    if inc["closed_at"]:
+        out.append({"at": inc["closed_at"], "status": "closed", "label": "Closed", "unit": None})
+    return out
+
+
+# --- place search -------------------------------------------------------------
+_PLACE_CACHE: dict[tuple, tuple[float, list]] = {}
+_NOM_LOCK = threading.Lock()
+_NOM_LAST = [0.0]
+
+
+@bp.route("/api/live/places")
+def api_places():
+    """JAFO place search: towns and blocks JAFO has heard, then OpenStreetMap
+    (bounded to the region). Never returns house numbers."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"items": []})
+    conn = _db()
+    r = _region(conn, request.args.get("region"))
+    key = (r.get("slug"), q.lower())
+    hit = _PLACE_CACHE.get(key)
+    if hit and time.time() - hit[0] < 3600:
+        conn.close()
+        return jsonify({"items": hit[1]})
+    like = f"%{q}%"
+    items, seen = [], set()
+    for c in conn.execute("""SELECT city, AVG(lat) lat, AVG(lng) lng, COUNT(*) n FROM incidents
+                             WHERE region_id IS ? AND city LIKE ? AND lat IS NOT NULL
+                             GROUP BY city ORDER BY n DESC LIMIT 5""", (r.get("id"), like)):
+        items.append({"label": c["city"], "sub": f"Town · {c['n']} incidents heard", "lat": c["lat"],
+                      "lng": c["lng"], "kind": "town", "zoom": 13})
+        seen.add(c["city"].lower())
+    for c in conn.execute("""SELECT location_text, city, AVG(lat) lat, AVG(lng) lng, COUNT(*) n FROM incidents
+                             WHERE region_id IS ? AND (location_text LIKE ? OR street LIKE ? OR cross_street LIKE ?)
+                             AND lat IS NOT NULL AND geo_precision != 'city'
+                             GROUP BY location_text ORDER BY n DESC, MAX(last_call_at) DESC LIMIT 8""",
+                          (r.get("id"), like, like, like)):
+        lab = _scrub(c["location_text"])
+        if not lab or lab.lower() in seen:
+            continue
+        seen.add(lab.lower())
+        items.append({"label": lab, "sub": f"{c['city'] or ''} · heard {c['n']}×".strip(" ·"),
+                      "lat": c["lat"], "lng": c["lng"], "kind": "block", "zoom": 16})
+    conn.close()
+    if len(items) < 5 and r.get("bbox_west") is not None:
+        try:
+            with _NOM_LOCK:
+                wait = 1.1 - (time.time() - _NOM_LAST[0])
+                if wait > 0:
+                    time.sleep(wait)
+                _NOM_LAST[0] = time.time()
+                res = requests.get("https://nominatim.openstreetmap.org/search", params={
+                    "q": q, "format": "jsonv2", "limit": 6, "bounded": 1, "countrycodes": "us",
+                    "viewbox": f"{r['bbox_west']},{r['bbox_north']},{r['bbox_east']},{r['bbox_south']}"},
+                    headers={"User-Agent": "jafo-live/1.0"}, timeout=8).json()
+            for n in res:
+                name = n.get("name") or (n.get("display_name") or "").split(",")[0]
+                if not name or name.lower() in seen or (name[:1].isdigit() and n.get("type") == "house"):
+                    continue
+                seen.add(name.lower())
+                parts = [p.strip() for p in (n.get("display_name") or "").split(",")]
+                items.append({"label": name, "sub": ", ".join(parts[1:3]), "lat": float(n["lat"]),
+                              "lng": float(n["lon"]), "kind": n.get("category") or "place", "zoom": 15})
+        except Exception:
+            pass
+    _PLACE_CACHE[key] = (time.time(), items[:10])
+    return jsonify({"items": items[:10]})
 
 
 def A_TZ():
@@ -565,6 +702,7 @@ def api_incident(iid: int):
     d["trails"] = _unit_trails(conn, [u["id"] for u in units], inc["first_call_at"] - 3 * 3600,
                                inc["last_call_at"], iid)
     d["related_news"] = _related_news(conn, inc)
+    d["status_history"] = _status_history(conn, inc)
     if _wall() and _is_sensitive(inc):
         d.update(summary=None, people=[], vehicles=[], related_news=[], trails=[])
         d["timeline"] = [_soften_call(t, inc["kind"]) for t in d["timeline"]]

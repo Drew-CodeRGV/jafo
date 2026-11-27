@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import queue
 import re
+import sqlite3
 import threading
 import time
 
@@ -283,6 +284,7 @@ def api_air():
         rec.pop("is_military", None)
         out.append(rec)
     out.sort(key=lambda r: (not r["emergency"], not r["interesting"], r["alt_ft"] or 99999))
+    _record(region, out)
     return jsonify({
         "now": int(time.time()), "demo": False, "aircraft": out,
         "airports": data.get("airports") or [], "acars": _acars(region),
@@ -385,3 +387,111 @@ def _demo(region_slug: str) -> dict:
 def _leg_alt(a, b, period, t, alt0, alt1):
     lat, lng, trk, alt = _leg(a, b, period, t, alt0, alt1)
     return lat, lng, trk, alt
+
+
+# --- persisted aircraft history (beyond the 10-minute in-memory trail) -----------
+# /live clients poll /api/live/air every few seconds; every 15 s one of those
+# polls also writes a position sample per aircraft. Kept AIR_HISTORY_HOURS.
+AIR_HISTORY_HOURS = float(__import__("os").environ.get("JAFO_AIR_HISTORY_HOURS", "48"))
+_REC_LAST: dict[str, float] = {}
+_REC_LOCK = threading.Lock()
+_PRUNE_LAST = [0.0]
+_SCHEMA_OK = [False]
+
+
+def _ensure_schema(c):
+    if _SCHEMA_OK[0]:
+        return
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS air_positions (
+            hex TEXT, ts INTEGER, region TEXT, lat REAL, lng REAL, alt_ft INTEGER, gs_kt INTEGER,
+            track REAL, callsign TEXT, reg TEXT, type TEXT, kind TEXT, role TEXT, operator TEXT,
+            source TEXT, interesting INTEGER, near_incident INTEGER, circling INTEGER);
+        CREATE INDEX IF NOT EXISTS idx_air_pos_hex ON air_positions(hex, ts);
+        CREATE INDEX IF NOT EXISTS idx_air_pos_ts ON air_positions(region, ts);
+    """)
+    _SCHEMA_OK[0] = True
+
+
+def _record(region: str, out: list):
+    now = time.time()
+    with _REC_LOCK:
+        if now - _REC_LAST.get(region, 0) < 15:
+            return
+        _REC_LAST[region] = now
+    rows = [(a["hex"], int(now), region, a["lat"], a["lng"], a["alt_ft"], a["gs_kt"], a["track"], a["callsign"],
+             a["reg"], a["type"], a["kind"], a["role"], a["operator"], a["source"], int(a["interesting"]),
+             (a["near_incident"] or {}).get("id") if isinstance(a.get("near_incident"), dict) else None,
+             int(bool(a["circling"])))
+            for a in out if a.get("hex") and a.get("lat") is not None]
+
+    def write():
+        try:
+            c = sqlite3.connect(A.DB_PATH, timeout=10)
+            _ensure_schema(c)
+            c.executemany("INSERT INTO air_positions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            if now - _PRUNE_LAST[0] > 3600:
+                _PRUNE_LAST[0] = now
+                c.execute("DELETE FROM air_positions WHERE ts < ?", (int(now - AIR_HISTORY_HOURS * 3600),))
+            c.commit()
+            c.close()
+        except Exception as e:  # history is best-effort
+            print("air history write failed:", e)
+    threading.Thread(target=write, name="air-history", daemon=True).start()
+
+
+def _hist_db():
+    c = A.get_db()
+    _ensure_schema(c)
+    return c
+
+
+@bp.route("/api/live/air/history")
+def api_air_history():
+    """?hex=a1b2c3&hours=6 → one aircraft's track.
+    ?region=rgv&since=&until=[&interesting=1] → every aircraft seen in a window
+    (tracks decimated to ≤60 points each), for timelines and replay."""
+    now = int(time.time())
+    hx = (request.args.get("hex") or "").strip().lower()
+    c = _hist_db()
+    if hx:
+        since = now - int(min(request.args.get("hours", type=float) or 6, AIR_HISTORY_HOURS) * 3600)
+        rows = c.execute("""SELECT ts, lat, lng, alt_ft, gs_kt, track, callsign, reg, type, kind, role, operator,
+                                   near_incident, circling FROM air_positions WHERE hex = ? AND ts >= ?
+                            ORDER BY ts""", (hx, since)).fetchall()
+        c.close()
+        last = rows[-1] if rows else None
+        return jsonify({
+            "hex": hx, "points": [[r["lat"], r["lng"], r["alt_ft"], r["ts"]] for r in rows],
+            "callsign": last and last["callsign"], "reg": last and last["reg"], "type": last and last["type"],
+            "kind": last and last["kind"], "role": last and last["role"], "operator": last and last["operator"],
+            "first_at": rows[0]["ts"] if rows else None, "last_at": last and last["ts"],
+            "near_incidents": sorted({r["near_incident"] for r in rows if r["near_incident"]}),
+            "circled": any(r["circling"] for r in rows)})
+    region = request.args.get("region") or "rgv"
+    until = request.args.get("until", type=int) or now
+    since = request.args.get("since", type=int) or until - 3 * 3600
+    since = max(since, until - 24 * 3600)
+    extra = " AND interesting = 1" if request.args.get("interesting") == "1" else ""
+    rows = c.execute(f"""SELECT hex, ts, lat, lng, alt_ft, callsign, reg, type, kind, role, operator,
+                                near_incident, circling, source FROM air_positions
+                         WHERE region = ? AND ts BETWEEN ? AND ?{extra} ORDER BY hex, ts""",
+                     (region, since, until)).fetchall()
+    c.close()
+    by: dict[str, list] = {}
+    for r in rows:
+        by.setdefault(r["hex"], []).append(r)
+    out = []
+    for h, rs in by.items():
+        step = max(1, len(rs) // 60)
+        last = rs[-1]
+        out.append({"hex": h, "callsign": last["callsign"], "reg": last["reg"], "type": last["type"],
+                    "kind": last["kind"], "role": last["role"], "operator": last["operator"],
+                    "first_at": rs[0]["ts"], "last_at": last["ts"],
+                    "interesting": any(r["role"] or r["kind"] in ("helicopter", "military") or r["circling"]
+                                       or r["near_incident"] for r in rs),
+                    "near_incidents": sorted({r["near_incident"] for r in rs if r["near_incident"]}),
+                    "circled": any(r["circling"] for r in rs), "local_only": all(r["source"] == "local" for r in rs),
+                    "points": [[r["lat"], r["lng"], r["alt_ft"], r["ts"]] for r in rs[::step]]})
+    out.sort(key=lambda a: (not a["interesting"], a["first_at"]))
+    return jsonify({"region": region, "since": since, "until": until, "aircraft": out[:400]})

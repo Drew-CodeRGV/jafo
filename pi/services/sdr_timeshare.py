@@ -127,6 +127,9 @@ def sky_check() -> tuple[bool, str]:
     except Exception:
         return False, ""    # hub unreachable: don't get clever, run the base cycle
     acs = air.get("aircraft") or []
+    if air.get("source") in (None, "none", "readsb-local"):
+        # no community feed this poll: an empty sky may just be our antenna
+        return False, "sky unknown (no community feed)"
     for a in acs:   # rule 3 — only our antenna hears it, and it matters
         if a.get("source") == "local" and not a.get("on_ground") and (a.get("alt_ft") or 99999) < 5000 and (
                 a.get("emergency") or a.get("near_incident") or a.get("role") in ("border", "police", "medical")):

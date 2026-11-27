@@ -6788,11 +6788,25 @@ def api_aircraft():
                 dlat_nm = (north - south) / 2.0 * 60.0
                 dlon_nm = (east - west) / 2.0 * 60.0 * math.cos(math.radians(lat_c))
                 radius_nm = max(60, int(math.hypot(dlat_nm, dlon_nm)) + 10)
-                url = f"https://api.adsb.lol/v2/lat/{lat_c}/lon/{lon_c}/dist/{radius_nm}"
-                resp = _r.get(url, timeout=10,
-                              headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
-                resp.raise_for_status()
-                cloud_data = resp.json() or {}
+                # adsb.lol rate-limits (429) at times; fall through to other
+                # readsb-format community feeds (all return {"ac": [...]}).
+                last_err = None
+                for url in (f"https://api.adsb.lol/v2/lat/{lat_c}/lon/{lon_c}/dist/{radius_nm}",
+                            f"https://opendata.adsb.fi/api/v2/lat/{lat_c}/lon/{lon_c}/dist/{min(radius_nm, 250)}",
+                            f"https://api.airplanes.live/v2/point/{lat_c}/{lon_c}/{min(radius_nm, 250)}"):
+                    try:
+                        resp = _r.get(url, timeout=8, headers={"User-Agent": "jafo/1.0 (https://jafo.live)"})
+                        resp.raise_for_status()
+                        cloud_data = resp.json() or {}
+                        if cloud_data.get("ac") is None and cloud_data.get("aircraft") is not None:
+                            cloud_data["ac"] = cloud_data["aircraft"]
+                        cloud_data["_feed"] = url.split("/")[2]
+                        break
+                    except Exception as e:
+                        last_err = e
+                        cloud_data = None
+                if cloud_data is None:
+                    raise last_err or RuntimeError("no cloud feed")
                 _AIRCRAFT_CLOUD_CACHE[region_slug] = (now, cloud_data)
               except Exception as e:
                 # Cloud miss isn't fatal — reuse the last good pull briefly, else local-only.
@@ -6833,7 +6847,7 @@ def api_aircraft():
             elif local_data:
                 data_source = "readsb-local"
             elif cloud_data:
-                data_source = "adsb.lol"
+                data_source = cloud_data.get("_feed") or "cloud"
             else:
                 data_source = "none"
 

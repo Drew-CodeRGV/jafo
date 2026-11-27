@@ -24,7 +24,7 @@ bp = Blueprint("live_edge", __name__)
 HUB = os.environ.get("JAFO_HUB_URL", "").strip().rstrip("/")
 NODE_SLUG = os.environ.get("JAFO_NODE_SLUG", "").strip()
 TZ = os.environ.get("JAFO_TZ", "America/Chicago")
-WALLS = ("command", "newsroom", "grid", "pulse")
+WALLS = ("command", "newsroom", "grid", "pulse", "river")
 CONCEPTS = ("river", "brief", "console", "near")
 LANDING = os.environ.get("JAFO_LANDING", "live").strip().lower()   # live | classic
 _cache: dict[str, tuple[float, object]] = {}
@@ -87,13 +87,27 @@ def classic():
     return current_app.view_functions["index"]()
 
 
+CONCEPT_HOME = {"brief": "", "near": "?lens=near", "console": "/pro", "river": "/wall/river"}
+
+
+def _ctx(slug: str) -> dict:
+    r = _region(slug)
+    return dict(region_slug=slug, region_name=r.get("name") or slug, region=r,
+                regions=_regions() or [{"slug": slug, "name": r.get("name") or slug}],
+                owner=True, audio=True, tz=TZ, edge=True, walls=WALLS, concepts=CONCEPTS)
+
+
 @bp.route("/live/<slug>/v/<name>")
 def concept_page(slug: str, name: str):
     if name not in CONCEPTS:
         abort(404)
-    r = _region(slug)
-    return render_template(f"v_{name}.html", region_slug=slug, region_name=r.get("name") or slug, region=r,
-                           tz=TZ, concepts=CONCEPTS, concept=name, audio=True, owner=True)
+    if request.args.get("proto") != "1":
+        url = f"/live/{slug}{CONCEPT_HOME[name]}"
+        qs = request.query_string.decode()
+        if qs:
+            url += ("&" if "?" in url else "?") + qs
+        return redirect(url)
+    return render_template(f"v_{name}.html", concept=name, **_ctx(slug))
 
 
 @bp.route("/live")
@@ -103,10 +117,17 @@ def live_root():
 
 @bp.route("/live/<slug>")
 def live_page(slug: str):
-    r = _region(slug)
-    return render_template("live.html", region_slug=slug, region_name=r.get("name") or slug,
-                           regions=_regions() or [{"slug": slug, "name": r.get("name") or slug}],
-                           owner=True, audio=True, tz=TZ, edge=True)
+    return render_template(["live_brief.html", "v_brief.html"], view="brief", concept="brief", **_ctx(slug))
+
+
+@bp.route("/live/<slug>/map")
+def live_map(slug: str):
+    return render_template("live.html", view="map", **_ctx(slug))
+
+
+@bp.route("/live/<slug>/pro")
+def live_pro(slug: str):
+    return render_template(["pro.html", "v_console.html"], view="pro", concept="console", **_ctx(slug))
 
 
 @bp.route("/live/<slug>/wall")
@@ -118,9 +139,9 @@ def wall_index(slug: str):
 def wall_page(slug: str, name: str):
     if name not in WALLS:
         abort(404)
-    r = _region(slug)
-    return render_template(f"wall_{name}.html", region_slug=slug, region_name=r.get("name") or slug,
-                           region=r, tz=TZ, walls=WALLS, wall=name, audio=True)
+    ctx = _ctx(slug)
+    ctx.update(wall=name, concept=name, owner=False)
+    return render_template([f"wall_{name}.html"] + (["v_river.html"] if name == "river" else []), **ctx)
 
 
 @bp.route("/live/sw.js")
