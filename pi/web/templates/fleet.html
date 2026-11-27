@@ -159,6 +159,7 @@ L.control.attribution({prefix:false}).addAttribution('© Esri').addTo(map);
       `<div class="pop-meta">${n.region_name||n.region_slug||''}<br>`+
       `${n.live?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--red)">● OFFLINE</span>'}`+
       ` · ${fmt(n.calls_24h)} calls/24h · seen ${relTime(n.last_seen_at)}</div>`+
+      `<a class="pop-btn" href="/live/${n.region_slug}">LIVE MAP →</a> `+
       `<a class="pop-btn" href="/r/${n.region_slug}/n/${n.slug}">OPEN DASHBOARD →</a>`);
   });
 
@@ -181,6 +182,7 @@ L.control.attribution({prefix:false}).addAttribution('© Esri').addTo(map);
         <div><b>${fmt(n.calls_24h)}</b><span class="k">CALLS / 24H</span></div>
         <div><b>${relTime(n.live?n.last_seen_at:n.last_call_at)}</b><span class="k">${n.live?'LAST SEEN':'LAST CALL'}</span></div>
       </div>
+      <a class="go" href="/live/${n.region_slug}">LIVE MAP →</a>
       <a class="go" href="/r/${n.region_slug}/n/${n.slug}">OPEN DASHBOARD →</a>
     </div>`;
   }).join('');

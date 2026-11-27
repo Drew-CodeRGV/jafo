@@ -27,6 +27,7 @@ import requests
 from common import (
     ANTHROPIC_API_KEY, GROQ_API_KEY, REGION, db_connect, setup_logging,
 )
+import incidents as inc_v2
 
 log = setup_logging("jafo-enricher")
 
@@ -36,8 +37,16 @@ log = setup_logging("jafo-enricher")
 BACKEND     = os.environ.get("JAFO_LLM_BACKEND", "ollama").strip().lower()
 LLM_MODEL   = os.environ.get("JAFO_LLM_MODEL", "gemma2:2b").strip()
 LLM_HOST    = os.environ.get("JAFO_LLM_HOST", "http://127.0.0.1:11434").strip().rstrip("/")
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL = "claude-haiku-5-5"
 GROQ_CHAT_MODEL = os.environ.get("JAFO_GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip()
+
+# Enricher v2 (incident linking + units + speaker turns + redaction). Runs on
+# the anthropic backend (the hub). Calls older than V2_MAX_AGE_HOURS when the
+# service starts are left for backfill_incidents.py.
+ENRICH_V2 = os.environ.get("JAFO_ENRICH_V2", "1").strip().lower() in ("1", "true", "yes")
+V2_MAX_AGE_HOURS = float(os.environ.get("JAFO_ENRICH_V2_MAX_AGE_HOURS", "6"))
+V2_BATCH = 8
+SWEEP_EVERY_SEC = 60
 
 # Dual-run / shadow Ollama (corpus building for distillation evaluation).
 # When enabled, the enricher runs each call through Ollama IN ADDITION to the
@@ -230,15 +239,60 @@ def _strip_fences(text: str) -> str:
 
 
 def enrich_via_anthropic(client, transcript: str, talkgroup_tag: str) -> dict:
+    # Haiku 5.5 thinks adaptively by default and thinking counts toward
+    # max_tokens — the old 400-token cap truncated ~23% of responses. Low
+    # effort + headroom, and read the text block by type.
     user_message = f"Talkgroup: {talkgroup_tag or 'unknown'}\nTranscript: {transcript}"
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=MAX_TOKENS,
+        max_tokens=4000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
+        output_config={"effort": "low"},
     )
-    text = "".join(b.text for b in resp.content if hasattr(b, "text"))
+    text = next((b.text for b in resp.content if b.type == "text"), "")
     return json.loads(_strip_fences(text))
+
+
+def run_v2_loop(client) -> None:
+    """Hub mode: enricher v2 (incidents, units, speaker turns, redaction)."""
+    conn = db_connect()
+    since = int(time.time() - V2_MAX_AGE_HOURS * 3600)
+    last_sweep = 0.0
+    log.info("Starting jafo-enricher v2. model=%s (calls newer than %.1fh)", inc_v2.MODEL, V2_MAX_AGE_HOURS)
+    while True:
+        if time.time() - last_sweep > SWEEP_EVERY_SEC:
+            try:
+                n = inc_v2.sweep(conn)
+                g = inc_v2.regeocode_missing(conn, hours=6)
+                if n or g:
+                    log.info("SWEEP closed %d incident(s), placed %d", n, g)
+            except Exception as e:
+                log.exception("sweep failed: %s", e)
+            last_sweep = time.time()
+        try:
+            calls = conn.execute(inc_v2.PENDING_SQL, (since, V2_BATCH)).fetchall()
+        except Exception as e:
+            log.exception("DB query failed: %s", e)
+            time.sleep(POLL_INTERVAL_SEC)
+            continue
+        if not calls:
+            time.sleep(3)
+            continue
+        for call in calls:
+            t0 = time.time()
+            try:
+                iid = inc_v2.enrich_call(conn, client, call)
+                log.info("V2    id=%s inc=%s (%.2fs)", call["id"], iid, time.time() - t0)
+            except Exception as e:
+                conn.rollback()
+                err = f"{type(e).__name__}: {str(e)[:300]}"
+                log.error("V2FAIL id=%s: %s", call["id"], err)
+                conn.execute("UPDATE calls SET enrich_v2_error = ?, enriched_v2_at = ?, "
+                             "enrich_error = COALESCE(enrich_error, ?), enriched_at = COALESCE(enriched_at, ?) "
+                             "WHERE id = ?", (err, int(time.time()), err, int(time.time()), call["id"]))
+                conn.commit()
+                time.sleep(1)
 
 
 def enrich_via_groq(client, transcript: str, talkgroup_tag: str) -> dict:
@@ -295,6 +349,9 @@ def main() -> None:
                 time.sleep(60)
         from anthropic import Anthropic
         anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        if ENRICH_V2:
+            run_v2_loop(anthropic_client)
+            return
         log.info("Starting jafo-enricher. backend=anthropic model=%s region=%s", CLAUDE_MODEL, REGION)
     elif BACKEND == "groq":
         if not GROQ_API_KEY:

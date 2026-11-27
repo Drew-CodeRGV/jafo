@@ -7221,6 +7221,12 @@ _start_heatmap_thread()
 _start_coverage_thread()
 
 
+# /live — incidents + units map (enricher v2). Imported last: live.py imports
+# this module and needs every helper above to exist.
+from live import bp as _live_bp  # noqa: E402
+app.register_blueprint(_live_bp)
+
+
 # -----------------------------------------------------------------------------
 # Dev entrypoint
 # -----------------------------------------------------------------------------

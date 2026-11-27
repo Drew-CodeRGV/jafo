@@ -262,6 +262,108 @@ CREATE TABLE IF NOT EXISTS acars_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_acars_received ON acars_messages(received_at);
 
+-- =====================================================================
+-- Incidents / units model (enricher v2). An incident groups every radio
+-- call about one real-world event; units are the apparatus/officers heard
+-- on the radio with a status state machine. Populated by the hub enricher
+-- (pi/services/incidents.py); read by the /live UI (pi/web/live.py).
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS incidents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id       INTEGER,
+    kind            TEXT,      -- violence|traffic|medical|property|suspicious|fire|other
+    service         TEXT,      -- police|fire|ems|other
+    type            TEXT,      -- short category ("Domestic", "MVA", ...)
+    title           TEXT,      -- plain-English headline, no PII
+    summary         TEXT,      -- rolling 1-3 sentence summary
+    severity        TEXT,      -- low|medium|high|critical|unknown
+    location_text   TEXT,      -- public (block-level) location string
+    street          TEXT,
+    cross_street    TEXT,
+    city            TEXT,
+    lat             REAL,
+    lng             REAL,
+    geo_precision   TEXT,      -- block|intersection|street|place|city|none
+    status          TEXT,      -- new|en_route|on_scene|cleared
+    people_json     TEXT,      -- [{role, desc}]
+    vehicles_json   TEXT,      -- [{desc, note}]
+    first_call_at   INTEGER,
+    last_call_at    INTEGER,
+    call_count      INTEGER DEFAULT 0,
+    talkgroups      TEXT,      -- comma list of talkgroups heard
+    closed_at       INTEGER,   -- set by the sweeper when it goes quiet/clears
+    updated_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_region_last ON incidents(region_id, last_call_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_open        ON incidents(closed_at, last_call_at);
+
+CREATE TABLE IF NOT EXISTS units (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id       INTEGER,
+    callsign        TEXT,      -- display form ("Engine 2", "Charlie 62")
+    callsign_key    TEXT,      -- normalized for matching
+    service         TEXT,      -- police|fire|ems|other
+    role            TEXT,      -- "fire engine", "patrol", ...
+    status          TEXT,      -- dispatched|en_route|on_scene|transporting|busy|available|cleared
+    status_since    INTEGER,
+    incident_id     INTEGER,   -- current incident, if any
+    location_text   TEXT,
+    last_heard      INTEGER,
+    first_heard     INTEGER,
+    UNIQUE (region_id, callsign_key)
+);
+CREATE INDEX IF NOT EXISTS idx_units_region_heard ON units(region_id, last_heard DESC);
+
+CREATE TABLE IF NOT EXISTS unit_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id      INTEGER,
+    call_id      INTEGER,
+    incident_id  INTEGER,
+    status       TEXT,
+    at           INTEGER,
+    location_text TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_unit_events_unit ON unit_events(unit_id, at);
+CREATE INDEX IF NOT EXISTS idx_unit_events_inc  ON unit_events(incident_id, at);
+
+-- Learned radio-ID -> callsign associations (from trunk-recorder srcList +
+-- self-identification in transcripts). A src maps to the callsign with the
+-- most hits once it has >= 2.
+CREATE TABLE IF NOT EXISTS radio_ids (
+    region_id   INTEGER,
+    src         INTEGER,
+    label       TEXT,      -- callsign or "<talkgroup> dispatch"
+    hits        INTEGER DEFAULT 0,
+    last_seen   INTEGER,
+    PRIMARY KEY (region_id, src, label)
+);
+
+-- Per-call problem reports from the public UI ("Report a problem").
+CREATE TABLE IF NOT EXISTS call_reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_id     INTEGER,
+    incident_id INTEGER,
+    reason      TEXT,
+    note        TEXT,
+    created_at  INTEGER
+);
+
+-- Live viewer presence ("N watching"), heartbeat-based.
+CREATE TABLE IF NOT EXISTS presence (
+    client_id   TEXT PRIMARY KEY,
+    region_id   INTEGER,
+    seen_at     INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS geocoded_locations (
+    location_text TEXT PRIMARY KEY,
+    lat           REAL,
+    lng           REAL,
+    source        TEXT,
+    error         TEXT,
+    created_at    INTEGER
+);
+
 -- Full-text search on transcripts and summaries
 CREATE VIRTUAL TABLE IF NOT EXISTS calls_fts USING fts5(
     transcript,
@@ -312,6 +414,18 @@ _NEW_CALL_COLS = [
     ("transcript_model_ollama",    "TEXT"),
     ("enriched_at_ollama",         "INTEGER"),
     ("shadow_enrich_error",        "TEXT"),
+    # Enricher v2 — incident linking, per-call plain-English line, speaker
+    # turns, privacy redaction, radio codes.
+    ("incident_id",          "INTEGER"),   # FK incidents.id
+    ("call_line",            "TEXT"),      # one-sentence plain-English summary of this call
+    ("call_kind",            "TEXT"),      # violence|traffic|medical|... (same vocab as incidents.kind)
+    ("call_service",         "TEXT"),      # police|fire|ems|other
+    ("speakers_json",        "TEXT"),      # [{who, text}] verbatim turns (redacted)
+    ("redact_json",          "TEXT"),      # [str] substrings hidden from the public
+    ("codes_json",           "TEXT"),      # [{code, meaning}]
+    ("radio_srcs",           "TEXT"),      # comma list of trunk-recorder src radio IDs
+    ("enriched_v2_at",       "INTEGER"),
+    ("enrich_v2_error",      "TEXT"),
 ]
 
 
@@ -331,6 +445,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_uploaded      ON calls(uploaded_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_hash          ON calls(content_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_shadow_pending ON calls(enriched_at, enriched_at_ollama)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_incident      ON calls(incident_id, start_time)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_v2_pending    ON calls(enriched_v2_at, start_time)")
 
     # cell_sites — add the asr_number column on existing DBs (introduced
     # with the FCC ASR proximity-matching feature). Safe to run repeatedly.

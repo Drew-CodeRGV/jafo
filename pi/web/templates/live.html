@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAFO Live · {{ region_name }}</title>
+<meta name="description" content="Public-safety radio for {{ region_name }}, live on a map — transcribed, summarized and grouped into incidents.">
+<meta name="theme-color" content="#eef1f5">
+<link rel="icon" href="/static/logo.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<link rel="stylesheet" href="/static/live.css?v=1">
+<script>
+  // Apply the saved theme before paint.
+  try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  window.JAFO_LIVE = {
+    region: {{ region_slug | tojson }},
+    regionName: {{ region_name | tojson }},
+    regions: {{ regions | tojson }},
+    owner: {{ owner | tojson }},
+    tz: {{ tz | tojson }},
+  };
+</script>
+</head>
+<body>
+<div id="map" aria-label="Map of live incidents"></div>
+
+<!-- ===== Top chips ===== -->
+<div class="chips" role="group" aria-label="Conditions">
+  <button class="chip" id="wx-chip" type="button" aria-haspopup="dialog" hidden>
+    <svg viewBox="0 0 24 24" class="ico"><path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9H7z"/></svg>
+    <span id="wx-temp">–</span>
+  </button>
+  <span class="chip static" id="watching" title="People watching now">
+    <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    <span id="watching-n">1</span>&nbsp;watching
+  </span>
+  <span class="chip static warn" id="wx-alert-chip" hidden></span>
+</div>
+
+<!-- ===== Map controls ===== -->
+<div class="mapctl" role="toolbar" aria-label="Map controls">
+  <button type="button" id="btn-layers" title="Layers" aria-haspopup="dialog">
+    <svg viewBox="0 0 24 24" class="ico"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg>
+  </button>
+  <button type="button" id="btn-follow" title="Follow live — pan to each call as it airs" aria-pressed="false">
+    <svg viewBox="0 0 24 24" class="ico"><path d="M3 11 21 3l-8 18-2-8-8-2z"/></svg>
+  </button>
+  <button type="button" id="btn-locate" title="Show my location">
+    <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
+  </button>
+  <div class="zoom">
+    <button type="button" id="btn-zin" title="Zoom in">+</button>
+    <button type="button" id="btn-zout" title="Zoom out">−</button>
+  </div>
+</div>
+
+<div class="pop" id="layers-pop" role="dialog" aria-label="Map layers" hidden>
+  <div class="seg" role="radiogroup" aria-label="Base map">
+    <button type="button" data-base="map" class="on">Map</button>
+    <button type="button" data-base="sat">Satellite</button>
+  </div>
+  <label class="tog"><span>Units</span><input type="checkbox" data-layer="units" checked><i></i></label>
+  <label class="tog"><span>Heat (24h)</span><input type="checkbox" data-layer="heat"><i></i></label>
+  <label class="tog"><span>Radar</span><input type="checkbox" data-layer="radar"><i></i></label>
+  <label class="tog"><span>Weather warnings</span><input type="checkbox" data-layer="warnings" checked><i></i></label>
+  <label class="tog" id="tog-traffic" hidden><span>Traffic</span><input type="checkbox" data-layer="traffic"><i></i></label>
+</div>
+
+<div class="pop" id="wx-pop" role="dialog" aria-label="Weather" hidden></div>
+
+<!-- ===== Side card ===== -->
+<aside class="card" id="card" aria-label="Live activity">
+  <div class="grip" id="grip" aria-hidden="true"></div>
+  <div class="searchrow">
+    <button type="button" class="iconbtn" id="btn-menu" title="Menu" aria-haspopup="menu">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <label class="search">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg>
+      <input id="q" type="search" placeholder="Streets, places, units or calls" autocomplete="off" aria-label="Search">
+    </label>
+    <button type="button" class="iconbtn" id="btn-filters" title="Filters">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+      <span class="dot" id="filters-dot" hidden></span>
+    </button>
+  </div>
+  <div class="tabs" role="tablist">
+    <button role="tab" type="button" data-tab="incidents" class="on">Incidents <span class="n" id="n-incidents"></span></button>
+    <button role="tab" type="button" data-tab="units">Units <span class="n" id="n-units"></span></button>
+    <button role="tab" type="button" data-tab="radio">Radio</button>
+  </div>
+  <div class="views" id="views">
+    <section class="view" data-view="incidents"></section>
+    <section class="view" data-view="units" hidden></section>
+    <section class="view" data-view="radio" hidden></section>
+    <section class="view detail" data-view="detail" hidden></section>
+    <section class="view detail" data-view="filters" hidden></section>
+  </div>
+</aside>
+
+<!-- ===== Menu ===== -->
+<div class="scrim" id="scrim" hidden></div>
+<nav class="menu" id="menu" hidden aria-label="Menu">
+  <div class="brand"><span class="logo">JAFO</span><span class="where">{{ region_name }}</span></div>
+  <button type="button" data-open="highlights"><svg viewBox="0 0 24 24" class="ico"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3"/></svg>Highlights</button>
+  <button type="button" data-open="replay"><svg viewBox="0 0 24 24" class="ico"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>Replay</button>
+  <a href="/news"><svg viewBox="0 0 24 24" class="ico"><path d="M4 5h13v14H6a2 2 0 0 1-2-2V5zM17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/></svg>News Desk</a>
+  <hr>
+  <button type="button" data-open="tour"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2z"/></svg>Tour</button>
+  <button type="button" data-open="codes"><svg viewBox="0 0 24 24" class="ico"><path d="M5 12a7 7 0 0 1 14 0M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/></svg>Radio codes</button>
+  <button type="button" data-open="key"><svg viewBox="0 0 24 24" class="ico"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>Map key</button>
+  <button type="button" data-open="about"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>How it works</button>
+  <hr>
+  {% if regions|length > 1 %}
+  <div class="regions">
+    {% for r in regions %}<a href="/live/{{ r.slug }}" class="{{ 'on' if r.slug == region_slug else '' }}">{{ r.name }}</a>{% endfor %}
+  </div>
+  <hr>
+  {% endif %}
+  <div class="seg theme" role="radiogroup" aria-label="Theme">
+    <button type="button" data-theme-set="light">Light</button>
+    <button type="button" data-theme-set="dark">Dark</button>
+    <button type="button" data-theme-set="">Auto</button>
+  </div>
+  <div class="menu-foot"><a href="/r/{{ region_slug }}">Classic dashboard</a> · <a href="/">Fleet</a></div>
+</nav>
+
+<!-- ===== Modal (highlights / codes / key / about / tour) ===== -->
+<div class="modal" id="modal" role="dialog" aria-modal="true" hidden>
+  <div class="modal-box">
+    <button type="button" class="iconbtn close" id="modal-close" title="Close">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ===== Bottom player ===== -->
+<div class="player" id="player" aria-live="polite">
+  <button type="button" class="play" id="btn-play" title="Listen live" aria-pressed="false">
+    <svg viewBox="0 0 24 24" class="ico fill pl"><path d="M8 5v14l11-7z"/></svg>
+    <svg viewBox="0 0 24 24" class="ico fill pa"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+  </button>
+  <div class="np" id="np">
+    <div class="np-top"><span id="np-chan">Live</span><span class="sep">·</span><a href="#" id="np-inc"></a><span class="ago" id="np-ago"></span></div>
+    <div class="np-line" id="np-line">Waiting for the next call…</div>
+  </div>
+  <div class="vol" id="vol-wrap" {% if not owner %}hidden{% endif %}>
+    <svg viewBox="0 0 24 24" class="ico"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+    <input type="range" id="vol" min="0" max="1" step="0.05" value="0.9" aria-label="Volume">
+  </div>
+</div>
+
+<!-- ===== Replay bar ===== -->
+<div class="replay" id="replay" hidden>
+  <div class="rp-head">
+    <span class="badge">REPLAY</span>
+    <input type="date" id="rp-day" aria-label="Day">
+    <input type="text" id="rp-jump" placeholder="Jump to… (e.g. 9:30pm)" aria-label="Jump to time">
+    <span class="rp-time" id="rp-time"></span>
+    <button type="button" class="live-btn" id="rp-exit">● Back to live</button>
+  </div>
+  <div class="rp-now" id="rp-now"></div>
+  <div class="rp-hist" id="rp-hist" title="Calls per 5 minutes — click or drag to scrub"><canvas id="rp-canvas"></canvas><div class="rp-cursor" id="rp-cursor"></div></div>
+  <div class="rp-ctl">
+    <button type="button" id="rp-prev" title="Previous busy moment">⏮</button>
+    <button type="button" class="play" id="rp-play" title="Play">▶</button>
+    <button type="button" id="rp-next" title="Next busy moment">⏭</button>
+    <label class="rp-speed">Speed <input type="range" id="rp-speed" min="0" max="5" step="1" value="2"><span id="rp-speed-l"></span></label>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/static/live.js?v=1"></script>
+</body>
+</html>
