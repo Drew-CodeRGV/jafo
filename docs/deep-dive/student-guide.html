@@ -1,0 +1,1266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JAFO Deep Dive · Student Guide · WLPC 2027 Phoenix</title>
+<style>
+@page { size: Letter; margin: 0.5in 0.7in 0.6in 0.7in; }
+@page cover { margin: 0; }
+:root {
+  --ink: #141b2d; --muted: #556070; --blue: #1f4fd1; --blue-2: #2f6bff; --navy: #0b1324;
+  --rule: #d9dee8; --code: #0f1a33; --green-bg: #eaf7ee; --green: #1f8a4c;
+  --amber-bg: #fff5e6; --amber: #e8900c; --amber-ink: #a15c00; --blue-bg: #edf2ff;
+  --violet-bg: #f3efff; --violet: #6b46c1;
+  --sans: 'Liberation Sans', Arial, Helvetica, sans-serif;
+  --mono: 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+}
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { margin: 0; padding: 0; }
+body { font-family: var(--sans); color: var(--ink); font-size: 9.7pt; line-height: 1.42; }
+p { margin: 0 0 7pt; }
+a { color: var(--blue); text-decoration: none; }
+b, strong { font-weight: 700; }
+code { font-family: var(--mono); font-size: 8.6pt; background: #eef2fb; color: #1d3fa8; padding: 0 3px; border-radius: 3px; }
+
+/* ---------- cover ---------- */
+.cover { page: cover; height: 11in; width: 8.5in; position: relative; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 30%, #1b2a4d 0%, #0d162b 55%, #080d1a 100%);
+  color: #fff; text-align: center; }
+.cover img { width: 3.1in; margin-top: 2.0in; filter: drop-shadow(0 0 28px rgba(60,120,255,.55)); }
+.cover .k { font-family: var(--mono); letter-spacing: .32em; color: #5b8cff; font-size: 9.5pt; margin-top: .5in; }
+.cover h1 { font-size: 64pt; margin: .18in 0 0; letter-spacing: .01em; }
+.cover .sub { font-size: 15pt; color: #dbe4ff; margin-top: .12in; }
+.cover .pill { display: inline-block; margin-top: .25in; background: var(--blue-2); color: #0b1324;
+  font-family: var(--mono); font-weight: 700; letter-spacing: .22em; padding: 7pt 16pt; border-radius: 4px; font-size: 10pt; }
+.cover .blurb { color: #9fb0d0; font-size: 10pt; width: 4.6in; margin: .3in auto 0; line-height: 1.6; }
+.cover .who { position: absolute; bottom: .55in; left: 0; right: 0; font-family: var(--mono); font-size: 8pt; color: #6f7f9f; letter-spacing: .08em; }
+
+/* ---------- module ---------- */
+.module { break-before: page; }
+.mhead { display: flex; align-items: center; gap: 14pt; padding-bottom: 9pt; border-bottom: 2.4pt solid var(--blue); margin-bottom: 11pt; }
+.mhead img { width: 0.62in; }
+.kicker { font-family: var(--mono); font-size: 8pt; letter-spacing: .24em; color: var(--blue); font-weight: 700; text-transform: uppercase; }
+.mhead h1 { font-size: 21pt; margin: 2pt 0 0; line-height: 1.15; }
+.lead { font-size: 10.2pt; }
+h2 { font-size: 12pt; color: var(--blue); margin: 12pt 0 6pt; padding-bottom: 4pt; border-bottom: 1px solid var(--rule); break-after: avoid; page-break-after: avoid; }
+h3 { font-size: 10.6pt; margin: 10pt 0 4pt; break-after: avoid; }
+.keep { break-inside: avoid; }
+ul, ol { margin: 0 0 7pt; padding-left: 18pt; }
+li { margin: 0 0 3pt; }
+
+/* checklist */
+.check { list-style: none; background: var(--green-bg); padding: 6pt 10pt; border-radius: 4px; break-inside: avoid; }
+.check li { position: relative; padding-left: 18pt; margin: 4pt 0; }
+.check li::before { content: ""; position: absolute; left: 0; top: 2pt; width: 9pt; height: 9pt; border: 1.4pt solid var(--blue); border-radius: 2pt; background: #fff; }
+
+/* code */
+pre { font-family: var(--mono); font-size: 7.9pt; line-height: 1.42; background: var(--code); color: #e3e9f7;
+  border-left: 3pt solid var(--blue-2); border-radius: 4px; padding: 8pt 11pt; margin: 0 0 9pt;
+  white-space: pre-wrap; word-break: break-word; break-inside: avoid; }
+pre .c { color: #7f8fb0; }
+pre .o { color: #9be7b0; }
+pre.out { background: #f4f6fb; color: #253047; border-left-color: #9aa7c2; }
+pre.out .o { color: #1f8a4c; font-weight: 700; }
+
+/* callouts */
+.call { border-left: 3pt solid var(--blue); background: var(--blue-bg); border-radius: 4px; padding: 7pt 11pt 4pt; margin: 2pt 0 10pt; break-inside: avoid; }
+.call .lab { font-family: var(--mono); font-size: 7.4pt; letter-spacing: .2em; font-weight: 700; text-transform: uppercase; color: var(--blue); margin-bottom: 3pt; }
+.call p:last-child, .call ul:last-child { margin-bottom: 4pt; }
+.call.gotcha { border-color: var(--amber); background: var(--amber-bg); }
+.call.gotcha .lab { color: var(--amber-ink); }
+.call.ok { border-color: var(--green); background: var(--green-bg); }
+.call.ok .lab { color: var(--green); }
+.call.inst { border-color: var(--violet); background: var(--violet-bg); }
+.call.inst .lab { color: var(--violet); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; margin: 0 0 9pt; font-size: 8.9pt; break-inside: avoid; }
+th { text-align: left; background: var(--blue); color: #fff; font-weight: 700; padding: 4pt 7pt; font-size: 8.8pt; }
+td { padding: 3pt 7pt; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:nth-child(even) td { background: #f6f8fc; }
+td:first-child { font-weight: 700; }
+table.plain td:first-child { font-weight: 400; }
+td code { white-space: nowrap; }
+
+/* figures */
+figure { margin: 2pt 0 10pt; break-inside: avoid; text-align: center; }
+figure img { max-width: 100%; border: 1px solid var(--rule); border-radius: 5px; }
+figcaption { font-size: 8.3pt; color: var(--muted); margin-top: 3pt; text-align: left; }
+.figrow { display: flex; gap: 12pt; align-items: flex-start; break-inside: avoid; margin: 2pt 0 10pt; }
+.figrow figure { flex: 1; margin: 0; }
+.crop { overflow: hidden; border: 1px solid var(--rule); border-radius: 5px; }
+.crop img { border: 0; border-radius: 0; display: block; width: 100%; }
+
+/* signal chain / pipeline */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4pt; justify-content: center;
+  background: #f4f6fb; border-radius: 5px; padding: 9pt; margin: 0 0 10pt; break-inside: avoid; font-size: 8.8pt; }
+.flow span { background: #fff; border: 1px solid #c8d2e6; border-radius: 4px; padding: 3pt 7pt; }
+.flow span.hl { background: var(--blue); color: #fff; border-color: var(--blue); }
+.flow span.hub { background: var(--navy); color: #fff; border-color: var(--navy); }
+.flow i { font-style: normal; color: var(--blue); font-weight: 700; }
+
+.fill td { height: 20pt; }
+.fill td:first-child { width: 40%; }
+.two { display: flex; gap: 14pt; }
+.two > div { flex: 1; }
+.small { font-size: 8.8pt; color: var(--muted); }
+
+.toc td { padding: 2pt 7pt; }
+.toc td:first-child { width: 22%; font-family: var(--mono); font-size: 8.4pt; font-weight: 400; color: var(--blue); }
+.toc td:last-child { width: 12%; text-align: right; color: var(--muted); }
+dl.gloss { margin: 0; columns: 2; column-gap: 18pt; font-size: 8.6pt; line-height: 1.33; }
+dl.gloss dt { font-weight: 700; break-after: avoid; }
+dl.gloss dd { margin: 0 0 3.5pt; break-inside: avoid; }
+.states { display: flex; flex-wrap: wrap; gap: 3pt; align-items: center; margin: 0 0 9pt; font-size: 8.8pt; break-inside: avoid; }
+.states span { border-radius: 10pt; padding: 2pt 8pt; color: #fff; }
+.states i { font-style: normal; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ======================================================= COVER -->
+<section class="cover">
+  <img src="jafo-heli.png" alt="JAFO helicopter">
+  <div class="k">WLPC 2027 · PHOENIX · DEEP DIVE</div>
+  <h1>JAFO</h1>
+  <div class="sub">Build Your Own Passive Radio Observatory</div>
+  <div class="pill">Student Guide</div>
+  <div class="blurb">A two-afternoon, hands-on build. You leave with a working node, and the skills to run one anywhere.</div>
+  <div class="who">Drew Lentz · KE5ZJO · jafo.live</div>
+</section>
+
+<!-- ======================================================= CONTENTS -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">How to use this guide</div><h1>Contents</h1></div></div>
+  <p class="lead">Every module has the same shape: what you'll do, the exact commands, what you should see, and a <b>CHECKPOINT ✓</b> before you move on. <b>GOTCHA</b> boxes are the mistakes people actually make. Purple <b>INSTRUCTOR</b> boxes are notes for the teaching team; you can skip them.</p>
+  <table class="toc plain">
+    <tr><th>Module</th><th>What you'll do</th><th>Time</th></tr>
+    <tr><td colspan="3" style="background:#eef2fb;font-weight:700;color:#1f4fd1">Day 1 · From photons to P25: a receiver you understand</td></tr>
+    <tr><td>M0</td><td>Welcome, your kit, and the destination (jafo.live)</td><td>15 min</td></tr>
+    <tr><td>M1</td><td>Hardware tour + RF 101</td><td>25 min</td></tr>
+    <tr><td>M2</td><td>How public-safety radio works: P25 &amp; trunking</td><td>30 min</td></tr>
+    <tr><td>M3</td><td>Flash the Pi &amp; first boot</td><td>20 min</td></tr>
+    <tr><td>M4</td><td>GNU Radio behind the scenes</td><td>45 min</td></tr>
+    <tr><td>M5</td><td>Decode P25 by hand with OP25</td><td>25 min</td></tr>
+    <tr><td>M6</td><td>Wrap + bridge to Day 2</td><td>10 min</td></tr>
+    <tr><td colspan="3" style="background:#eef2fb;font-weight:700;color:#1f4fd1">Day 2 · From receiver to observatory: build JAFO + join the fleet</td></tr>
+    <tr><td>M7</td><td>Recap + the leap to a pipeline</td><td>15 min</td></tr>
+    <tr><td>M8</td><td>Install the JAFO stack: one command</td><td>35 min</td></tr>
+    <tr><td>M9</td><td>The brain: calls → incidents → units</td><td>30 min</td></tr>
+    <tr><td>M10</td><td>Privacy, ethics &amp; the law</td><td>15 min</td></tr>
+    <tr><td>M11</td><td>Views + "many ears": the city and the sky</td><td>35 min</td></tr>
+    <tr><td>M12</td><td>Join the fleet + take it home</td><td>25 min</td></tr>
+    <tr><td colspan="3" style="background:#eef2fb;font-weight:700;color:#1f4fd1">Appendices · keep these</td></tr>
+    <tr><td>A</td><td>Bill of materials + upgrade paths</td><td></td></tr>
+    <tr><td>B</td><td>Command cheat-sheet (every command, in order)</td><td></td></tr>
+    <tr><td>C</td><td>Troubleshooting</td><td></td></tr>
+    <tr><td>D</td><td>Glossary</td><td></td></tr>
+    <tr><td>E</td><td>Running one at home</td><td></td></tr>
+    <tr><td>F</td><td>Privacy &amp; legal quick reference</td><td></td></tr>
+  </table>
+  <div class="call">
+    <div class="lab">Conventions</div>
+    <p>Commands go in dark boxes; type them on the Pi over SSH unless the box says "laptop". Lines starting with <code>#</code> are comments. Words in <code>&lt;ANGLE BRACKETS&gt;</code> are placeholders: the instructor gives you the real value (for example the Phoenix system's control channels). Light grey boxes show the output you should expect.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M0 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 0 · 15 min</div><h1>Welcome &amp; your kit</h1></div></div>
+  <p class="lead">Over the next two afternoons you're going to build a <b>JAFO</b>: a Raspberry Pi that quietly listens to the local public-safety radio system and the sky above it, turns what it hears into plain-English incidents, and reports to <code>jafo.live</code>. You'll leave with the working device, the kit, and an understanding of how every piece fits together.</p>
+
+  <h2>How the two days work</h2>
+  <p>We build it <b>the hard way first</b>, then let JAFO automate it:</p>
+  <ul>
+    <li><b>Day 1: understand it.</b> Unbox the radio, learn how P25 trunking actually works, and stand up a P25 receiver <i>by hand</i> in GNU Radio, so nothing is a black box.</li>
+    <li><b>Day 2: turn it into a product.</b> Layer the JAFO stack on top: one script that configures itself, AI that turns radio calls into incidents and units, privacy by design, the public views, the sky (ADS-B + ACARS), and a live feed to jafo.live.</li>
+  </ul>
+
+  <h2>The destination: a 2-minute tour of jafo.live</h2>
+  <p>Open <code>https://jafo.live</code> on your phone or laptop now. It lands on the <b>Briefing</b> for the Rio Grande Valley, where the reference node lives. Everything on this page was written by the pipeline you're about to build: radio calls were recorded, transcribed, read by Claude, grouped into incidents, and summarized.</p>
+  <figure>
+    <img src="../media/briefing-12h.png" alt="JAFO Briefing page, 12-hour recap" style="width:82%">
+    <figcaption>The Briefing, 12-hour view: a written recap of the biggest incidents, the radio volume, and the live radio feed in plain English. By the end of Day 2 your node feeds a page like this.</figcaption>
+  </figure>
+  <p>Try three things: switch the recap between <b>Now / 4h / 8h / 12h / 24h</b>; tap one of <b>The big ones</b> to open its story (units, timeline, the calls behind it); and tap <b>Map</b>. Don't worry about how yet. That's Day 2.</p>
+
+  <h2>What you'll leave with</h2>
+  <ul>
+    <li>A working JAFO node you <b>built and understand</b>, not a black box.</li>
+    <li>The <b>hardware kit</b> to run it at home, <i>anywhere</i>.</li>
+    <li>A <b>GNU Radio / OP25</b> skillset: you can decode P25 by hand.</li>
+    <li>A working grasp of the <b>AI layer</b>: how radio calls become incidents, units and a timeline.</li>
+    <li>A clear answer to <b>"is this legal, and what should I hide?"</b></li>
+    <li>Your node <b>on the jafo.live fleet</b>, contributing to a shared dataset.</li>
+  </ul>
+
+  <h2>Kit inventory: check you have everything</h2>
+  <ul class="check">
+    <li>Raspberry Pi 5 (8 GB)</li>
+    <li>Official 27 W USB-C power supply</li>
+    <li>Active cooler (fan). <b>Mandatory</b>: clip it onto the Pi before first power-on</li>
+    <li>64 GB microSD card (+ a USB card reader if your laptop has no slot)</li>
+    <li>2 × RTL-SDR Blog V4 dongles (the blue 'candy bars'): one for P25, one for the sky</li>
+    <li>RTL-SDR Blog dipole antenna kit (telescopic whips + base + cable)</li>
+    <li>Powered USB 3.0 hub + its power supply</li>
+    <li>Case, short USB cables, labels</li>
+  </ul>
+  <div class="call">
+    <div class="lab">You also need</div>
+    <p>Your laptop with <b>Raspberry Pi Imager</b>, an <b>SSH client</b>, and an <b>X11 server</b> for Module 4 (macOS: XQuartz; Windows: WSL with WSLg, or VcXsrv; Linux: nothing extra). Free <b>Groq</b> and <b>Anthropic</b> accounts, which you'll use on Day 2.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M1 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 1 · 25 min</div><h1>Hardware tour + RF 101</h1></div></div>
+  <p class="lead">Before you plug anything in, name the parts and build a mental model of how a radio signal becomes data on a screen.</p>
+
+  <h2>What each device does</h2>
+  <table>
+    <tr><th style="width:24%">Device</th><th>Its job</th></tr>
+    <tr><td>Raspberry Pi 5</td><td>The computer. Runs the decoder, the capture pipeline and the local dashboard. Heavy AI runs on the hub, so the Pi stays light.</td></tr>
+    <tr><td>RTL-SDR #1</td><td><b>The city.</b> Parked on the P25 public-safety system (700/800 MHz) all the time.</td></tr>
+    <tr><td>RTL-SDR #2</td><td><b>The sky.</b> Takes turns between <b>ADS-B</b> (aircraft positions, 1090 MHz) and <b>ACARS</b> (airline text messages, ~131 MHz). A smart time-share decides when to switch.</td></tr>
+    <tr><td>Dipole antenna</td><td>Catches the radio waves. The whips telescope because the right length depends on the frequency you want to hear.</td></tr>
+    <tr><td>Powered USB hub</td><td>Feeds the SDRs clean power. Two SDRs pull more than the Pi can safely supply on its own. This is non-negotiable.</td></tr>
+    <tr><td>27 W PSU + active cooler</td><td>The Pi 5 is power-hungry and runs hot under P25 decode. Off-brand supplies cause brownouts; no fan means throttling.</td></tr>
+  </table>
+  <p>An SDR (software-defined radio) has no fixed purpose. It tunes to a slice of spectrum and streams raw digitized samples over USB; software decides what it "is". Same dongle, three jobs.</p>
+
+  <h2>RF in five ideas</h2>
+  <ul>
+    <li><b>Frequency</b>: how fast the wave oscillates, in Hz. P25 here lives around 700–800 MHz, ADS-B at 1090 MHz, ACARS near 131 MHz.</li>
+    <li><b>Wavelength</b>: the physical length of one wave (λ = 300 / MHz, in metres). It sets antenna length: higher frequency, shorter whip.</li>
+    <li><b>Bandwidth / sample rate</b>: how wide a slice of spectrum the SDR digitizes at once. An RTL-SDR sees about <b>2.4 MHz</b> at a time.</li>
+    <li><b>Gain</b>: how much the SDR amplifies. Too little and it's deaf; too much and strong neighbours overload it into noise.</li>
+    <li><b>Decoding</b>: turning raw samples into meaning (audio, data). That's the software's job, and it's where the real work is.</li>
+  </ul>
+
+  <h2>Set the dipole for each band</h2>
+  <p>Each arm of a dipole should be about a quarter wavelength (λ/4). Measure from the base:</p>
+  <table>
+    <tr><th>Band</th><th>Frequency</th><th>λ/4 per arm</th><th>Used for</th></tr>
+    <tr><td>P25 (800 MHz)</td><td>~851–860 MHz</td><td>≈ 8.7 cm</td><td>SDR #1, the city</td></tr>
+    <tr><td>ADS-B</td><td>1090 MHz</td><td>≈ 6.9 cm</td><td>SDR #2, most of the time</td></tr>
+    <tr><td>ACARS</td><td>~131.55 MHz</td><td>≈ 57 cm (full extension is close)</td><td>SDR #2, short windows</td></tr>
+  </table>
+  <p class="small">One antenna can't be perfect for both 1090 and 131 MHz. Set SDR #2 for ADS-B; ACARS from airliners overhead is strong enough to land anyway.</p>
+
+  <h2>The signal chain</h2>
+  <div class="flow"><span>radio waves</span><i>→</i><span>antenna</span><i>→</i><span class="hl">SDR: tune + digitize</span><i>→</i><span class="hl">Pi: decode + filter</span><i>→</i><span class="hub">hub: make sense (AI)</span><i>→</i><span>jafo.live</span></div>
+  <div class="call">
+    <div class="lab">Why this matters</div>
+    <p>Everything we do for the next two days is making that chain work and then adding intelligence at the end of it. Keep the chain in your head and nothing will feel like magic.</p>
+  </div>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · heat is real</div>
+    <p>P25 decode alone keeps most of a CPU core busy. Our production Pi runs at <b>72–78 °C</b> with a cooler, and it starts slowing itself down in the 80s. Without the active cooler it throttles within minutes and drops calls. Clip the fan on now, and keep cases open and off tablecloths.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M2 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 2 · 30 min</div><h1>How public-safety radio works: P25 &amp; trunking</h1></div></div>
+  <p class="lead">To listen to a modern public-safety system you have to understand one idea: <b>trunking</b>. Get this and the rest of the workshop clicks.</p>
+
+  <h2>Analog → digital → P25</h2>
+  <p>Old radio was analog FM: one agency, one fixed frequency, tune in and listen. Modern US public safety runs <b>P25</b> (APCO Project 25), a digital standard. The voice is encoded as data, which is why an old analog scanner can't just "tune it in".</p>
+  <ul>
+    <li><b>P25 Phase 1</b>: FDMA, C4FM (or CQPSK on simulcast systems). One voice call per channel.</li>
+    <li><b>P25 Phase 2</b>: TDMA. Two voice calls share one channel in time slots. More efficient, a bit harder to decode.</li>
+  </ul>
+
+  <h2>What "trunked" means</h2>
+  <p>Instead of giving every agency its own permanent frequency, a trunked system pools a handful of channels and hands them out on demand. A dedicated <b>control channel</b> runs non-stop, directing every radio: "Talkgroup 7-Fire, your call is on 851.2625, go." The radios retune instantly; users never notice.</p>
+  <table>
+    <tr><th style="width:22%">Term</th><th>Meaning</th></tr>
+    <tr><td>Control channel</td><td>The always-on data channel that assigns calls. Find this and you can follow everything.</td></tr>
+    <tr><td>Voice grant</td><td>A message on the control channel: "this talkgroup → this frequency, now."</td></tr>
+    <tr><td>Talkgroup</td><td>A virtual channel for a group (e.g. "McAllen Fire Dispatch"), identified by a number.</td></tr>
+    <tr><td>Site</td><td>One tower location. A system has many; each has its own control channel(s).</td></tr>
+    <tr><td>System IDs</td><td>WACN + System ID + NAC: the fingerprints that identify which system and site you're hearing.</td></tr>
+  </table>
+  <div class="call">
+    <div class="lab">Why listening is "hard"</div>
+    <p>You can't just park on a voice frequency; calls hop around. You have to decode the control channel, read the voice grants, and retune to follow each call. That's exactly what OP25 (today) and trunk-recorder inside JAFO (tomorrow) do for you.</p>
+  </div>
+
+  <h2>Encryption: what's in the clear and what isn't</h2>
+  <p>Agencies can encrypt talkgroups. Encrypted traffic shows up as grants with an "encrypted" flag, and the audio is noise. Many cities encrypt some police tactical channels while dispatch, fire and EMS stay in the clear; some encrypt everything. <b>We never try to decrypt anything</b>, and JAFO drops encrypted calls before they're stored. Module 10 explains why that line matters legally.</p>
+
+  <h2>Reading a RadioReference system page</h2>
+  <p><code>radioreference.com</code> is the community database of radio systems. For a trunked system you'll find the System ID, WACN and NAC, the <b>sites</b> with their frequencies (control channels are flagged with a <b>c</b>), and the full talkgroup list with each talkgroup's mode (<b>D</b> = digital clear, <b>DE</b> = digital encrypted). On Day 1 you point your receiver at a control channel by hand; on Day 2 JAFO pulls all of this automatically.</p>
+  <h3>Fill in your target system (the instructor will show the page)</h3>
+  <table class="fill plain">
+    <tr><td>System name</td><td></td></tr>
+    <tr><td>System ID · WACN</td><td></td></tr>
+    <tr><td>Nearest site + NAC</td><td></td></tr>
+    <tr><td>Control channels (MHz)</td><td></td></tr>
+    <tr><td>Phase 1 or Phase 2? Modulation?</td><td></td></tr>
+    <tr><td>Three talkgroups in the clear</td><td></td></tr>
+  </table>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>You can point at the control channels on the system page, explain what a voice grant is, and say which talkgroups you expect to hear (clear) and which you won't (encrypted).</p>
+  </div>
+</section>
+
+<!-- ======================================================= M3 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 3 · 20 min</div><h1>Flash the Pi &amp; first boot</h1></div></div>
+  <p class="lead">Time to bring the Pi to life: headless (no monitor), driven entirely from your laptop over SSH.</p>
+
+  <h2>1 · Image the microSD</h2>
+  <p>In <b>Raspberry Pi Imager</b> (on your laptop): choose device <b>Raspberry Pi 5</b>, OS <b>Raspberry Pi OS Lite (64-bit)</b>. Before writing, open <b>Edit Settings</b> (the OS customisation screen) and set:</p>
+  <ul>
+    <li>Hostname: <code>jafo</code></li>
+    <li>Username <code>pi</code> + a password you'll remember (JAFO's services assume the user is <code>pi</code>)</li>
+    <li>Your <b>Wi-Fi</b> SSID + password (use the workshop SSID) and Wi-Fi country <code>US</code></li>
+    <li>Locale / time zone</li>
+    <li>Services tab: <b>Enable SSH</b> (password authentication)</li>
+  </ul>
+  <p>Write the card, put it in the Pi, connect both SDRs and the antenna to the <b>powered hub</b>, plug the hub into a blue USB 3.0 port, then apply power. First boot takes 1–2 minutes.</p>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>JAFO's installer was written for Pi OS <b>Bookworm</b>. Confirm the Imager's current default still works with <code>bootstrap.sh</code>, or tell students to pick Bookworm under "Raspberry Pi OS (other)".</p>
+  </div>
+
+  <h2>2 · Find it and SSH in</h2>
+  <pre>ssh pi@jafo.local
+<span class="c"># if .local doesn't resolve, use the IP from the workshop network list:</span>
+<span class="c"># ssh pi@192.168.x.x</span></pre>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · 24 Pis called "jafo"</div>
+    <p>In a room full of identical hostnames, <code>jafo.local</code> may reach your neighbour's Pi. Use the hostname on your seat label (e.g. <code>jafo-07</code>) when imaging, and substitute it everywhere this guide says <code>jafo.local</code>.</p>
+  </div>
+
+  <h2>3 · Update, then install the SDR build tools</h2>
+  <pre>sudo apt update &amp;&amp; sudo apt full-upgrade -y
+sudo apt install -y git cmake build-essential libusb-1.0-0-dev pkg-config tmux</pre>
+  <p><code>tmux</code> keeps long jobs running if your SSH session drops. Start one now with <code>tmux new -s jafo</code>; reattach later with <code>tmux attach -t jafo</code>.</p>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · the V4 needs special drivers</div>
+    <p>The RTL-SDR Blog <b>V4</b> uses a different tuner chip (R828D) and won't work with older stock <code>librtlsdr</code> packages. Install the <b>rtl-sdr-blog</b> driver fork below, or you'll see no device or all-zero samples.</p>
+  </div>
+  <pre>sudo apt purge -y ^librtlsdr
+cd ~ &amp;&amp; git clone https://github.com/rtlsdrblog/rtl-sdr-blog
+cd rtl-sdr-blog &amp;&amp; mkdir build &amp;&amp; cd build
+cmake ../ -DINSTALL_UDEV_RULES=ON
+make -j4 &amp;&amp; sudo make install
+sudo cp ../rtl-sdr.rules /etc/udev/rules.d/
+sudo ldconfig</pre>
+
+  <h2>4 · Blacklist the TV-tuner driver</h2>
+  <p>Linux thinks the dongle is a TV tuner and grabs it first. Tell it not to:</p>
+  <pre>echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-dvb.conf
+sudo reboot</pre>
+
+  <h2>5 · Verify both dongles</h2>
+  <p>SSH back in after the reboot and run:</p>
+  <pre>rtl_test -t</pre>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>You see <b>two devices</b> (index 0 and 1), each reporting an <b>R828D</b> tuner, and no "device not found" errors. If you only see one, move it to another port on the powered hub and re-run.</p>
+  </div>
+
+  <h2>6 · Give each dongle a name (serial number)</h2>
+  <p>Index 0 and 1 can swap on every boot. Serial numbers don't. JAFO's ADS-B installer looks for the sky dongle by serial <code>00000001</code>, so set that now. Unplug <b>SDR #1 (city)</b> from the hub so only the sky dongle is connected, then:</p>
+  <pre>rtl_eeprom -d 0 -s 00000001        <span class="c"># sky dongle → serial 00000001 (answer y)</span>
+<span class="c"># unplug it, plug in ONLY the city dongle, then:</span>
+rtl_eeprom -d 0 -s 00000025        <span class="c"># city (P25) dongle → serial 00000025</span>
+<span class="c"># plug both back in, then:</span>
+rtl_test -t                        <span class="c"># lists both, with their serials</span></pre>
+  <p>Put a <b>"SKY 01"</b> label on one dongle and <b>"P25 25"</b> on the other. From now on software asks for a dongle by serial (<code>rtl=00000025</code>), so it always gets the right one.</p>
+
+  <h2>7 · Check the temperature</h2>
+  <pre>vcgencmd measure_temp       <span class="c"># e.g. temp=48.3'C</span>
+vcgencmd get_throttled      <span class="c"># want throttled=0x0</span></pre>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>Both dongles detected with serials 00000001 and 00000025, temperature under 60 °C at idle, <code>throttled=0x0</code>. You're ready for GNU Radio.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M4 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 4 · 45 min</div><h1>GNU Radio behind the scenes</h1></div></div>
+  <p class="lead">GNU Radio is the toolkit underneath almost every SDR decoder, including OP25 and trunk-recorder. You'll install it, <i>see</i> the spectrum, learn the handful of settings every SDR program asks for, and build a working FM receiver from blocks.</p>
+
+  <h2>0 · Head start: begin the OP25 build now</h2>
+  <p>OP25 (Module 5) compiles for 15–25 minutes. Start it in a second tmux window so it's done when you need it. Press <code>Ctrl-b</code> then <code>c</code> for a new window:</p>
+  <pre>cd ~ &amp;&amp; git clone https://github.com/boatbod/op25
+cd op25 &amp;&amp; ./install.sh</pre>
+  <p>Switch back to your first window with <code>Ctrl-b</code> then <code>0</code> and carry on. The OP25 installer also pulls in GNU Radio, so the next step may find it already installed.</p>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>Check boatbod/op25's current README: the default branch, whether <code>./install.sh</code> is still the entry point on the Pi OS release you're using, and its GNU Radio version. Have a pre-built image ready for anyone whose build fails.</p>
+  </div>
+
+  <h2>1 · Install GNU Radio + gr-osmosdr</h2>
+  <pre>sudo apt install -y gnuradio gr-osmosdr xauth
+gnuradio-config-info --version</pre>
+  <pre class="out"><span class="o">3.10.x</span></pre>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · apt can bring the old driver back</div>
+    <p><code>gr-osmosdr</code> depends on the distro's <code>librtlsdr</code>. After installing it, run <code>rtl_test -t</code> again. If the V4 now reports "No supported tuner" or the wrong tuner, reinstall the blog driver: <code>cd ~/rtl-sdr-blog/build &amp;&amp; sudo make install &amp;&amp; sudo ldconfig</code>.</p>
+  </div>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>Confirm on the workshop image which <code>librtlsdr.so.0</code> wins after apt installs gr-osmosdr (<code>ldconfig -p | grep rtlsdr</code>), and that both GRC and trunk-recorder see the V4 as R828D. The JAFO installer (Day 2) also apt-installs <code>rtl-sdr librtlsdr-dev</code>.</p>
+  </div>
+
+  <h2>2 · Open GNU Radio Companion on your laptop screen</h2>
+  <p>The Pi has no monitor, so you'll forward GRC's window to your laptop over SSH (X11). Start your X server first (XQuartz on macOS), then from your <b>laptop</b>:</p>
+  <pre>ssh -Y pi@jafo.local
+gnuradio-companion &amp;</pre>
+  <p>A window titled <b>GNU Radio Companion</b> opens on your laptop. It's a little slow over Wi-Fi; that's normal.</p>
+  <div class="call inst">
+    <div class="lab">Instructor · fallback</div>
+    <p>If X forwarding is too slow on venue Wi-Fi, students can run GRC on their laptop (radioconda) with the <b>sky</b> dongle plugged into the laptop for this module only. The flowgraphs are identical.</p>
+  </div>
+
+  <h2>3 · Flowgraph 1: see the spectrum</h2>
+  <p>Build this with blocks from the right-hand list (search with <code>Ctrl-F</code>), then wire output to input:</p>
+  <div class="flow"><span class="hl">osmocom Source</span><i>→</i><span>QT GUI Frequency Sink</span><i>+</i><span>QT GUI Waterfall Sink</span></div>
+  <table>
+    <tr><th style="width:30%">Setting</th><th>Value</th><th>Why</th></tr>
+    <tr><td>Variable <code>samp_rate</code></td><td><code>2.4e6</code></td><td>The RTL-SDR's comfortable maximum: 2.4 MHz of spectrum at once.</td></tr>
+    <tr><td>osmocom Source: Device Arguments</td><td><code>"rtl=00000001"</code></td><td>Pick the dongle by serial (the sky dongle).</td></tr>
+    <tr><td>Ch0: Frequency (Hz)</td><td>an FM station, e.g. <code>98.7e6</code></td><td>Broadcast FM is strong indoors, a good first target.</td></tr>
+    <tr><td>Ch0: Freq. Corr. (ppm)</td><td><code>0</code></td><td>The V4 has a TCXO; older dongles need a few ppm.</td></tr>
+    <tr><td>Ch0: RF Gain (dB)</td><td><code>30</code></td><td>Start mid-range; adjust while watching the noise floor.</td></tr>
+    <tr><td>Sinks: Center freq / Bandwidth</td><td><code>98.7e6</code> / <code>samp_rate</code></td><td>So the x-axis reads in real MHz.</td></tr>
+  </table>
+  <p>Click <b>Run</b> (the play button). Generate Options must be <b>QT GUI</b>.</p>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>A live spectrum with tall humps (FM stations, ~200 kHz wide) and a scrolling waterfall. Change the RF gain: watch the noise floor rise and fall. Retune to <code>1090e6</code> on the sky antenna and look for brief vertical spikes: those are aircraft ADS-B bursts.</p>
+  </div>
+
+  <h2>The SDR ↔ GNU Radio interface (every SDR program asks these)</h2>
+  <table>
+    <tr><th style="width:24%">Knob</th><th>What it means</th><th>Where you'll see it again</th></tr>
+    <tr><td>Device args</td><td>Which radio, which driver: <code>rtl=0</code>, <code>rtl=00000025</code>, <code>airspy</code></td><td>OP25 <code>--args</code>, trunk-recorder <code>"device"</code></td></tr>
+    <tr><td>Sample rate</td><td>How many MHz you see at once</td><td>trunk-recorder <code>"rate"</code>; must be a multiple of 24,000 with osmosdr RTL/HackRF sources</td></tr>
+    <tr><td>Center frequency</td><td>The middle of that window</td><td>trunk-recorder <code>"center"</code>; every channel you want must fit inside center ± rate/2</td></tr>
+    <tr><td>Gain</td><td>Amplification (one stage on RTL, three on HackRF/Airspy)</td><td>trunk-recorder <code>"gain"</code>, OP25 <code>-N</code></td></tr>
+    <tr><td>PPM correction</td><td>Fixes the dongle's clock error</td><td>trunk-recorder <code>"error"</code>, OP25 <code>-q</code></td></tr>
+  </table>
+
+  <h2>4 · Flowgraph 2: an FM receiver you built</h2>
+  <p>Save Flowgraph 1, then <b>File → Save As</b> <code>fm_rx.grc</code> and replace the sinks with a demodulator chain. The Pi has no speaker, so you'll record to a WAV file and play it on your laptop.</p>
+  <div class="flow"><span class="hl">osmocom Source</span><i>→</i><span>Low Pass Filter</span><i>→</i><span>WBFM Receive</span><i>→</i><span>Multiply Const</span><i>→</i><span>Wav File Sink</span></div>
+  <table class="plain">
+    <tr><th style="width:30%">Block</th><th>Settings</th></tr>
+    <tr><td><b>Low Pass Filter</b></td><td>Decimation <code>10</code> (2.4 MS/s → 240 kS/s), Cutoff <code>100e3</code>, Transition width <code>10e3</code></td></tr>
+    <tr><td><b>WBFM Receive</b></td><td>Quadrature Rate <code>240e3</code>, Audio Decimation <code>5</code> (→ 48 kHz audio)</td></tr>
+    <tr><td><b>Multiply Const</b></td><td>Constant <code>0.5</code> (keeps the audio from clipping)</td></tr>
+    <tr><td><b>Wav File Sink</b></td><td>File <code>/home/pi/fm.wav</code>, Channels <code>1</code>, Sample rate <code>48000</code></td></tr>
+  </table>
+  <p>Run it for about 20 seconds, stop it, then copy the file to your <b>laptop</b> and play it:</p>
+  <pre>scp pi@jafo.local:~/fm.wav .      <span class="c"># run on your laptop</span></pre>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>You hear the station clearly. You just built a radio out of blocks: filter, demodulate, resample, output. OP25 is the same idea with a P25 demodulator and a trunking brain bolted on.</p>
+  </div>
+  <div class="call">
+    <div class="lab">Stretch · NOAA weather radio</div>
+    <p>Swap <b>WBFM Receive</b> for <b>NBFM Receive</b>, tune to your NOAA Weather Radio channel (162.400–162.550 MHz; the instructor has Phoenix's) and set the low-pass cutoff to <code>8e3</code>. Narrowband FM is what most land-mobile analog radio uses.</p>
+  </div>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · one program per dongle</div>
+    <p>Only one program can open an SDR at a time. Stop GRC (and close its window) before you start OP25, or OP25 will report the device as busy.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M5 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 5 · 25 min</div><h1>Decode P25 by hand with OP25</h1></div></div>
+  <p class="lead">OP25 is a GNU-Radio-based P25 decoder. You'll point it at the venue system's control channel and watch it trunk-track: read the grants and follow the calls. This is "receiving P25 using GNU Radio".</p>
+
+  <h2>1 · Check the build finished</h2>
+  <p>Switch to the tmux window where <code>./install.sh</code> was running. It should end without errors. Then go to OP25's apps folder:</p>
+  <pre>cd ~/op25/op25/gr-op25_repeater/apps
+ls rx.py</pre>
+
+  <h2>2 · Write the trunking config</h2>
+  <p>OP25 reads a tab-separated file describing the system. Use the control channels from your Module 2 worksheet (the instructor projects the exact values). Create <code>phx.tsv</code>:</p>
+  <pre>nano phx.tsv</pre>
+  <pre style="tab-size:2;font-size:7.4pt">"Sysname"	"Control Channel List"	"Offset"	"NAC"	"Modulation"	"TGID Tags File"	"Whitelist"	"Blacklist"	"Center Frequency"
+"PHX"	"&lt;CC1&gt;,&lt;CC2&gt;"	"0"	"0"	"&lt;C4FM or CQPSK&gt;"	"phx-tg.tsv"	""	""	""</pre>
+  <p>The fields are separated by <b>tabs</b>, not spaces. Control channels go in MHz (e.g. <code>851.0125</code>). <code>NAC 0</code> means "accept whatever you hear". Then create a talkgroup name file, <code>phx-tg.tsv</code>, one line per talkgroup: number, tab, name. Three or four lines from your worksheet are enough.</p>
+
+  <h2>3 · Run it</h2>
+  <pre>./rx.py --args 'rtl=00000025' -N 'LNA:40' -S 2400000 -q 0 \
+  -T phx.tsv -2 -V -U -l http:0.0.0.0:8080 2&gt; stderr.log</pre>
+  <table class="plain">
+    <tr><th style="width:26%">Flag</th><th>Meaning</th></tr>
+    <tr><td><code>--args 'rtl=00000025'</code></td><td>Use the P25 (city) dongle, by serial</td></tr>
+    <tr><td><code>-N 'LNA:40'</code> · <code>-S 2400000</code> · <code>-q 0</code></td><td>Gain, sample rate, ppm correction (the Module 4 knobs)</td></tr>
+    <tr><td><code>-T phx.tsv</code></td><td>Follow the trunked system described in your config</td></tr>
+    <tr><td><code>-2</code> · <code>-V</code> · <code>-U</code></td><td>Decode Phase 2 TDMA · enable the voice codec · play audio over UDP</td></tr>
+    <tr><td><code>-l http:0.0.0.0:8080</code></td><td>Serve OP25's status page on port 8080</td></tr>
+  </table>
+  <p>Open <code>http://jafo.local:8080</code> in your laptop's browser.</p>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>Confirm these <code>rx.py</code> flags and the TSV column layout against the boatbod version you install (newer releases also offer <code>multi_rx.py</code> with JSON configs). Confirm Phase 1/2 and C4FM/CQPSK for the Phoenix target. Bring a recorded IQ file and the matching command for RF-dead seats.</p>
+  </div>
+
+  <h2>4 · Read the screen</h2>
+  <ul>
+    <li><b>Control channel frequency + NAC, WACN and System ID</b>: compare with your worksheet. A match means you're on the right system and site.</li>
+    <li><b>tsbk rate</b>: control-channel messages decoded per second. Steady and non-zero is healthy; 0 means no lock (gain, antenna, wrong frequency).</li>
+    <li><b>Grants</b>: talkgroup → frequency assignments scrolling past. Watch OP25 retune to follow a call, then come back to the control channel.</li>
+    <li><b>Encrypted</b> calls are flagged and skipped. That's expected.</li>
+  </ul>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · one dongle, one window</div>
+    <p>A single RTL-SDR sees 2.4 MHz. OP25 retunes the dongle to each voice channel, so it can follow one call at a time. JAFO's trunk-recorder (Day 2) instead records several calls at once, but only those whose frequencies fall <i>inside</i> its window. That's why production nodes use a wide SDR (Airspy R2, 10 MHz).</p>
+  </div>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓ · live P25 decode on screen</div>
+    <p>OP25 shows the right WACN/System ID, a steady tsbk rate, and grants for real talkgroups. You built a P25 receiver by hand. Stop it with <code>Ctrl-C</code> when the instructor moves on.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M6 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 6 · 10 min</div><h1>Wrap + bridge to Day 2</h1></div></div>
+  <p class="lead">You have a P25 receiver you <i>understand</i>. Tomorrow you turn it into a product: something that runs unattended, makes sense of what it hears, and shares it.</p>
+  <h2>What you did today</h2>
+  <ul class="check">
+    <li>Named every part of the kit and set the antennas for each band</li>
+    <li>Read a trunked system's page: control channels, WACN/SysID/NAC, talkgroups</li>
+    <li>Flashed, booted and updated a headless Pi; installed the V4 driver; named both dongles</li>
+    <li>Saw spectrum in GNU Radio and built an FM receiver from blocks</li>
+    <li>Followed a live P25 system with OP25</li>
+  </ul>
+  <h2>What changes tomorrow</h2>
+  <table>
+    <tr><th style="width:30%">Today (by hand)</th><th>Tomorrow (JAFO)</th></tr>
+    <tr><td>You typed the control channels</td><td>JAFO finds its location and picks a receivable site itself</td></tr>
+    <tr><td>OP25 follows one call at a time</td><td>trunk-recorder records every call in its window, in parallel</td></tr>
+    <tr><td>You listened</td><td>Speech-to-text writes it down; Claude turns calls into incidents and units</td></tr>
+    <tr><td>Your screen only</td><td>jafo.local on your network, and your city on jafo.live</td></tr>
+  </table>
+  <h2>Before tomorrow</h2>
+  <ul class="check">
+    <li>Create your <b>Groq</b> API key (console.groq.com) and your <b>Anthropic</b> API key (console.anthropic.com), or collect the workshop keys from the instructor</li>
+    <li>Note your Pi's hostname and password</li>
+    <li>Leave the kit assembled; shut down cleanly with <code>sudo poweroff</code> before unplugging</li>
+    <li>Optional reading: <code>jafo.live/live/rgv/about</code> (what JAFO hides and why listening is legal)</li>
+  </ul>
+  <div class="call inst">
+    <div class="lab">Instructor · Day 2 timing</div>
+    <p>A from-source JAFO install (trunk-recorder build included) takes 25–35 minutes, which is most of M8. Either hand out pre-built cards with the stack installed, or have students who keep their Pi on the venue network start <code>bootstrap.sh</code> in tmux now (Module 8, step 1).</p>
+  </div>
+</section>
+
+<!-- ======================================================= M7 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Day 2 · Module 7 · 15 min</div><h1>Recap + the leap to a pipeline</h1></div></div>
+  <p class="lead">Yesterday you had a decoder. Today you build a <b>system</b>: something that records every call, throws away the junk, writes down what was said, works out what it means, and shows it to people, unattended, for months.</p>
+
+  <h2>The pipeline</h2>
+  <div class="flow">
+    <span class="hl">SDR #1 (P25)</span><i>→</i><span><b>jafo-recorder</b><br>trunk-recorder</span><i>→</i><span><b>jafo-processor</b><br>VAD filter + Opus</span><i>→</i><span><b>jafo-transcriber</b><br>Groq Whisper</span><i>→</i><span><b>jafo-uploader</b></span><i>→</i><span class="hub">hub: enricher v2<br>Claude Haiku 5.5</span><i>→</i><span class="hub">jafo.live</span>
+  </div>
+  <div class="flow">
+    <span class="hl">SDR #2 (sky)</span><i>→</i><span><b>jafo-sdr-timeshare</b></span><i>→</i><span>readsb (ADS-B)</span><i>/</i><span><b>jafo-acars</b> (acarsdec)</span><i>→</i><span><b>jafo-acars-upload</b></span><i>→</i><span class="hub">hub</span>
+  </div>
+  <table>
+    <tr><th style="width:24%">Service</th><th>What it does</th></tr>
+    <tr><td><code>jafo-recorder</code></td><td>Runs <b>trunk-recorder</b>: decodes the control channel and records each voice call in its window to a WAV + JSON sidecar.</td></tr>
+    <tr><td><code>jafo-processor</code></td><td>Runs <b>Silero VAD</b> (voice activity detection) and drops encrypted, too-short and silent calls (most of what's recorded), then encodes survivors to Ogg Opus and adds a row to SQLite.</td></tr>
+    <tr><td><code>jafo-transcriber</code></td><td>Sends each kept call to Groq's <code>whisper-large-v3-turbo</code> and writes the transcript back. Handles English and Spanish.</td></tr>
+    <tr><td><code>jafo-enricher</code></td><td>The AI step. On a fleet node it runs on the <b>hub</b>, where it can see every call in the region (Module 9).</td></tr>
+    <tr><td><code>jafo-web</code></td><td>Flask behind nginx: the local dashboard at <code>http://jafo.local</code>.</td></tr>
+    <tr><td><code>jafo-uploader</code></td><td>Pushes kept, transcribed calls (audio + metadata) to jafo.live.</td></tr>
+  </table>
+
+  <h2>The edge / hub split</h2>
+  <table>
+    <tr><th style="width:20%"></th><th>Your Pi (the edge)</th><th>jafo.live (the hub)</th></tr>
+    <tr><td>Job</td><td>Capture, filter, transcribe, upload</td><td>Incidents, units, maps, recaps, alerts, public views</td></tr>
+    <tr><td>Keeps</td><td>The last <b>4 hours</b> (<code>JAFO_DEVICE_RETENTION_HOURS=4</code>)</td><td>The system of record: recordings 14 days, stories longer</td></tr>
+    <tr><td>Why</td><td>Stays cool and light; a cheap microSD lasts</td><td>Sees every node in a region, so it can link calls into one picture</td></tr>
+  </table>
+
+  <h2>The data model, in one minute</h2>
+  <p>Everything lives in one SQLite database. Each service polls for "rows where my column is still empty", does its job and fills it in. <b>The database is the queue</b>: crash any service and it picks up where it left off.</p>
+  <ul>
+    <li><b>calls</b>: one row per transmission (talkgroup, audio path, transcript, plain-English line).</li>
+    <li><b>incidents</b>: real-world events built from many calls (title, summary, kind, severity, block-level location).</li>
+    <li><b>units</b> + <b>unit_events</b>: every apparatus heard and each status it reported, which gives each incident its timeline.</li>
+  </ul>
+  <div class="call">
+    <div class="lab">Why this matters</div>
+    <p>Each stage is small, boring and restartable. When something breaks you ask one question: "which column stopped filling in?", and that tells you which service to look at.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M8 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 8 · 35 min</div><h1>Install the JAFO stack: one command</h1></div></div>
+  <p class="lead">One script installs everything. A second tool works out where it is, picks a radio site it can actually hear, names the talkgroups and registers your node. You'll watch each step so you know what it did.</p>
+
+  <h2>1 · Run the bootstrap</h2>
+  <pre>tmux new -s install
+curl -fsSL https://raw.githubusercontent.com/Drew-CodeRGV/jafo/main/bootstrap.sh | bash</pre>
+  <p><code>bootstrap.sh</code> clones the repo to <code>~/jafo</code>, creates <code>~/jafo/.env</code>, then hands off to <code>pi/install-pi.sh</code>, which:</p>
+  <ol>
+    <li>Installs OS packages: GNU Radio, SDR libraries, ffmpeg, Python, nginx (5–10 min)</li>
+    <li>Blacklists the conflicting kernel drivers (you did this by hand yesterday)</li>
+    <li>Detects your SDRs by USB ID (<code>pi/tools/detect-sdrs.sh</code>) and picks a profile</li>
+    <li>Builds <b>trunk-recorder</b> from source (15–20 min)</li>
+    <li>Creates <code>~/jafo-data/</code>, the Python venvs and the nginx site</li>
+    <li>Installs and starts <code>jafo-recorder</code>, <code>jafo-processor</code>, <code>jafo-transcriber</code>, <code>jafo-enricher</code>, <code>jafo-web</code></li>
+  </ol>
+  <pre class="out">  jafo install complete.
+  Profile:          rtl-only
+  Services:
+    jafo-recorder          inactive
+    jafo-processor         <span class="o">active</span>
+    ...</pre>
+  <p>Seeing <code>rtl-only</code> with the recorder inactive is expected for this kit. The stock profiles assume a wide SDR for voice; you install the workshop's RTL profile in step 3.</p>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · check the V4 driver again</div>
+    <p>The installer apt-installs <code>rtl-sdr</code> and <code>librtlsdr-dev</code>. Run <code>rtl_test -t</code>. If either dongle stops showing R828D, reinstall the blog driver as in Module 4.</p>
+  </div>
+
+  <h2>2 · Add your keys and node settings</h2>
+  <pre>nano ~/jafo/.env</pre>
+  <pre>GROQ_API_KEY=gsk_...
+ANTHROPIC_API_KEY=sk-ant-...
+JAFO_HUB_URL=https://jafo.live
+JAFO_PROVISION_TOKEN=&lt;from the instructor&gt;
+JAFO_OWNER_EMAIL=you@example.com
+JAFO_DEVICE_RETENTION_HOURS=4
+JAFO_TIMESHARE=45:10
+JAFO_TIMESHARE_SMART=1
+JAFO_REGION="Phoenix, Maricopa County, Arizona"</pre>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · quote values with commas or spaces</div>
+    <p><code>JAFO_REGION=Phoenix, Maricopa County</code> (no quotes) breaks the installer with an error like <code>Maricopa: command not found</code>. Always quote such values. <code>.env</code> is git-ignored; never paste your keys anywhere else.</p>
+  </div>
+
+  <h2>3 · Install the workshop P25 profile</h2>
+  <p>trunk-recorder's settings live in <code>~/jafo-data/config/config.json</code>, copied from a profile in <code>~/jafo/config/profiles/</code>. Install the profile the instructor gives you for one RTL-SDR on the Phoenix system:</p>
+  <pre>cp ~/jafo/config/profiles/&lt;WORKSHOP-PROFILE&gt;.json ~/jafo-data/config/config.json
+echo &lt;WORKSHOP-PROFILE&gt; &gt; ~/jafo-data/config/.active-profile
+grep -E '"(device|center|rate|gain)"' ~/jafo-data/config/config.json</pre>
+  <p>Read the output against Module 4's knob table: <code>"device": "rtl=00000025"</code> (the city dongle), a <code>center</code> and a <code>rate</code> of <code>2400000</code> (a multiple of 24,000, as trunk-recorder requires). Every control and voice channel JAFO can record must sit inside center ± 1.2 MHz.</p>
+  <div class="call inst">
+    <div class="lab">Instructor · repo gap to close before the workshop</div>
+    <p>The repo has <b>no single-RTL P25 profile</b> today: <code>detect-sdrs.sh</code> reports <code>rtl-only</code> for two RTLs and <code>install-pi.sh</code> treats that as "can't capture". Add a profile (one RTL by serial <code>00000025</code>, 2.4 MS/s, center chosen so the Phoenix site's control channel and as many voice channels as possible fit) and test it with the venue's RF and the IQ fallback.</p>
+  </div>
+
+  <h2>4 · Load the system data</h2>
+  <p>JAFO looks for cached RadioReference data first: a sites file and a talkgroups file for the system ID (SID). The instructor has pre-cached Phoenix's, so nobody needs a RadioReference login today:</p>
+  <pre>mkdir -p ~/jafo-data/config/rr-cache
+cp &lt;instructor share&gt;/sites-&lt;SID&gt;.csv &lt;instructor share&gt;/tg-&lt;SID&gt;.csv ~/jafo-data/config/rr-cache/</pre>
+
+  <h2>5 · Let it work out where it is (dry run)</h2>
+  <pre>python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --dry-run</pre>
+  <pre class="out">• Detecting location …
+  → Phoenix, Arizona (33.4xx,-112.0xx) via AS... 
+──────── RELOCATION PLAN ────────
+  System     : Phoenix P25  (geo-derived)
+  Site       : &lt;site name&gt; NAC &lt;nac&gt; (&lt;n&gt;km)
+  Control ch : &lt;cc1&gt;, &lt;cc2&gt; MHz
+  Hub node   : jafo-phoenix-01  ·  region phoenix
+  Talkgroups : yes (&lt;n&gt; rows)
+  Already current: no
+─────────────────────────────────
+<span class="o">(dry-run) no changes.</span></pre>
+  <div class="keep"><p>What it just did, in order:</p>
+  <ol>
+    <li><b>Detect location</b> from the network's public IP (ipinfo.io).</li>
+    <li><b>Resolve the system</b>: a built-in registry, then the cached CSVs, then the RadioReference API if you have an appKey (Appendix E).</li>
+    <li><b>Pick a site, SDR-window-aware</b>: sites sorted by distance, keeping only those whose control channels fall inside your SDR's window (center ± rate/2). If the closest site is out of band, it says so and uses the nearest one you can hear.</li>
+    <li><b>Talkgroups</b>: names for the talkgroup numbers, so the UI says "Phoenix Fire Dispatch" instead of "TG 1234".</li>
+  </ol></div>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · conference IPs lie</div>
+    <p>Venue and hotel networks often geolocate to another city. That's why you pass <code>--sid</code>: the cached system data decides the radio side even when the IP lookup is off. Check the distance on the Site line looks sane.</p>
+  </div>
+
+  <h2>6 · Apply it</h2>
+  <pre>python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --yes</pre>
+  <p>Now it also <b>self-provisions</b> a node and region on jafo.live (using your provision token), installs the talkgroups, patches <code>config.json</code>, writes <code>JAFO_NODE_SLUG</code>, <code>JAFO_NODE_TOKEN</code>, the map centre and system label into <code>.env</code> (backing up each file first), restarts the recorder and web, and waits ~35 s to verify the decode:</p>
+  <pre class="out">  ✓ System ID &lt;sysid&gt; WACN &lt;wacn&gt; NAC &lt;nac&gt;  —  WACN matches.
+<span class="o">✓ Relocated to &lt;region&gt; as &lt;node-slug&gt;.</span></pre>
+  <div class="call inst">
+    <div class="lab">Instructor · per-seat node names</div>
+    <p>For a location outside its registry, <code>relocate.py</code> names the node <code>jafo-&lt;city&gt;-01</code>, so every Pi in the room would claim the same hub node (and the last one would hold the token). Before the workshop, add per-seat slugs (a registry entry or a new flag) and test provisioning 24 nodes against the hub.</p>
+  </div>
+
+  <h2>7 · Watch it capture</h2>
+  <pre>sudo systemctl status 'jafo-*' --no-pager
+sudo journalctl -u jafo-recorder -f          <span class="c"># Ctrl-C to stop watching</span>
+~/jafo-data/venv-services/bin/python ~/jafo/pi/services/stats.py
+~/jafo/pi/tools/check-sdrs.sh                <span class="c"># ✓/✗ for drivers, USB power, conflicts</span></pre>
+  <p>In the recorder log, look for the control-channel decode rate and lines naming talkgroups as calls start and end. <code>stats.py</code> shows how many calls were kept, skipped (and why), and transcribed.</p>
+  <p>Now open <code>http://jafo.local</code> (your hostname) in a browser.</p>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓ · live dashboard, local traffic</div>
+    <p>The recorder log shows a steady decode on the expected WACN; <code>stats.py</code> shows kept calls; the dashboard at jafo.local lists calls with talkgroup names and transcripts arriving within a few seconds.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M9 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 9 · 30 min</div><h1>The brain: calls → incidents → units</h1></div></div>
+  <p class="lead">A transcript isn't news. "Medic 3 en route, 10-4" means nothing on its own. It means something next to the call three minutes earlier that dispatched Medic 3 to a fall on Nolana. This module is about the step that puts calls next to each other.</p>
+
+  <h2>Step 0 · Send your calls to the hub</h2>
+  <p>The brain runs on jafo.live, so first turn on the uploader. It promotes <code>jafo-uploader</code> to a systemd service and starts it:</p>
+  <pre>sudo bash ~/jafo/scripts/install-uploader-systemd.sh
+sudo journalctl -u jafo-uploader -f</pre>
+  <p>Each kept, transcribed call is POSTed to the hub with its audio, using the <code>JAFO_NODE_SLUG</code> and <code>JAFO_NODE_TOKEN</code> that <code>relocate.py</code> wrote into <code>.env</code>.</p>
+
+  <h2>Step 1 · Transcription (on your Pi)</h2>
+  <p><code>jafo-transcriber</code> sends each kept Opus file to Groq's <b>whisper-large-v3-turbo</b>, which takes about a second. Watch it:</p>
+  <pre>sudo journalctl -u jafo-transcriber -f</pre>
+  <p>Radio audio is clipped and full of jargon, so expect misheard street names and unit numbers. The next step fixes some of that using region context.</p>
+
+  <h2>Step 2 · Enricher v2 (on the hub)</h2>
+  <p>For every transcribed call, the hub sends <b>Claude Haiku 5.5</b> the transcript <i>plus</i> the incidents currently open in the region (up to 14, from the last 90 minutes), the units recently heard, and a short description of the region's cities and streets. Claude answers with one structured JSON object:</p>
+  <table class="plain">
+    <tr><th style="width:24%">Field</th><th>What Claude decides</th></tr>
+    <tr><td><code>call_line</code></td><td>One plain-English sentence, codes translated: "Dispatch sent Medic 3 to a fall with neck pain."</td></tr>
+    <tr><td><code>incident</code></td><td><b>attach</b> to an open incident, start a <b>new</b> one, or <b>none</b> (chatter, records checks, tests)</td></tr>
+    <tr><td><code>units</code></td><td>Each callsign heard, its role ("Ambulance", "McAllen patrol") and the status this call implies</td></tr>
+    <tr><td><code>location</code></td><td>House number, street, cross street, place, city, used to place a <b>block-level</b> pin</td></tr>
+    <tr><td><code>codes</code></td><td>Radio codes heard, with a short meaning ("10-97" → "Arrived on scene"), only when confident</td></tr>
+    <tr><td><code>redact</code></td><td>Exact private substrings to hide: civilian names, house numbers, phones, plates, DOBs</td></tr>
+    <tr><td><code>kind</code> · <code>severity</code> · <code>sensitive</code></td><td>Category, how serious, and whether it involves self-harm, mental health, a death, sexual assault or child abuse</td></tr>
+  </table>
+  <p>The code is short and readable. On your Pi:</p>
+  <pre>less ~/jafo/pi/services/incidents.py          <span class="c"># the prompt (SYSTEM_TEMPLATE), schema, linking, sweeper</span>
+grep -n "UNIT_STATUSES\|QUIET_CLOSE_SEC\|CANDIDATE_WINDOW" ~/jafo/pi/services/incidents.py</pre>
+
+  <h2>Units and their status</h2>
+  <p>Every unit carries a status, updated by each call it appears in. The incident's timeline is the first time each stage was reached:</p>
+  <div class="states">
+    <span style="background:#7a5af5">dispatched</span><i>→</i>
+    <span style="background:#e8900c">on the way</span><i>→</i>
+    <span style="background:#d63c3c">on scene</span><i>→</i>
+    <span style="background:#1f8a9e">transporting</span><i>→</i>
+    <span style="background:#1f8a4c">available</span>
+    <i>&nbsp;&nbsp;(also: busy, unknown)</i>
+  </div>
+  <p>Radio is messy (a transport can be heard before "on scene"), so the timeline is shown in canonical order. An incident <b>closes</b> 45 minutes after its last call, or 10 minutes after every unit has cleared.</p>
+
+  <h2>Which incidents matter: the importance score</h2>
+  <p>The Briefing's "The big ones" ranks incidents by an importance score (from <code>pi/web/live.py</code>, <code>_importance</code>). It's never shown as a number:</p>
+  <table class="plain">
+    <tr><th style="width:30%">Ingredient</th><th>How it counts</th></tr>
+    <tr><td>Severity</td><td>critical 40 · high 25 · medium 10 · low 3</td></tr>
+    <tr><td>Units</td><td>+4 per unit, up to 12 units</td></tr>
+    <tr><td>Radio volume</td><td>+1.5 per call, up to 20 calls</td></tr>
+    <tr><td>Special resources</td><td>+8 each: hazmat, air, SWAT, rescue, medical examiner, ladder, DPS, K9</td></tr>
+    <tr><td>Duration</td><td>+1 per 6 minutes, up to 2 hours</td></tr>
+  </table>
+
+  <h2>Hands-on: follow one of your calls</h2>
+  <ol>
+    <li>On <code>http://jafo.local</code>, pick a call with a clear transcript and note its time and talkgroup.</li>
+    <li>Find the same call on jafo.live, at <code>/live/&lt;your-region&gt;/pro</code> (the Console's Radio pane), and read its <code>call_line</code>.</li>
+    <li>Open the incident it was linked to. Read the units, the status history and the calls behind it. Did Claude link correctly? Did it translate the codes?</li>
+  </ol>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · Haiku 5.5 thinks by default</div>
+    <p>Its thinking tokens count toward <code>max_tokens</code>. JAFO keeps effort low, sets a generous <code>max_tokens</code> (6000), asks for structured output against a JSON schema, and reads the response's content blocks by type. Copy those choices if you build on it.</p>
+  </div>
+  <div class="call">
+    <div class="lab">Optional · run the brain on your own Pi</div>
+    <p>Set <code>JAFO_LLM_BACKEND=anthropic</code> in <code>.env</code>, then <code>sudo systemctl restart jafo-enricher</code> and <code>sudo journalctl -u jafo-enricher -f</code>. The same v2 loop runs locally, using your Anthropic key. It costs a few cents an hour on a busy system and adds CPU and heat, so turn it back off after the workshop.</p>
+  </div>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>Confirm that local v2 enrichment on an edge Pi (no <code>regions</code> row) produces sensible incidents, and that jafo.live shows a newly provisioned region's incidents in the views students will open.</p>
+  </div>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓ · your first incidents</div>
+    <p>You can point to an incident built from your node's calls, name its units and their statuses, and explain why each call was attached (or not).</p>
+  </div>
+</section>
+
+<!-- ======================================================= M10 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 10 · 15 min</div><h1>Privacy, ethics &amp; the law</h1></div></div>
+  <p class="lead">Listening is the easy part, legally. <b>Publishing</b> is where your duties start. People on these calls are having the worst day of their lives, and none of them agreed to be on a website. JAFO is built so the public picture shows <i>what is happening</i>, not <i>who it is happening to</i>.</p>
+
+  <h2>What JAFO hides, and how</h2>
+  <table>
+    <tr><th style="width:26%">Layer</th><th>What it does</th></tr>
+    <tr><td>1 · The AI's redact list</td><td>For every call Claude lists exact substrings to hide: civilian names, house and apartment numbers, phone numbers, plates, dates of birth, ID numbers, case numbers tied to a person. They're blurred in public transcripts. Officer callsigns, businesses and block-level streets stay.</td></tr>
+    <tr><td>2 · A regex scrub</td><td>A second, dumb-but-reliable pass (<code>_redact_pii</code> in <code>pi/web/app.py</code>) catches phone numbers, SSNs and plates, and turns "1234 Main St" into "the 1200 block of Main St", in case the model missed one.</td></tr>
+    <tr><td>Block-level locations</td><td>The house number is used to place the pin and then thrown away: it is <b>never stored</b> on an incident. Public locations read "1200 block of Main St" or "Main &amp; 5th".</td></tr>
+    <tr><td>Sensitive calls</td><td>Self-harm, mental-health crises, deaths, sexual assault and child abuse are flagged <code>sensitive</code> and <b>softened on wall displays</b> (the screens in offices and newsrooms). The full detail stays on /live.</td></tr>
+    <tr><td>Encrypted channels</td><td>Never touched. trunk-recorder and the processor drop them; nothing is decrypted, stored or guessed at.</td></tr>
+  </table>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · the audio is not bleeped</div>
+    <p>Redaction applies to <i>text</i>. If a dispatcher reads out a name, it's in the recording. That's why public playback is a deliberate switch on the hub (<code>JAFO_PUBLIC_AUDIO=1</code>) and why the hub keeps recordings for a limited time. Think hard before you turn on public audio for your own node.</p>
+  </div>
+
+  <h2>Why listening is legal (United States)</h2>
+  <ul>
+    <li><b>18 U.S.C. § 2511(2)(g)</b> (the Electronic Communications Privacy Act) makes it lawful for anyone to intercept radio communications transmitted by a government, law-enforcement, civil-defense, private land-mobile or public-safety system that is <b>readily accessible to the general public</b>.</li>
+    <li><b>18 U.S.C. § 2510(16)</b>: a scrambled or <b>encrypted</b> transmission is <i>not</i> "readily accessible". So encrypted talkgroups are off-limits, and JAFO skips them.</li>
+    <li><b>Texas Penal Code § 16.02(c)</b> has a similar defense for unencrypted government, law-enforcement, civil-defense and public-safety radio. It treats police <b>mobile data terminals</b> (the text screens in patrol cars) differently. JAFO receives <b>voice only</b>.</li>
+    <li><b>Aircraft</b>: ADS-B positions are broadcast in the open so anyone can track aircraft; ACARS messages are sent unencrypted over the air.</li>
+    <li><b>Misuse is a separate crime.</b> Using what you hear to commit a crime, avoid arrest or interfere with responders is illegal everywhere.</li>
+  </ul>
+  <div class="call">
+    <div class="lab">You're in Arizona this week; check your own state</div>
+    <p>Federal law sets the floor, but states add their own rules: some restrict scanners in vehicles, some treat publishing differently. Before you run a public node, look up your own state's interception and scanner laws. This section is a plain-language summary, <b>not legal advice</b>.</p>
+  </div>
+
+  <h2>Walk through the About page</h2>
+  <p>Open <code>jafo.live/live/rgv/about</code>. It's the public version of this module: what JAFO is, how a call becomes a story, what is hidden, why listening is legal, accuracy limits, aircraft, how long things are kept, and how to report a problem.</p>
+  <figure>
+    <img src="../media/about.png" alt="JAFO Live About page" style="width:78%">
+    <figcaption>jafo.live's About &amp; privacy page. Note the first thing it says: this is not an emergency service.</figcaption>
+  </figure>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓</div>
+    <p>Explain to your neighbour, in two sentences each: what JAFO hides and how; why listening to clear P25 is lawful and encrypted traffic isn't; and why the audio is the riskiest thing you could publish.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M11 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 11 · 35 min</div><h1>Views + "many ears": the city and the sky</h1></div></div>
+  <p class="lead">One incident model, many ways to look at it. Then you'll put SDR #2 to work on the sky.</p>
+
+  <h2>The views (replace <code>&lt;region&gt;</code> with yours, or use <code>rgv</code>)</h2>
+  <table>
+    <tr><th style="width:18%">View</th><th style="width:36%">URL</th><th>What it's for</th></tr>
+    <tr><td>Briefing</td><td><code>/live/&lt;region&gt;</code></td><td>The front door. A written recap (<b>Now / 4h / 8h / 12h / 24h</b>), "The big ones", live radio in plain English.</td></tr>
+    <tr><td>Near me</td><td><code>/live/&lt;region&gt;?lens=near</code></td><td>Pick home, work or a school; see what's on the radio around it, nearest first. Places stay on your device.</td></tr>
+    <tr><td>Map</td><td><code>/live/&lt;region&gt;/map</code></td><td>Full-screen map: incidents, units, radio, aircraft; alerts and layers.</td></tr>
+    <tr><td>Console</td><td><code>/live/&lt;region&gt;/pro</code></td><td>The pro view: incidents, map, units by status, radio, air and the <b>River</b> timeline in panes.</td></tr>
+    <tr><td>Wall displays</td><td><code>/live/&lt;region&gt;/wall/command</code></td><td>Big screens: <code>command</code>, <code>newsroom</code>, <code>grid</code>, <code>pulse</code>, <code>river</code>. Sensitive calls are softened.</td></tr>
+    <tr><td>About</td><td><code>/live/&lt;region&gt;/about</code></td><td>Sources, privacy, legality, accuracy, corrections (Module 10).</td></tr>
+  </table>
+  <figure>
+    <img src="../media/near-me.png" alt="Near me view">
+    <figcaption>Near me: pick a place and the incidents around it come first.</figcaption>
+  </figure>
+  <figure>
+    <img src="../media/console.png" alt="Console pro view">
+    <figcaption>The Console (<code>/pro</code>): incidents, map, units by status (dispatched, on the way, on scene, transporting, busy), radio, air with ACARS, and the River timeline along the bottom, with aircraft in the sky lane above incidents.</figcaption>
+  </figure>
+  <figure>
+    <img src="../media/wall-command.png" alt="Command wall display">
+    <figcaption>The <code>command</code> wall: one incident at a time, the incident board, units out by service, and radio volume over 24 hours.</figcaption>
+  </figure>
+
+  <h2>Extras worth a click</h2>
+  <ul>
+    <li><b>Push alerts</b>: tap <b>Alerts</b> (the bell) on the map or Briefing, pick a level, allow notifications. Only your browser's push address, region and level are stored.</li>
+    <li><b>TxDOT cameras</b> (Texas regions only): live highway snapshots near an incident, proxied from TxDOT's public feeds.</li>
+    <li><b>The listener map</b>: tap "<b>N watching</b>" to see, by city, where people are watching from. The city comes from a local IP lookup; IPs are never stored.</li>
+  </ul>
+  <figure>
+    <img src="../media/listeners.png" alt="Listener map" style="width:64%">
+    <figcaption>"N watching": city-level only, updated every 20 seconds.</figcaption>
+  </figure>
+
+  <h2>The sky: what SDR #2 does</h2>
+  <p><b>ADS-B</b> (1090 MHz) is aircraft broadcasting their own position, altitude and speed every second. <b>ACARS</b> (~131 MHz) is short text messages between airliners and their airlines: position reports, departure and arrival times, weather requests. JAFO shows both in plain English, with an illustrated side profile of each aircraft type (illustrations, not photos).</p>
+  <div class="figrow">
+    <figure><div class="crop" style="height:3.35in"><img src="../media/map-phone.png" alt="Map on a phone" style="height:3.35in;object-fit:cover;object-position:top"></div><figcaption>The map on a phone: incidents, units and aircraft.</figcaption></figure>
+    <figure><div class="crop" style="height:3.35in"><img src="../media/map-aircraft.png" alt="Air tab with ACARS" style="height:3.35in;object-fit:cover;object-position:bottom"></div><figcaption>The Air tab: aircraft worth a look, other traffic, and decoded ACARS ("Position report: 57 mi north of Monterrey…").</figcaption></figure>
+    <figure><div class="crop" style="height:3.35in"><img src="../media/aircraft-profile.png" alt="Aircraft side profile" style="height:3.35in;object-fit:cover;object-position:bottom"></div><figcaption>An aircraft card with its side-profile illustration (colours approximate).</figcaption></figure>
+  </div>
+  <p>Where your antenna can't reach, the hub fills in from community ADS-B networks: <b>adsb.lol → adsb.fi → airplanes.live</b>, in that order, when one is rate-limited or down.</p>
+
+  <h3>1 · ADS-B on the sky dongle</h3>
+  <pre>sudo bash ~/jafo/scripts/setup-readsb.sh       <span class="c"># builds readsb with RTL support, bound to serial 00000001</span>
+systemctl is-active readsb</pre>
+  <h3>2 · ACARS decoder (acarsdec)</h3>
+  <pre>sudo apt install -y libxml2-dev zlib1g-dev
+cd ~ &amp;&amp; git clone https://github.com/szpajder/libacars
+cd libacars &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake .. &amp;&amp; make -j4 &amp;&amp; sudo make install &amp;&amp; sudo ldconfig
+cd ~ &amp;&amp; git clone https://github.com/TLeconte/acarsdec
+cd acarsdec &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake .. -Drtl=ON &amp;&amp; make -j4 &amp;&amp; sudo make install</pre>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p>Check the acarsdec/libacars build steps and dependencies on the workshop OS (JAFO expects acarsdec 3.7 with <code>-o 4</code> JSON output). <code>jafo-acars</code> picks the dongle by <b>index</b> (<code>JAFO_ACARS_RTL_INDEX</code>, default 0), not serial; with two RTLs, confirm the sky dongle's index or students will collide with the P25 dongle. Consider baking all of this into the workshop image.</p>
+  </div>
+  <h3>3 · Turn on the smart time-share</h3>
+  <pre>cd ~/jafo/pi/systemd
+sudo cp jafo-sdr-timeshare.service jafo-acars.service jafo-acars-upload.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now jafo-sdr-timeshare jafo-acars-upload
+<span class="c"># jafo-acars is NOT enabled: the time-share starts and stops it</span>
+bash ~/jafo/scripts/sdr-mode.sh status</pre>
+  <pre class="out">readsb:active acars:inactive noaa:inactive recorder:active
+<span class="o">MODE=auto (adsb now)</span></pre>
+  <p>The default cycle is <code>JAFO_TIMESHARE=45:10</code>: 45 s of ADS-B, then 10 s of ACARS. With <code>JAFO_TIMESHARE_SMART=1</code> it also:</p>
+  <ul>
+    <li><b>Skips ACARS</b> when no airliners are in range below FL250 (nothing to hear).</li>
+    <li><b>Holds ADS-B</b> while your antenna is the only receiver tracking an interesting low aircraft (a helicopter over an incident, an emergency squawk).</li>
+    <li><b>Extends</b> a window if a message arrives in its last 3 s (ACARS comes in bursts, up to 20 s), and <b>leans in</b> to 15 s after a productive window.</li>
+    <li><b>Backs off</b> after empty windows: the ADS-B leg doubles 45 → 90 → 180 → 360 s (6 min), and never more than 40 ACARS windows an hour (<code>JAFO_TIMESHARE_MAX_SWITCHES</code>). Each switch restarts services, so a quiet band shouldn't churn the Pi.</li>
+  </ul>
+  <pre>sudo bash ~/jafo/scripts/sdr-mode.sh adsb     <span class="c"># force ADS-B (pauses the time-share)</span>
+sudo bash ~/jafo/scripts/sdr-mode.sh acars    <span class="c"># force ACARS (pauses it)</span>
+sudo bash ~/jafo/scripts/sdr-mode.sh auto     <span class="c"># hand the radio back to the time-share</span>
+cat ~/jafo-data/timeshare.json                <span class="c"># duty cycle, windows, skips, messages</span></pre>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · indoor antennas hear almost nothing at 1090</div>
+    <p>On the reference node, an indoor ADS-B antenna heard <b>zero</b> aircraft while the community network saw twelve. Placement beats everything: a window, or better, outside and high. The community feed keeps the sky view useful either way.</p>
+  </div>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓ · a view of your city you made your own</div>
+    <p>You've opened every view for your region, set one alert, and <code>sdr-mode.sh status</code> shows <code>MODE=auto</code>. Bonus: an ACARS message from your own antenna in <code>timeshare.json</code>.</p>
+  </div>
+</section>
+
+<!-- ======================================================= M12 -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Module 12 · 25 min</div><h1>Join the fleet + take it home</h1></div></div>
+  <p class="lead">Your node registered itself in Module 8 and has been uploading since Module 9. Now confirm it's on the fleet, make sure it will run for months without babysitting, and learn what happens when you plug it in somewhere else.</p>
+
+  <h2>1 · See your node on jafo.live</h2>
+  <pre>grep -E '^JAFO_(NODE_SLUG|REGION|HUB_URL)=' ~/jafo/.env
+sudo journalctl -u jafo-uploader -n 20 --no-pager</pre>
+  <p>Open <code>https://jafo.live/live/&lt;your-region&gt;</code>: your city's Briefing, fed by your node and your classmates'. The fleet overview is at <code>https://jafo.live/fleet</code>.</p>
+  <div class="call ok">
+    <div class="lab">Checkpoint ✓ · your node live on jafo.live</div>
+    <p>The uploader log shows calls accepted by the hub, and your region's Briefing and Console show calls your node heard.</p>
+  </div>
+
+  <h2>2 · Running it sustainably</h2>
+  <table>
+    <tr><th style="width:22%">Concern</th><th>What JAFO does</th><th>What you check</th></tr>
+    <tr><td>Heat</td><td>Nothing magic: it needs the fan and airflow</td><td><code>vcgencmd measure_temp</code> (under ~78 °C), <code>vcgencmd get_throttled</code> (<code>0x0</code>)</td></tr>
+    <tr><td>Disk</td><td>Keeps 4 hours of calls (<code>JAFO_DEVICE_RETENTION_HOURS=4</code>); the hub keeps recordings 14 days</td><td><code>df -h ~/jafo-data</code></td></tr>
+    <tr><td>Radio churn</td><td>The time-share backs off when the band is quiet</td><td><code>cat ~/jafo-data/timeshare.json</code></td></tr>
+    <tr><td>Everything else</td><td>Each service restarts itself (<code>Restart=always</code>)</td><td><code>sudo systemctl status 'jafo-*'</code></td></tr>
+  </table>
+  <p>For a node that lives somewhere permanently, the hardening script masks services a capture node doesn't need, moves the system journal off the SD card with a size cap, and applies a few kernel tunings. Look before you leap:</p>
+  <pre>sudo bash ~/jafo/scripts/harden-pi.sh --dry-run   <span class="c"># show what would change</span>
+sudo bash ~/jafo/scripts/harden-pi.sh             <span class="c"># idempotent; re-run any time</span></pre>
+  <div class="call inst">
+    <div class="lab">Instructor · verify before the workshop</div>
+    <p><code>harden-pi.sh</code> was written for the production node (NVMe, Airspy). Dry-run it on a kit Pi (microSD, two RTLs) and confirm it doesn't enable services the kit lacks or move the journal to a disk that isn't there.</p>
+  </div>
+
+  <h2>3 · Plug it in anywhere: it re-homes itself</h2>
+  <p>Enable the relocation timer and your node checks where it is shortly after every boot and every 20 minutes after that. If the region really changed and it finds a site it can hear, it re-runs everything from Module 8 by itself: new site, new talkgroups, new hub region. If the lookup is flaky or nothing is receivable, it leaves the working config alone.</p>
+  <pre>sudo cp ~/jafo/pi/systemd/jafo-relocate.service ~/jafo/pi/systemd/jafo-relocate.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now jafo-relocate.timer
+python3 ~/jafo/pi/tools/relocate.py --dry-run        <span class="c"># see what it would do from here</span></pre>
+  <p>At home you'll need either a cached sites/talkgroups CSV for your system or a RadioReference appKey (Appendix E).</p>
+
+  <h2>4 · Keeping up to date</h2>
+  <pre>cd ~/jafo &amp;&amp; ./scripts/update-pi.sh</pre>
+  <div class="call gotcha">
+    <div class="lab">Gotcha · updates reset config.json</div>
+    <p><code>update-pi.sh</code> copies your active profile over <code>~/jafo-data/config/config.json</code>, which undoes the control channels <code>relocate.py</code> chose. After updating, re-run <code>python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --yes</code>. Your talkgroups file is left alone.</p>
+  </div>
+
+  <h2>5 · When something breaks</h2>
+  <p>Start with <code>~/jafo/pi/tools/check-sdrs.sh</code> and <code>stats.py</code>, then follow Appendix C. The repo's <code>docs/TROUBLESHOOTING.md</code> lists every install and runtime error we've actually hit, with fixes.</p>
+
+  <h2>6 · Contributing</h2>
+  <ul>
+    <li>Every node makes the shared picture better: more ears in more cities, more aircraft heard, more ACARS.</li>
+    <li>The code is on GitHub (<code>github.com/Drew-CodeRGV/jafo</code>). Fork it, fix something, send a pull request. <code>bash ~/jafo/scripts/push-to-github.sh</code> pushes your Pi's changes to your fork and refuses if <code>.env</code> would leak.</li>
+    <li>Hack on it with Claude Code on the Pi: <code>bash ~/jafo/scripts/install-claude-code.sh</code>, then <code>bash ~/jafo/scripts/jafo-claude.sh</code>. It reads the repo's <code>CLAUDE.md</code> and <code>HANDOFF.md</code>, so it starts with the whole backstory.</li>
+    <li>Ideas from past students: a second RTL for ADS-B and ACARS full-time, an outdoor 800 MHz antenna, an Airspy R2 for a 10 MHz window, NOAA weather alerts on the sky dongle.</li>
+  </ul>
+  <div class="call">
+    <div class="lab">What you walk out with</div>
+    <p>A node you built and understand, on the fleet, that re-homes itself wherever you plug it in. Plus the skills to decode P25 by hand when it doesn't.</p>
+  </div>
+</section>
+
+<!-- ======================================================= APPENDIX A -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix A</div><h1>Bill of materials + upgrade paths</h1></div></div>
+  <h2>Standard kit (per seat) · ≈ $244</h2>
+  <table>
+    <tr><th>#</th><th>Item</th><th>Qty</th><th>Purpose</th><th style="text-align:right">Line</th></tr>
+    <tr><td>1</td><td>Raspberry Pi 5 (8 GB)</td><td>1</td><td>Compute: capture side of the pipeline</td><td style="text-align:right">$80</td></tr>
+    <tr><td>2</td><td>64 GB microSD (A2)</td><td>1</td><td>Boot + working data (4 h retention; easy to re-flash)</td><td style="text-align:right">$12</td></tr>
+    <tr><td>3</td><td>Official 27 W USB-C PSU</td><td>1</td><td>Stable power for the Pi 5</td><td style="text-align:right">$12</td></tr>
+    <tr><td>4</td><td>RTL-SDR Blog V4</td><td>2</td><td>SDR #1 on P25; SDR #2 on the sky (ADS-B + ACARS, time-shared)</td><td style="text-align:right">$80</td></tr>
+    <tr><td>5</td><td>Telescopic whip antenna, SMA</td><td>2</td><td>One per SDR; set for 800 MHz / 1090 MHz</td><td style="text-align:right">$20</td></tr>
+    <tr><td>6</td><td>Active cooler (fan)</td><td>1</td><td><b>Mandatory.</b> Production Pi runs 72–78 °C with one</td><td style="text-align:right">$6</td></tr>
+    <tr><td>7</td><td>Powered USB 3.0 hub</td><td>1</td><td>Two SDRs draw more than the Pi can safely feed</td><td style="text-align:right">$22</td></tr>
+    <tr><td>8</td><td>3D-printed case</td><td>1</td><td>Pi + both SDRs + fan, room to breathe</td><td style="text-align:right">~$4</td></tr>
+    <tr><td>9</td><td>Short cables: USB-C + SMA</td><td>set</td><td>Clean, take-home-ready wiring</td><td style="text-align:right">$8</td></tr>
+  </table>
+  <h2>Upgrades</h2>
+  <table>
+    <tr><th style="width:28%">Upgrade</th><th style="width:12%">Approx</th><th>What it adds</th></tr>
+    <tr><td>Airspy R2</td><td>~$169</td><td>10 MHz window: control + several voice channels at once, no gaps. What production JAFO runs.</td></tr>
+    <tr><td>SDRplay RSP1A</td><td>~$110</td><td>Wide capture for less; needs the proprietary SDRplay driver (the installer handles it).</td></tr>
+    <tr><td>Third RTL-SDR</td><td>~$35</td><td>ADS-B and ACARS full-time instead of time-shared.</td></tr>
+    <tr><td>NVMe HAT + 256 GB SSD</td><td>~$45</td><td>Faster and far more durable than microSD.</td></tr>
+    <tr><td>Outdoor antennas</td><td>varies</td><td>The single biggest reception upgrade, for 800 MHz and 1090 MHz.</td></tr>
+  </table>
+  <p><b>The production RGV node</b> runs an Airspy R2 on P25 (profile <code>airspy-only</code>) plus one RTL-SDR shared between ADS-B and ACARS by the smart time-share.</p>
+  <p class="small">Sources: Pi 5: PiShop / Adafruit / CanaKit · RTL-SDR V4: rtl-sdr.com · Airspy: airspy.us · SDRplay: sdrplay.com. Prices are approximate (late 2026).</p>
+</section>
+
+<!-- ======================================================= APPENDIX B -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix B</div><h1>Command cheat-sheet</h1></div></div>
+  <p class="lead">Every command in this guide, in the order you ran it. Placeholders in <code>&lt;&gt;</code>.</p>
+  <h2>Day 1</h2>
+  <pre><span class="c"># M3 · first boot</span>
+ssh pi@jafo.local
+sudo apt update &amp;&amp; sudo apt full-upgrade -y
+sudo apt install -y git cmake build-essential libusb-1.0-0-dev pkg-config tmux
+tmux new -s jafo                       <span class="c"># reattach: tmux attach -t jafo</span>
+sudo apt purge -y ^librtlsdr
+git clone https://github.com/rtlsdrblog/rtl-sdr-blog
+cd rtl-sdr-blog &amp;&amp; mkdir build &amp;&amp; cd build
+cmake ../ -DINSTALL_UDEV_RULES=ON &amp;&amp; make -j4 &amp;&amp; sudo make install
+sudo cp ../rtl-sdr.rules /etc/udev/rules.d/ &amp;&amp; sudo ldconfig
+echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-dvb.conf
+sudo reboot
+rtl_test -t
+rtl_eeprom -d 0 -s 00000001            <span class="c"># sky dongle only</span>
+rtl_eeprom -d 0 -s 00000025            <span class="c"># P25 dongle only</span>
+vcgencmd measure_temp &amp;&amp; vcgencmd get_throttled
+
+<span class="c"># M4 · GNU Radio</span>
+git clone https://github.com/boatbod/op25 &amp;&amp; cd op25 &amp;&amp; ./install.sh
+sudo apt install -y gnuradio gr-osmosdr xauth
+gnuradio-config-info --version
+ssh -Y pi@jafo.local                   <span class="c"># from the laptop</span>
+gnuradio-companion &amp;
+scp pi@jafo.local:~/fm.wav .           <span class="c"># from the laptop</span>
+
+<span class="c"># M5 · OP25</span>
+cd ~/op25/op25/gr-op25_repeater/apps
+./rx.py --args 'rtl=00000025' -N 'LNA:40' -S 2400000 -q 0 -T phx.tsv -2 -V -U -l http:0.0.0.0:8080 2&gt; stderr.log
+sudo poweroff</pre>
+  <h2>Day 2</h2>
+  <pre><span class="c"># M8 · install</span>
+curl -fsSL https://raw.githubusercontent.com/Drew-CodeRGV/jafo/main/bootstrap.sh | bash
+nano ~/jafo/.env
+cp ~/jafo/config/profiles/&lt;WORKSHOP-PROFILE&gt;.json ~/jafo-data/config/config.json
+echo &lt;WORKSHOP-PROFILE&gt; &gt; ~/jafo-data/config/.active-profile
+mkdir -p ~/jafo-data/config/rr-cache    <span class="c"># + copy sites-&lt;SID&gt;.csv, tg-&lt;SID&gt;.csv</span>
+python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --dry-run
+python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --yes
+sudo systemctl status 'jafo-*' --no-pager
+sudo journalctl -u jafo-recorder -f
+~/jafo-data/venv-services/bin/python ~/jafo/pi/services/stats.py
+~/jafo/pi/tools/check-sdrs.sh
+
+<span class="c"># M9 · the brain</span>
+sudo bash ~/jafo/scripts/install-uploader-systemd.sh
+sudo journalctl -u jafo-uploader -f
+sudo journalctl -u jafo-transcriber -f
+sudo systemctl restart jafo-enricher &amp;&amp; sudo journalctl -u jafo-enricher -f   <span class="c"># optional, local</span>
+
+<span class="c"># M11 · the sky</span>
+sudo bash ~/jafo/scripts/setup-readsb.sh
+<span class="c"># build libacars + acarsdec (see M11)</span>
+cd ~/jafo/pi/systemd &amp;&amp; sudo cp jafo-sdr-timeshare.service jafo-acars.service jafo-acars-upload.service /etc/systemd/system/
+sudo systemctl daemon-reload &amp;&amp; sudo systemctl enable --now jafo-sdr-timeshare jafo-acars-upload
+bash ~/jafo/scripts/sdr-mode.sh status
+sudo bash ~/jafo/scripts/sdr-mode.sh {adsb|acars|auto}   <span class="c"># pick one</span>
+cat ~/jafo-data/timeshare.json
+
+<span class="c"># M12 · fleet + home</span>
+sudo journalctl -u jafo-uploader -n 20 --no-pager
+sudo bash ~/jafo/scripts/harden-pi.sh --dry-run
+sudo cp ~/jafo/pi/systemd/jafo-relocate.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload &amp;&amp; sudo systemctl enable --now jafo-relocate.timer
+cd ~/jafo &amp;&amp; ./scripts/update-pi.sh</pre>
+</section>
+
+<!-- ======================================================= APPENDIX C -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix C</div><h1>Troubleshooting</h1></div></div>
+  <p class="lead">First run <code>~/jafo/pi/tools/check-sdrs.sh</code> (✓/✗ for drivers, USB power, kernel conflicts, trunk-recorder, GNU Radio) and <code>sudo systemctl status 'jafo-*'</code>. For any failed service: <code>sudo journalctl -u jafo-&lt;name&gt; -n 100 --no-pager</code>.</p>
+
+  <h2>No dongle</h2>
+  <ul>
+    <li><code>lsusb</code> should list <code>0bda:2838</code> (RTL2838) once per dongle. Missing: reseat it on the <b>powered</b> hub, try another cable.</li>
+    <li>Listed but <code>rtl_test</code> fails: the DVB driver grabbed it. Check <code>/etc/modprobe.d/</code> for the blacklist and reboot.</li>
+    <li>"No supported tuner" or wrong tuner on a V4: the stock <code>librtlsdr</code> came back. Reinstall the rtl-sdr-blog driver (M3) and <code>sudo ldconfig</code>.</li>
+    <li>"usb_claim_interface error" or "device busy": another program has it (GRC, OP25, readsb, acarsdec). Stop it first.</li>
+    <li><code>dmesg | tail -50</code>: under-voltage or USB descriptor errors point at power.</li>
+  </ul>
+
+  <h2>No decode (tsbk/decode rate 0, "Control Channel Timeout")</h2>
+  <ul>
+    <li>Wrong site: compare WACN/SysID/NAC with RadioReference. Add more control channels; the nearest site isn't always the one you hear best.</li>
+    <li>Out of window: every control channel must sit inside center ± rate/2 in <code>config.json</code>.</li>
+    <li>Gain: raise or lower <code>gain</code> in <code>~/jafo-data/config/config.json</code> in steps of 5, then <code>sudo systemctl restart jafo-recorder</code>.</li>
+    <li>Clock error on older dongles: set the source's <code>"error"</code> (frequency error, e.g. <code>50</code>) and restart. The V4's TCXO rarely needs it.</li>
+    <li>Phase/modulation: Phase 2 systems need TDMA; simulcast systems often need CQPSK (<code>"modulation": "qpsk"</code>).</li>
+    <li><code>OsmoSDR must have a sample rate that is a multiple of 24000</code>: fix <code>"rate"</code> (2,400,000 works).</li>
+  </ul>
+
+  <h2>Weak RF</h2>
+  <ul>
+    <li>Antenna first: length for the band (M1), vertical, near a window, away from the Pi and laptops. Outdoors and high beats any SDR upgrade.</li>
+    <li>Overload is also "weak": if the noise floor jumps with gain, back off. Strong cellular sites next door swamp cheap front ends.</li>
+    <li>Use the IQ recording fallback to separate "my RF" from "my config".</li>
+  </ul>
+
+  <h2>Calls recorded but none kept, or no transcripts</h2>
+  <ul>
+    <li><code>stats.py</code> shows everything skipped as <code>no_speech</code>: the audio is noise; fix capture (gain, antenna) before anything else.</li>
+    <li>"Not Recording: TG not in Talkgroup File": set <code>"recordUnknown": true</code> or install the talkgroups file.</li>
+    <li>Transcriber: "GROQ_API_KEY not set" → add it to <code>.env</code>, <code>sudo systemctl restart jafo-transcriber</code>. Rate-limit errors → check console.groq.com.</li>
+    <li><code>.env</code> errors like <code>Maricopa: command not found</code>: quote values with commas or spaces.</li>
+    <li>Nothing on jafo.live: <code>sudo journalctl -u jafo-uploader -n 50</code>; check <code>JAFO_NODE_SLUG</code>/<code>JAFO_NODE_TOKEN</code> exist in <code>.env</code> (re-run <code>relocate.py</code> if not).</li>
+  </ul>
+
+  <h2>Hot Pi / throttling</h2>
+  <pre>vcgencmd measure_temp
+vcgencmd get_throttled</pre>
+  <table class="plain">
+    <tr><th style="width:30%">get_throttled</th><th>Meaning</th></tr>
+    <tr><td><code>0x0</code></td><td>All good.</td></tr>
+    <tr><td>bit 0 / bit 16 (<code>0x1</code>, <code>0x10000</code>)</td><td>Under-voltage now / since boot: use the official 27 W PSU and the powered hub.</td></tr>
+    <tr><td>bit 2 / bit 18 (<code>0x4</code>, <code>0x40000</code>)</td><td>Throttled now / since boot.</td></tr>
+    <tr><td>bit 3 / bit 19 (<code>0x8</code>, <code>0x80000</code>)</td><td>Soft temperature limit active now / since boot: the fan, airflow, the case.</td></tr>
+  </table>
+  <p>Expect 72–78 °C on a busy system with the cooler. Above 80 °C: check the fan spins, open the case, lift it off soft surfaces, and turn off optional local work (e.g. local enrichment).</p>
+
+  <h2>Web UI</h2>
+  <ul>
+    <li>403 on <code>/static/*</code>: nginx can't traverse your home folder. <code>chmod o+x /home/pi</code> and <code>chmod -R o+rX /home/pi/jafo/pi/web/static/</code>.</li>
+    <li>Blank page: <code>sudo systemctl status nginx jafo-web</code>; test Flask directly with <code>curl -s http://127.0.0.1:8080/ | head</code>.</li>
+  </ul>
+</section>
+
+<!-- ======================================================= APPENDIX D -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix D</div><h1>Glossary</h1></div></div>
+  <dl class="gloss">
+    <dt>ACARS</dt><dd>Aircraft Communications Addressing and Reporting System. Short text messages between aircraft and airlines on VHF (~129–137 MHz; 131.550 is the US primary).</dd>
+    <dt>ADS-B</dt><dd>Automatic Dependent Surveillance–Broadcast. Aircraft broadcast position, altitude, speed and callsign on 1090 MHz about once a second.</dd>
+    <dt>Airspy R2</dt><dd>A wideband SDR (10 MS/s). Sees a control channel and many voice channels at once.</dd>
+    <dt>C4FM / CQPSK</dt><dd>P25 Phase 1 modulations. C4FM is standard; CQPSK (LSM) is used on simulcast systems.</dd>
+    <dt>Control channel</dt><dd>The always-on data channel of a trunked system that assigns talkgroups to voice channels.</dd>
+    <dt>Edge / hub</dt><dd>Your Pi (captures, keeps 4 h) / jafo.live (system of record, runs the AI).</dd>
+    <dt>Encryption</dt><dd>Scrambled audio. Not "readily accessible" under US law; JAFO never touches it.</dd>
+    <dt>Enricher v2</dt><dd>JAFO's AI step: Claude Haiku turns each call into a plain-English line and links it to incidents and units.</dd>
+    <dt>FDMA / TDMA</dt><dd>One call per frequency (Phase 1) / two calls share a frequency in time slots (Phase 2).</dd>
+    <dt>FL250</dt><dd>Flight level 250, about 25,000 ft. The time-share skips ACARS when no airliners are below it in range.</dd>
+    <dt>Gain</dt><dd>Amplification in the SDR. Too little is deaf; too much overloads.</dd>
+    <dt>GNU Radio / GRC</dt><dd>The open-source signal-processing toolkit / its graphical flowgraph editor (GNU Radio Companion).</dd>
+    <dt>Incident</dt><dd>A real-world event built from many calls, with units, a status history and a block-level location.</dd>
+    <dt>NAC</dt><dd>Network Access Code. A 12-bit code that identifies a P25 site or system on the air.</dd>
+    <dt>OP25</dt><dd>An open-source GNU-Radio-based P25 decoder (boatbod fork).</dd>
+    <dt>Opus / Ogg</dt><dd>The audio codec JAFO stores calls in / the container around it (served as <code>audio/ogg</code>).</dd>
+    <dt>P25</dt><dd>APCO Project 25, the US digital public-safety radio standard.</dd>
+    <dt>PPM</dt><dd>Parts per million: the SDR's clock error, corrected in software.</dd>
+    <dt>RadioReference (RR)</dt><dd>Community database of radio systems, sites and talkgroups. Premium + appKey enables API access.</dd>
+    <dt>readsb / acarsdec</dt><dd>The ADS-B decoder / the ACARS decoder that run on SDR #2.</dd>
+    <dt>Sample rate</dt><dd>Samples per second the SDR delivers, which equals the width of spectrum you see.</dd>
+    <dt>SDR</dt><dd>Software-defined radio: hardware that digitizes spectrum; software decides what it receives.</dd>
+    <dt>Simulcast</dt><dd>Several towers transmitting the same signal on the same frequency at once.</dd>
+    <dt>Site</dt><dd>One tower location of a trunked system, with its own control channel(s).</dd>
+    <dt>SysID</dt><dd>System ID: identifies a P25 system within a WACN.</dd>
+    <dt>Talkgroup (TG)</dt><dd>A virtual channel for a group of radios, identified by a number.</dd>
+    <dt>Time-share</dt><dd><code>jafo-sdr-timeshare</code>: switches SDR #2 between ADS-B and ACARS (default 45:10, smart rules).</dd>
+    <dt>trunk-recorder</dt><dd>Open-source program that follows a trunked system and records every call in its window. JAFO's <code>jafo-recorder</code>.</dd>
+    <dt>Trunking</dt><dd>Pooling channels and assigning them on demand via a control channel.</dd>
+    <dt>VAD</dt><dd>Voice activity detection (Silero). Drops calls with no speech before anything is sent to a paid API.</dd>
+    <dt>Voice grant</dt><dd>A control-channel message assigning a talkgroup to a voice frequency for a call.</dd>
+    <dt>WACN</dt><dd>Wide Area Communications Network ID: the top-level P25 network identifier (e.g. LRGVRRS is BEE00).</dd>
+  </dl>
+</section>
+
+<!-- ======================================================= APPENDIX E -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix E</div><h1>Running one at home</h1></div></div>
+  <p class="lead">At the workshop the instructor pre-cached the Phoenix system. At home, JAFO can pull <i>any</i> system itself, as long as it can reach RadioReference. The reference Pi went from McAllen to Austin and back to the Rio Grande Valley this way, decoding within minutes each time it was plugged in.</p>
+  <h2>1 · Get RadioReference API access</h2>
+  <ol>
+    <li>Buy a RadioReference <b>premium subscription</b> (about $15–30 a year). It's needed for API access and CSV exports.</li>
+    <li>Request a free <b>API appKey</b> for non-commercial use from RadioReference's developer/API pages.</li>
+    <li>Put your credentials where <code>relocate.py</code> looks for them:</li>
+  </ol>
+  <pre>nano ~/jafo-data/config/radioreference.json
+chmod 600 ~/jafo-data/config/radioreference.json</pre>
+  <pre>{ "appKey": "&lt;your appKey&gt;", "username": "&lt;RR username&gt;", "password": "&lt;RR password&gt;" }</pre>
+  <h2>2 · Find your system and let it re-home</h2>
+  <p>Find your county's P25 system on radioreference.com and note its SID (the number in the URL, e.g. <code>/db/sid/6742</code>). Download its <b>sites</b> CSV into the cache as <code>~/jafo-data/config/rr-cache/sites-&lt;SID&gt;.csv</code>: that's what makes site choice SDR-window-aware. Then:</p>
+  <pre>python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --dry-run
+python3 ~/jafo/pi/tools/relocate.py --sid &lt;SID&gt; --yes</pre>
+  <p>With credentials present, the talkgroups come straight from the RR API (<code>getTrsTalkgroups</code>) if there's no cached <code>tg-&lt;SID&gt;.csv</code>.</p>
+  <h2>3 · Make it fit your radio</h2>
+  <ul>
+    <li><b>Check the window.</b> With one RTL (2.4 MHz), pick a center where the site's control channel and the busiest voice channels all fit. If they don't, you'll decode the control channel but miss calls: that's the case for an Airspy R2 or RSP1A.</li>
+    <li><b>Cross-band sites:</b> <code>--retune</code> lets <code>relocate.py</code> move the SDR center to reach the nearest site.</li>
+    <li><b>Talkgroup file format:</b> keep the RR export as-is. trunk-recorder is picky about the CSV; don't reformat it.</li>
+    <li><b>Antenna:</b> outdoors and high. It matters more than any SDR.</li>
+  </ul>
+  <h2>4 · Costs</h2>
+  <p>Groq transcription and Claude enrichment are pay-as-you-go. On the reference system (hundreds of kept calls a day) that's a few dollars a month each; a quiet county costs less. The VAD filter is what keeps it cheap: most recorded audio is dropped before any API sees it.</p>
+</section>
+
+<!-- ======================================================= APPENDIX F -->
+<section class="module">
+  <div class="mhead"><img src="jafo-heli.png" alt=""><div><div class="kicker">Appendix F</div><h1>Privacy &amp; legal quick reference</h1></div></div>
+  <div class="two">
+    <div>
+      <h2>Do</h2>
+      <ul class="check">
+        <li>Receive only unencrypted voice traffic</li>
+        <li>Keep locations at block level</li>
+        <li>Run both redaction layers on anything public</li>
+        <li>Soften sensitive incidents on shared screens</li>
+        <li>Say clearly that you're not an emergency service and not affiliated with any agency</li>
+        <li>Give people a way to report a problem, and act on it</li>
+        <li>Keep recordings only as long as you need them</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Don't</h2>
+      <ul>
+        <li>Attempt to decrypt, or store, encrypted traffic</li>
+        <li>Receive police mobile data terminals (text screens)</li>
+        <li>Publish names, house numbers, phones, plates, DOBs</li>
+        <li>Publish raw audio without thinking about who's in it</li>
+        <li>Use what you hear to interfere with responders or help anyone avoid arrest</li>
+        <li>Transmit. JAFO is receive-only</li>
+      </ul>
+    </div>
+  </div>
+  <h2>The law, in one table</h2>
+  <table>
+    <tr><th style="width:28%">Source</th><th>What it says (plain language)</th></tr>
+    <tr><td>18 U.S.C. § 2511(2)(g)</td><td>Lawful to intercept radio from government, law-enforcement, civil-defense, private land-mobile or public-safety systems that are readily accessible to the general public.</td></tr>
+    <tr><td>18 U.S.C. § 2510(16)</td><td>Scrambled or encrypted transmissions are not "readily accessible".</td></tr>
+    <tr><td>Tex. Penal Code § 16.02(c)</td><td>Similar Texas defense for unencrypted public-safety radio; police mobile data terminals are treated differently.</td></tr>
+    <tr><td>Your state</td><td>Check your own interception and scanner laws (some limit scanners in vehicles).</td></tr>
+  </table>
+  <h2>JAFO's privacy controls</h2>
+  <table>
+    <tr><th style="width:28%">Control</th><th>Where</th></tr>
+    <tr><td>AI redact list</td><td><code>redact</code> field in the enricher schema, <code>pi/services/incidents.py</code></td></tr>
+    <tr><td>Regex scrub</td><td><code>_redact_pii</code> in <code>pi/web/app.py</code> (phones, SSNs, plates, house numbers → block)</td></tr>
+    <tr><td>Block-level location</td><td><code>block_label</code> / <code>public_location</code> in <code>incidents.py</code>; house numbers never stored on incidents</td></tr>
+    <tr><td>Sensitive softening</td><td>Wall displays, or any page with <code>?safe=1</code>; <code>?sensitive=show</code> to override</td></tr>
+    <tr><td>Public audio</td><td>Off unless the hub sets <code>JAFO_PUBLIC_AUDIO=1</code>; audio is never bleeped</td></tr>
+    <tr><td>Retention</td><td>Pi: 4 h (<code>JAFO_DEVICE_RETENTION_HOURS</code>). Hub: recordings 14 days</td></tr>
+    <tr><td>Listener map</td><td>City-level only; IPs never stored</td></tr>
+  </table>
+  <p class="small">Read the full public version at <b>jafo.live/live/rgv/about</b>. This page is a plain-language summary, not legal advice.</p>
+</section>
+
+</body>
+</html>

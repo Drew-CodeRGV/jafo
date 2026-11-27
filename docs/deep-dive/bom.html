@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JAFO Deep Dive · Student Kit BOM · WLPC 2027 Phoenix</title>
+<style>
+@page { size: Letter; margin: 0 0 0.45in 0; }
+:root { --ink:#141b2d; --muted:#556070; --blue:#1f4fd1; --blue-2:#2f6bff; --rule:#d9dee8; --blue-bg:#edf2ff;
+  --sans:'Liberation Sans', Arial, sans-serif; --mono:'DejaVu Sans Mono', monospace; }
+* { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+html,body { margin:0; padding:0; }
+body { font-family:var(--sans); color:var(--ink); font-size:9pt; line-height:1.38; }
+.band { background:linear-gradient(120deg,#0b1324 0%,#14224a 60%,#0e1a38 100%); color:#fff; padding:.3in .5in .26in; display:flex; gap:.28in; align-items:center; border-bottom:3pt solid var(--blue-2); }
+.band img { width:1.2in; filter:drop-shadow(0 0 14px rgba(60,120,255,.5)); }
+.k { font-family:var(--mono); letter-spacing:.3em; color:#6f9bff; font-size:8pt; font-weight:700; }
+.band h1 { font-size:21pt; margin:5pt 0 3pt; }
+.band .sub { color:#dbe4ff; font-size:10pt; }
+.wrap { padding:.18in .5in 0; }
+h2 { font-size:11pt; color:var(--blue); margin:10pt 0 5pt; padding-bottom:3pt; border-bottom:1px solid var(--rule); }
+p { margin:0 0 5pt; }
+table { width:100%; border-collapse:collapse; font-size:8.4pt; }
+th { text-align:left; background:var(--blue); color:#fff; padding:4pt 6pt; font-size:8pt; }
+td { padding:3.2pt 6pt; border-bottom:1px solid var(--rule); vertical-align:top; }
+tr:nth-child(even) td { background:#f4f7fd; }
+td.n { color:var(--muted); width:4%; }
+td.i { font-weight:700; width:24%; }
+td.q { width:6%; text-align:center; }
+td.u, td.ln, th.r { text-align:right; white-space:nowrap; }
+td.ln { font-weight:700; }
+tr.tot td { background:var(--blue-bg); font-weight:700; color:var(--blue); border-top:2pt solid var(--blue); font-size:9.2pt; }
+.tag { display:inline-block; font-family:var(--mono); font-size:6.6pt; letter-spacing:.12em; background:#d63c3c; color:#fff; border-radius:2px; padding:0 4pt; margin-left:3pt; vertical-align:1pt; }
+.up td:first-child { font-weight:700; width:24%; }
+.up td:nth-child(2) { width:9%; text-align:right; font-weight:700; }
+.note { background:var(--blue-bg); border-left:3pt solid var(--blue); border-radius:4px; padding:7pt 11pt; font-size:8.1pt; margin-top:9pt; }
+.note b { color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="band">
+  <img src="jafo-heli.png" alt="JAFO helicopter">
+  <div>
+    <div class="k">JAFO DEEP DIVE · WLPC 2027 PHOENIX</div>
+    <h1>Student Kit — Bill of Materials</h1>
+    <div class="sub">Standard kit · one per seat · ≈ $244, everything needed for a working build.</div>
+  </div>
+</div>
+<div class="wrap">
+  <h2>Standard kit (per seat)</h2>
+  <table>
+    <tr><th>#</th><th>Item</th><th>Qty</th><th>Purpose</th><th class="r">Unit</th><th class="r">Line</th></tr>
+    <tr><td class="n">1</td><td class="i">Raspberry Pi 5 (8 GB)</td><td class="q">1</td><td>Compute: the capture side of the pipeline (record, filter, transcribe, upload)</td><td class="u">$80</td><td class="ln">$80</td></tr>
+    <tr><td class="n">2</td><td class="i">64 GB microSD (A2)</td><td class="q">1</td><td>Boot + working data; the node keeps only 4 h, so microSD is fine (easy to re-flash)</td><td class="u">$12</td><td class="ln">$12</td></tr>
+    <tr><td class="n">3</td><td class="i">Official 27 W USB-C PSU</td><td class="q">1</td><td>Stable power for the Pi 5; off-brand supplies cause brownouts</td><td class="u">$12</td><td class="ln">$12</td></tr>
+    <tr><td class="n">4</td><td class="i">RTL-SDR Blog V4</td><td class="q">2</td><td>SDR #1 on P25 (the city). SDR #2 on the sky: ADS-B 1090 MHz + ACARS ~131 MHz, time-shared (or OP25 by hand on Day 1)</td><td class="u">$40</td><td class="ln">$80</td></tr>
+    <tr><td class="n">5</td><td class="i">Telescopic whip antenna, SMA</td><td class="q">2</td><td>One per SDR; adjust length for 800 MHz / 1090 MHz</td><td class="u">$10</td><td class="ln">$20</td></tr>
+    <tr><td class="n">6</td><td class="i">Active cooler (fan)<span class="tag">MANDATORY</span></td><td class="q">1</td><td>P25 decode keeps most of a core busy; the production Pi runs 72–78 °C <i>with</i> a cooler and throttles without one</td><td class="u">$6</td><td class="ln">$6</td></tr>
+    <tr><td class="n">7</td><td class="i">Powered USB 3.0 hub</td><td class="q">1</td><td>Two SDRs draw more than the Pi can safely feed</td><td class="u">$22</td><td class="ln">$22</td></tr>
+    <tr><td class="n">8</td><td class="i">3D-printed case</td><td class="q">1</td><td>Houses Pi + both SDRs + fan, with room to breathe (we supply the STL)</td><td class="u">~$4</td><td class="ln">~$4</td></tr>
+    <tr><td class="n">9</td><td class="i">Short cables: USB-C + SMA</td><td class="q">set</td><td>Clean, take-home-ready wiring</td><td class="u">$8</td><td class="ln">$8</td></tr>
+    <tr class="tot"><td colspan="5" style="text-align:right">FULL WORKING KIT, PER SEAT</td><td class="ln">≈ $244</td></tr>
+  </table>
+
+  <h2>Optional upgrades — not required to build</h2>
+  <p>The standard kit (two RTL-SDRs) gets everyone to a working JAFO. For students who want production-grade capture, these are demoed and offered to buy:</p>
+  <table class="up">
+    <tr><th>Upgrade</th><th class="r">Approx</th><th>What it adds</th></tr>
+    <tr><td>Airspy R2</td><td>~$169</td><td>Wide 10 MHz single-SDR capture: control + multiple voice channels at once. What production JAFO runs.</td></tr>
+    <tr><td>SDRplay RSP1A</td><td>~$110</td><td>Wide capture like the Airspy for less; needs the SDRplay driver (a bit more setup).</td></tr>
+    <tr><td>Third RTL-SDR</td><td>~$35</td><td>ADS-B and ACARS full-time instead of time-shared.</td></tr>
+    <tr><td>NVMe HAT + 256 GB SSD</td><td>~$45</td><td>Faster and far more durable than microSD for a node that runs for years.</td></tr>
+    <tr><td>Outdoor 800 MHz / 1090 MHz antenna</td><td>varies</td><td>The single biggest reception upgrade. (An indoor ADS-B antenna on the RGV node heard zero aircraft while the community feed saw twelve.)</td></tr>
+  </table>
+
+  <div class="note"><b>Notes.</b> <b>Why two RTL-SDRs, not an Airspy:</b> two $40 dongles give every student both halves of JAFO (P25 on one, the sky on the other) and teach more: per-dongle serials, SDR windows, and a smart time-share. The trade-off vs. the Airspy's wide window is fewer simultaneous voice captures on a very busy system; fine for a workshop and most cities. <b>Production reference:</b> the RGV node runs an <b>Airspy R2</b> on P25 plus <b>one RTL-SDR shared</b> between ADS-B and ACARS. <b>Sources:</b> Pi 5: PiShop/Adafruit/CanaKit · RTL-SDR V4: rtl-sdr.com · Airspy: airspy.us · SDRplay: sdrplay.com. <b>3D case:</b> we supply the STL (fits Pi 5 + 2× V4 + fan, with antenna/USB cut-outs); ~$4 in filament self-printed, ~$15–25 printed to order. <b>Bulk:</b> expect modest per-unit savings ordering 20+ seats.</div>
+</div>
+</body>
+</html>

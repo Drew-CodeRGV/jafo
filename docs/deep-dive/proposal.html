@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JAFO Deep Dive Proposal · WLPC 2027 Phoenix</title>
+<style>
+@page { size: Letter; margin: 0 0 0.45in 0; }
+:root { --ink:#141b2d; --muted:#556070; --blue:#1f4fd1; --blue-2:#2f6bff; --navy:#0b1324; --rule:#d9dee8;
+  --green:#178a4a; --blue-bg:#edf2ff; --amber-bg:#fff5e6; --amber:#e8900c;
+  --sans:'Liberation Sans', Arial, sans-serif; --mono:'DejaVu Sans Mono', monospace; }
+* { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+html,body { margin:0; padding:0; }
+body { font-family:var(--sans); color:var(--ink); font-size:8.6pt; line-height:1.3; }
+code { font-family:var(--mono); font-size:8.2pt; background:#eef2fb; color:#1d3fa8; padding:0 3px; border-radius:3px; }
+.band { background:linear-gradient(120deg,#0b1324 0%,#14224a 60%,#0e1a38 100%); color:#fff; padding:.22in .5in .2in; display:flex; gap:.28in; align-items:center; border-bottom:3pt solid var(--blue-2); }
+.band img { width:1.15in; filter:drop-shadow(0 0 14px rgba(60,120,255,.5)); }
+.k { font-family:var(--mono); letter-spacing:.3em; color:#6f9bff; font-size:8pt; font-weight:700; }
+.band h1 { font-size:20pt; margin:4pt 0 3pt; line-height:1.12; }
+.band .sub { color:#dbe4ff; font-size:10.5pt; }
+.band .who { font-family:var(--mono); font-size:7.6pt; color:#8fa3c8; margin-top:6pt; letter-spacing:.04em; }
+.wrap { padding:.14in .5in 0; }
+p { margin:0 0 6pt; }
+h2 { font-size:10.5pt; color:var(--blue); margin:7pt 0 4pt; padding-bottom:3pt; border-bottom:1px solid var(--rule); }
+.facts { display:grid; grid-template-columns:1fr 1fr; gap:3pt 22pt; background:var(--blue-bg); border-left:3pt solid var(--blue); border-radius:4px; padding:5pt 11pt; margin:5pt 0 2pt; }
+.facts .l { font-family:var(--mono); font-size:7pt; letter-spacing:.18em; color:var(--blue); font-weight:700; }
+.facts div div { margin-bottom:1pt; }
+ul { margin:0 0 4pt; padding-left:15pt; }
+li { margin:0 0 1pt; }
+.agenda { display:flex; gap:14pt; }
+.agenda > div { flex:1; }
+table { width:100%; border-collapse:collapse; font-size:7.9pt; line-height:1.28; }
+th { text-align:left; color:#fff; font-family:var(--mono); font-size:7.4pt; letter-spacing:.12em; padding:4pt 7pt; }
+td { padding:2.2pt 6pt; border-bottom:1px solid var(--rule); vertical-align:top; }
+td:first-child { font-weight:700; width:40%; }
+.d1 th { background:var(--blue); } .d1 tr:nth-child(even) td { background:#f3f6fd; }
+.d2 th { background:var(--green); } .d2 tr:nth-child(even) td { background:#eef8f2; }
+td .t { display:inline; margin-left:3pt; font-family:var(--mono); font-weight:400; font-size:7pt; color:var(--muted); }
+.needs { background:var(--amber-bg); border-left:3pt solid var(--amber); border-radius:4px; padding:5pt 11pt; font-size:8pt; margin-top:6pt; }
+</style>
+</head>
+<body>
+<div class="band">
+  <img src="jafo-heli.png" alt="JAFO helicopter">
+  <div>
+    <div class="k">WLPC 2027 · PHOENIX · DEEP DIVE PROPOSAL</div>
+    <h1>JAFO — Build Your Own Passive Radio Observatory</h1>
+    <div class="sub">Two afternoons. One Raspberry Pi. A working signals observatory you take home.</div>
+    <div class="who">Drew Lentz · KE5ZJO · drew@drewlentz.com · jafo.live</div>
+  </div>
+</div>
+<div class="wrap">
+  <p>Over two afternoons, every student builds a working <b>JAFO</b>: a Raspberry Pi kit (~$244) that passively listens to the local <b>P25 public-safety radio system</b> and the sky above it, turns what it hears into <b>plain-English incidents with AI</b>, and reports to a live shared site at <code>jafo.live</code>. <b>Day 1 builds a P25 receiver by hand in GNU Radio</b>, so nothing is a black box. <b>Day 2 layers on the JAFO stack</b>: one command that self-configures and joins the fleet, Claude turning calls into incidents and unit timelines, privacy and the law, and ADS-B + ACARS from the sky. <b>Everyone goes home with a working station</b> for their own community.</p>
+
+  <div class="facts">
+    <div>
+      <div class="l">FORMAT</div><div>WLPC Deep Dive: two 3-hour sessions (Day 1 + Day 2 PM)</div>
+      <div class="l">LEVEL</div><div>Intermediate · comfortable in a Linux terminal · no RF/SDR experience needed</div>
+      <div class="l">SEATS</div><div>16–24 (1 instructor + 1–2 TAs)</div>
+    </div>
+    <div>
+      <div class="l">TAKE-HOME KIT</div><div>~$244/seat · Pi 5, 2× RTL-SDR V4, antennas, cooler, powered hub (yours to keep)</div>
+      <div class="l">PRESENTER</div><div>Drew Lentz · KE5ZJO</div>
+      <div class="l">UPGRADE PATH</div><div>Airspy R2 for a production-grade node (demoed, optional)</div>
+    </div>
+  </div>
+
+  <h2>What every student leaves with</h2>
+  <ul>
+    <li>A <b>working JAFO node</b> they built and understand, the <b>hardware kit</b> to run it anywhere, and a <b>GNU Radio / OP25</b> skillset to decode P25 by hand.</li>
+    <li>A working grasp of the <b>AI layer</b>: how radio calls become incidents, units and a timeline.</li>
+    <li>A clear answer to <b>"is this legal, and what should I hide?"</b></li>
+    <li>Their node <b>live on the jafo.live fleet</b>, contributing to a shared dataset.</li>
+  </ul>
+
+  <h2>The two-afternoon agenda</h2>
+  <div class="agenda">
+    <div><table class="d1">
+      <tr><th colspan="2">DAY 1 · UNDERSTAND IT — PHOTONS TO P25</th></tr>
+      <tr><td>Welcome &amp; kit unboxing<span class="t">M0 · 15m</span></td><td>the story, a tour of jafo.live, inventory</td></tr>
+      <tr><td>Hardware tour + RF 101<span class="t">M1 · 25m</span></td><td>what each device does; frequency, bandwidth, gain, the signal chain</td></tr>
+      <tr><td>P25 &amp; trunking primer<span class="t">M2 · 30m</span></td><td>control channels, voice grants, talkgroups, encryption</td></tr>
+      <tr><td>Flash the Pi &amp; first boot<span class="t">M3 · 20m</span></td><td>headless image, SSH, V4 drivers, both dongles verified</td></tr>
+      <tr><td>GNU Radio, behind the scenes<span class="t">M4 · 45m</span></td><td>see spectrum; the SDR ↔ GNU Radio interface; build an FM receiver</td></tr>
+      <tr><td>Live P25 decode (OP25)<span class="t">M5–M6 · 35m</span></td><td>lock the control channel and follow real calls, by hand</td></tr>
+    </table></div>
+    <div><table class="d2">
+      <tr><th colspan="2">DAY 2 · SHIP IT — RECEIVER TO OBSERVATORY</th></tr>
+      <tr><td>From decode to a pipeline<span class="t">M7 · 15m</span></td><td>record, filter, transcribe, enrich, serve; the edge/hub split</td></tr>
+      <tr><td>One-command install<span class="t">M8 · 35m</span></td><td>locate → pull the system from RadioReference → self-configure → register</td></tr>
+      <tr><td>The brain<span class="t">M9 · 30m</span></td><td>Whisper transcripts; Claude links calls into incidents, tracks unit status, explains codes</td></tr>
+      <tr><td>Privacy, ethics &amp; the law<span class="t">M10 · 15m</span></td><td>two-layer redaction, block-level locations; why listening is legal</td></tr>
+      <tr><td>Views + "many ears"<span class="t">M11 · 35m</span></td><td>Briefing, Map, Console, wall displays; ADS-B + ACARS time-share</td></tr>
+      <tr><td>Join the fleet, take it home<span class="t">M12 · 25m</span></td><td>live on jafo.live; heat and retention; plug in anywhere, it re-homes itself</td></tr>
+    </table></div>
+  </div>
+
+  <h2>Why it fits WLPC</h2>
+  <ul>
+    <li><b>Hands-on, take-home hardware</b>, the Deep Dive hallmark. Everyone walks out with a device they built.</li>
+    <li><b>Real RF fundamentals</b>: SDR, antennas, GNU Radio and trunked-system decoding, from first principles, plus the sky: <b>ADS-B</b> aircraft and <b>ACARS</b> datalink sharing one radio.</li>
+    <li><b>Modern, practical AI</b>: speech-to-text plus an LLM that links calls into incidents and tracks every unit's status, on a $244 kit, not a buzzword.</li>
+    <li><b>Responsible by design</b>: a full module on privacy, redaction and the law, the questions everyone asks first about public-safety radio.</li>
+    <li><b>Community by design</b>: every node joins a growing fleet; the more people build one, the better the shared picture.</li>
+  </ul>
+
+  <div class="needs"><b>What it needs from WLPC</b> (instructor handles the rest): a dedicated SSID/VLAN or switch for the Pis; a shared outdoor/window-mounted 800 MHz antenna feed to the room (indoor reception is the one real risk; I bring a recorded-IQ fallback so every decode milestone lands); and standard bench power. I pre-scope the Phoenix system and pre-cache its RadioReference data.</div>
+</div>
+</body>
+</html>

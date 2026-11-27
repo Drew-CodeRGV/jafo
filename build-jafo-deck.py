@@ -7,6 +7,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml.ns import qn
 import copy
+import os
 
 LOGO = "pi/web/static/logo.png"
 OUT  = "jafo-overview.pptx"
@@ -138,6 +139,38 @@ def notes(slide, text):
     slide.notes_slide.notes_text_frame.text = text
 
 
+MEDIA = "docs/media"
+
+def shot(slide, name, x, y, w=None, h=None, crop_top=0.0, crop_bottom=0.0, border=BLUE_DK):
+    """Screenshot with a thin frame. Keeps aspect ratio (after cropping); give w or h.
+    Returns (w, h) actually used, or None if the file is missing."""
+    path = os.path.join(MEDIA, name)
+    if not os.path.exists(path):
+        print("missing screenshot, skipped:", path)
+        return None
+    from PIL import Image
+    with Image.open(path) as im:
+        iw, ih = im.size
+    vis_h = ih * (1 - crop_top - crop_bottom)
+    ratio = iw / vis_h
+    if w is None:
+        w = int(h * ratio)
+    else:
+        h = int(w / ratio)
+    rect(slide, x - Inches(0.03), y - Inches(0.03), w + Inches(0.06), h + Inches(0.06),
+         BG2, line=border, line_w=Pt(1.0))
+    pic = slide.shapes.add_picture(path, x, y, width=w, height=h)
+    if crop_top or crop_bottom:
+        pic.crop_top = crop_top
+        pic.crop_bottom = crop_bottom
+        pic.width, pic.height = w, h
+    return (w, h)
+
+
+def caption(slide, x, y, w, text, col=GREY_DK, align=PP_ALIGN.LEFT):
+    txt(slide, x, y, w, Inches(0.3), [[R(text, 10.5, col, False, MONO)]], align=align)
+
+
 # ======================================================================
 # SLIDE 1 — TITLE
 # ======================================================================
@@ -156,8 +189,8 @@ txt(s, Inches(0.55), Inches(2.3), Inches(6.3), Inches(2.2),
     space_after=4)
 txt(s, Inches(0.6), Inches(4.8), Inches(6.2), Inches(1.6),
     [[R("Hear the whole Rio Grande Valley in real time —", 17, GREY, False, SANS)],
-     [R("capture, transcribe, and classify unencrypted", 17, GREY, False, SANS)],
-     [R("public-safety radio on a single Raspberry Pi 5.", 17, GREY, False, SANS)]],
+     [R("unencrypted public-safety radio, captured on a", 17, GREY, False, SANS)],
+     [R("Raspberry Pi 5, told as plain-English stories.", 17, GREY, False, SANS)]],
     space_after=2, line_spacing=1.1)
 txt(s, Inches(0.6), Inches(6.55), Inches(8), Inches(0.5),
     [[R("Technical overview  ·  KE5ZJO  ·  ", 12, GREY_DK, False, MONO),
@@ -261,18 +294,18 @@ s = prs.slides.add_slide(BLANK)
 bg(s)
 header(s, "ORIENTATION", "What JAFO is")
 txt(s, Inches(0.6), Inches(1.8), Inches(7.3), Inches(1.4),
-    [[R("A single-Pi, self-hosted ", 19, GREY, False, SANS),
-      R("observatory for unencrypted public-safety radio", 19, WHITE, True, SANS),
-      R(" in the RGV. It listens to the ", 19, GREY, False, SANS),
-      R("Lower Rio Grande Valley Regional Radio System", 19, BLUE, True, SANS),
+    [[R("A Raspberry Pi ", 18, GREY, False, SANS),
+      R("observatory for unencrypted public-safety radio", 18, WHITE, True, SANS),
+      R(" in the RGV. It listens to the ", 18, GREY, False, SANS),
+      R("Lower Rio Grande Valley Regional Radio System", 18, BLUE, True, SANS),
       R(" — a P25 Phase 1 trunked system across Hidalgo, Cameron, Willacy, Starr & Brooks counties.",
-        19, GREY, False, SANS)]], line_spacing=1.12)
-bullet(s, Inches(0.6), Inches(4.05), Inches(7.3), [
+        18, GREY, False, SANS)]], line_spacing=1.1)
+bullet(s, Inches(0.6), Inches(3.62), Inches(7.3), [
     ("Passive & receive-only.", "No transmit, no decryption — just what's already in the clear."),
-    ("Not police voice", "(that's encrypted) — but fire, EMS, schools, constables, public works, plus everyone's traffic patterns.", GREY),
-    ("Everything local.", "SQLite DB + audio on disk, served from the box. No cloud servers, no S3."),
+    ("Police where it's in the clear", "— many PD dispatch channels are; some agencies encrypt. Plus fire, EMS, schools, constables, public works, and everyone's traffic patterns.", GREY),
+    ("Edge + hub.", "The Pi (edge) captures and keeps only the last 4 hours of audio. The jafo.live hub is the system of record — 14 days of audio — and runs the heavy AI."),
     ("Built to put itself out of a job —", "advocacy for the City to publish a public CAD feed.", GREY),
-])
+], size=15)
 # right panel: the why / identity
 px = Inches(8.2)
 rect(s, px, Inches(1.8), Inches(4.55), Inches(4.7), BG2, line=BLUE_DK, line_w=Pt(1.25))
@@ -290,6 +323,13 @@ txt(s, px + Inches(0.3), Inches(4.55), Inches(4.0), Inches(1.8),
      [R("WACN        0xBEE00", 15, WHITE, False, MONO)],
      [R("NAC         0x2B1  (Pharr)", 15, WHITE, False, MONO)],
      [R("Band        851–856 MHz", 15, GREY, False, MONO)]], space_after=5)
+notes(s, "What JAFO is today. It listens to the Lower Rio Grande Valley Regional Radio System — "
+         "P25 Phase 1, trunked, five counties. It is passive and receive-only: no transmitting, no "
+         "decryption, only what is already in the clear. It started as everything-on-one-box; now "
+         "it's an edge + hub design. The Raspberry Pi at the edge captures the radio and keeps just "
+         "the last four hours of audio. The cloud hub at jafo.live is the system of record — it keeps "
+         "14 days of audio — and it runs the heavy AI: transcription and incident building. That "
+         "keeps the Pi light and lets more than one node feed the same hub.")
 
 # ======================================================================
 # SLIDE — CAPABILITIES (one Pi, many ears)
@@ -322,7 +362,7 @@ txt(s, rx + Inches(0.25), Inches(1.9), Inches(5.3), Inches(0.4),
 _brain = [
     ("Auto-transcription", "bilingual EN / ES, ~1s"),
     ("Auto talkgroup ID", "named from RadioReference"),
-    ("Incident extraction", "type · location · units · severity"),
+    ("Incidents + units", "calls linked into stories, unit status tracked"),
     ("News stories + digests", "plain-English briefings"),
     ("Situational awareness", "radio + sky + ground, one live map"),
 ]
@@ -332,15 +372,16 @@ txt(s, rx + Inches(0.25), Inches(2.42), Inches(5.3), Inches(3.9),
     space_after=13, line_spacing=1.05)
 rect(s, Inches(0.6), Inches(6.5), Inches(12.13), Inches(0.42), BG2, line=GREEN, line_w=Pt(1.25))
 txt(s, Inches(0.6), Inches(6.5), Inches(12.13), Inches(0.42),
-    [[R("All self-contained on a single Raspberry Pi.", 15, GREEN, True, SANS)]],
+    [[R("Captured on a Raspberry Pi at the edge — the heavy AI runs on the jafo.live hub.", 15, GREEN, True, SANS)]],
     align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 notes(s, "What it does: one script sets up a brand-new Raspberry Pi — it identifies where it is, "
          "reaches out to RadioReference, pulls in all the P25 data, sets itself up, builds the "
          "maps, reports live back to jafo.live, adds itself to the fleet, and starts reporting. It "
          "automatically identifies talkgroups, auto-transcribes, and builds news stories and "
          "digests. It gives you situational awareness combined with the airliners and helicopters "
-         "flying overhead — plus access to rail, maritime, business VHF/UHF, and weather. All "
-         "self-contained on a Raspberry Pi.")
+         "flying overhead — plus access to rail, maritime, business VHF/UHF, and weather. The radios "
+         "and capture live on the Raspberry Pi; transcription and incident building run on the "
+         "jafo.live hub.")
 
 # ======================================================================
 # SLIDE — THE PIPELINE
@@ -349,16 +390,16 @@ s = prs.slides.add_slide(BLANK)
 bg(s)
 header(s, "THE PIPELINE", "RF in → searchable intel out")
 stages = [
-    ("RF CAPTURE", "SDR + trunk-recorder", "decode P25 control,\nrecord voice → WAV", BLUE, "$0"),
-    ("FILTER", "Silero VAD + Opus", "drop 80–90% junk,\nencode survivors", BLUE, "$0"),
-    ("TRANSCRIBE", "Groq Whisper", "large-v3-turbo,\nEN/ES, ~1s latency", AMBER, "~$1–3/mo"),
-    ("ENRICH", "Claude Haiku", "structured incident\nJSON extraction", AMBER, "~$2–5/mo"),
-    ("SERVE", "Flask + nginx", "timeline, search,\naudio, map, API", GREEN, "$0"),
+    ("RF CAPTURE", "trunk-recorder", "decode P25 control,\nrecord voice → WAV", BLUE, "$0", "EDGE · Pi"),
+    ("FILTER", "Silero VAD + Opus", "drop 80–90% junk,\nencode, upload to hub", BLUE, "$0", "EDGE · Pi"),
+    ("TRANSCRIBE", "Groq Whisper", "large-v3-turbo,\nEN/ES, ~1s latency", AMBER, "pay-as-you-go", "HUB · jafo.live"),
+    ("ENRICH", "Claude Haiku 5.5", "enricher v2: incidents,\nunits, block, redaction", AMBER, "pay-as-you-go", "HUB · jafo.live"),
+    ("SERVE", "Flask + nginx", "briefing, map, walls,\npush alerts, API", GREEN, "$0", "HUB + Pi"),
 ]
 n = len(stages)
 cw = Inches(2.28); gap = Inches(0.13)
 x0 = Inches(0.6); y0 = Inches(2.15); ch = Inches(2.7)
-for i, (t, sub, desc, col, cost) in enumerate(stages):
+for i, (t, sub, desc, col, cost, where) in enumerate(stages):
     x = x0 + i * (cw + gap)
     rect(s, x, y0, cw, ch, BG2, line=col, line_w=Pt(1.5))
     rect(s, x, y0, cw, Inches(0.12), col)
@@ -371,39 +412,52 @@ for i, (t, sub, desc, col, cost) in enumerate(stages):
         line_spacing=1.05)
     txt(s, x + Inches(0.14), y0 + ch - Inches(0.42), cw - Inches(0.28), Inches(0.35),
         [[R(cost, 13, (GREEN if cost == "$0" else AMBER), True, MONO)]])
+    txt(s, x, y0 - Inches(0.36), cw, Inches(0.3),
+        [[R(where, 11, GREY_DK, True, MONO)]], align=PP_ALIGN.CENTER)
     if i < n - 1:
         ar = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW,
                                 x + cw - Inches(0.02), y0 + ch/2 - Inches(0.12),
                                 gap + Inches(0.04), Inches(0.24))
         solid(ar, col)
 txt(s, Inches(0.6), Inches(5.3), Inches(12.1), Inches(1.0),
-    [[R("One SQLite database is the spine.", 16, WHITE, True, SANS),
-      R("  A call row evolves through stages — processor inserts it, transcriber adds text, "
-        "enricher adds the incident JSON. NULL columns mean “stage not done yet,” so any "
-        "service can crash and resume exactly where it left off. WAL mode keeps readers and "
-        "writers safe across processes.", 16, GREY, False, SANS)]], line_spacing=1.12)
-chip(s, Inches(0.6), Inches(6.3), Inches(2.9), Inches(0.62), "THROUGHPUT", "~300 calls/day")
-chip(s, Inches(3.7), Inches(6.3), Inches(2.9), Inches(0.62), "ALL-IN COST", "~$3–8 / month", vcol=GREEN)
-chip(s, Inches(6.8), Inches(6.3), Inches(2.9), Inches(0.62), "FILTER YIELD", "80–90% dropped")
-chip(s, Inches(9.9), Inches(6.3), Inches(2.82), Inches(0.62), "CLOUD SERVERS", "zero", vcol=GREEN)
+    [[R("A call row is the spine.", 16, WHITE, True, SANS),
+      R("  The Pi's processor inserts it and uploads the audio; on the hub the transcriber adds "
+        "text and the enricher links it into an incident. NULL columns mean “stage not done "
+        "yet,” so any service can crash and resume where it left off. SQLite in WAL mode on both ends.",
+        16, GREY, False, SANS)]], line_spacing=1.12)
+chip(s, Inches(0.6), Inches(6.3), Inches(2.9), Inches(0.62), "CALLS / DAY", "~6,000")
+chip(s, Inches(3.7), Inches(6.3), Inches(2.9), Inches(0.62), "INCIDENTS / DAY", "~220", vcol=AMBER)
+chip(s, Inches(6.8), Inches(6.3), Inches(2.9), Inches(0.62), "UNITS TRACKED", "~500")
+chip(s, Inches(9.9), Inches(6.3), Inches(2.82), Inches(0.62), "AUDIO KEPT", "Pi 4 h · hub 14 d", vcol=GREEN)
+notes(s, "The pipeline, left to right. On the Pi: trunk-recorder follows the P25 control channel "
+         "and records each voice call; Silero VAD throws away the 80 to 90 percent that's noise or "
+         "too short, and the survivors are encoded to Opus and uploaded to the hub. On the hub: Groq "
+         "runs Whisper large-v3-turbo for English and Spanish transcripts, and Claude Haiku 5.5 — "
+         "what we call enricher v2 — turns each call into part of an incident. The capture stages "
+         "cost nothing to run; the two AI stages are pay-as-you-go APIs. Real volume today: about "
+         "6,000 calls a day, about 220 incidents a day, roughly 500 units tracked. The Pi keeps four "
+         "hours of audio; the hub keeps fourteen days.")
 
 # ======================================================================
 # SLIDE 4 — THE FIVE SERVICES (detail)
 # ======================================================================
 s = prs.slides.add_slide(BLANK)
 bg(s)
-header(s, "PIPELINE DETAIL", "Five systemd services")
+header(s, "PIPELINE DETAIL · EDGE + HUB", "Five core services")
 rows = [
-    ("jafo-recorder", "trunk-recorder v5.2.x (compiled)",
+    ("jafo-recorder", "Pi · trunk-recorder v5.2.x",
      "Decodes the P25 control channel, captures voice calls to WAV. Reads config.json.", "$0"),
-    ("jafo-processor", "Silero VAD · ffmpeg/Opus",
-     "Drops no-speech/too-short calls, encodes survivors to Opus 16 kHz mono 32 kbps, inserts DB row.", "$0"),
-    ("jafo-transcriber", "Groq whisper-large-v3-turbo",
-     "Polls for kept calls w/ no transcript, sends Opus, writes text back. Bilingual EN/ES, ~0.3–1.0 s.", "~$1–3/mo"),
-    ("jafo-enricher", "Anthropic claude-haiku-4-5",
-     "Polls for transcribed calls, extracts {type, summary, location, units, severity} as JSON.", "~$2–5/mo"),
-    ("jafo-web", "Flask on :8080 ← nginx :80",
-     "Timeline + talkgroup groups + FTS5 search + range audio streaming + map + news desk + JSON API.", "$0"),
+    ("jafo-processor", "Pi · Silero VAD · ffmpeg/Opus",
+     "Drops no-speech/too-short calls, encodes survivors to Opus 16 kHz mono 32 kbps, inserts the row, "
+     "uploads to the hub. Keeps only the last 4 hours on the Pi.", "$0"),
+    ("jafo-transcriber", "Hub · Groq Whisper",
+     "Picks up calls with no transcript, sends the Opus to whisper-large-v3-turbo, writes text back. "
+     "Bilingual EN/ES, ~0.3–1.0 s.", "pay-as-you-go"),
+    ("jafo-enricher", "Hub · claude-haiku-5-5 (v2)",
+     "One plain-English line per call; links it to a new or ongoing incident; tracks unit status; "
+     "pins the block; explains radio codes; returns what to redact.", "pay-as-you-go"),
+    ("jafo-web", "Hub + Pi · Flask ← nginx",
+     "Briefing, Near me, Map, Console, wall displays, push alerts, search, audio streaming, JSON API.", "$0"),
 ]
 y = Inches(1.85); rh = Inches(1.0)
 for i, (name, tech, desc, cost) in enumerate(rows):
@@ -416,53 +470,260 @@ for i, (name, tech, desc, cost) in enumerate(rows):
         anchor=MSO_ANCHOR.MIDDLE, space_after=3)
     txt(s, Inches(4.0), yy + Inches(0.1), Inches(7.1), rh - Inches(0.2),
         [[R(desc, 14, GREY, False, SANS)]], anchor=MSO_ANCHOR.MIDDLE, line_spacing=1.05)
-    txt(s, Inches(11.2), yy + Inches(0.1), Inches(1.4), rh - Inches(0.2),
-        [[R(cost, 13, (GREEN if cost == "$0" else AMBER), True, MONO)]],
+    txt(s, Inches(11.0), yy + Inches(0.1), Inches(1.65), rh - Inches(0.2),
+        [[R(cost, 12, (GREEN if cost == "$0" else AMBER), True, MONO)]],
         anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.RIGHT)
+notes(s, "The five core services. Recorder and processor run on the Pi, next to the radios. "
+         "Transcriber and enricher run on the jafo.live hub, so the Pi stays cool and light. The web "
+         "app runs in both places: jafo.live for the public, jafo.local on the Pi for the same views "
+         "on the local network. The enricher is the interesting one now — Claude Haiku 5.5, model "
+         "claude-haiku-5-5. For every call it writes one plain-English line, decides whether the call "
+         "belongs to an incident already in progress or starts a new one, updates unit status, pins "
+         "the location to the block, explains radio codes, and hands back a list of private bits to "
+         "redact. The two AI services are pay-as-you-go APIs.")
 
 # ======================================================================
-# SLIDE 5 — WHAT YOU CAN ACCESS
+# SLIDE — FROM CALLS TO INCIDENTS (enricher v2)
 # ======================================================================
 s = prs.slides.add_slide(BLANK)
 bg(s)
-header(s, "ACCESS", "What you can get at")
-cols = [
-    ("LIVE WEB UI", "http://jafo.local", BLUE, [
-        "Timeline of calls, live-polling",
-        "Talkgroup filter — by service / city",
-        "FTS5 full-text search (transcripts + summaries)",
-        "In-browser audio playback (audio/ogg)",
-        "Per-call detail + structured incident",
-        "Map / OSINT & analyst views",
-        "Spectrum plan + SDR-mode toggle",
-    ]),
-    ("SIGNALS BEYOND P25", "same box, extra SDR modes", AMBER, [
-        "ADS-B aircraft tracking + lookup",
-        "ACARS message decode",
-        "Shared RTL: ADS-B ⇄ ACARS via sdr-mode.sh",
-        "Conventional / non-trunked scan tools",
-        "Cell-site + FCC ASR ingest (OSINT demo)",
-    ]),
-    ("DATA & PLATFORM", "APIs, hub, pipeline", GREEN, [
-        "JSON API: /api/calls, /search, /stats, /health",
-        "Share cards: PNG / MP4 / MP3 per call or story",
-        "News Desk: stories, ticker, editions, moderation",
-        "jafo.live cloud hub — multi-node system of record",
-        "Otter renderer → n8n video pipeline",
-        "Admin: fleet/nodes, regions, LLM-eval",
-    ]),
+header(s, "ENRICHER V2 · ON THE HUB", "From calls to incidents")
+txt(s, Inches(0.6), Inches(1.68), Inches(6.4), Inches(0.4),
+    [[R("Every transcribed call goes to ", 14, GREY, False, SANS),
+      R("Claude Haiku 5.5", 14, AMBER, True, SANS),
+      R(" with the incidents already open. It returns:", 14, GREY, False, SANS)]])
+_v2 = [
+    ("One plain-English line", "— what was actually said, without the jargon."),
+    ("An incident link", "— joins an ongoing incident or opens a new one."),
+    ("Unit status", "— who's dispatched, on the way, on scene, transporting, available."),
+    ("A location, to the block", "— geocoded; the house number is never stored."),
+    ("Radio codes explained", "— 10-codes and local shorthand, decoded."),
+    ("A redact list", "— private substrings to scrub before anything is shown."),
 ]
-cw = Inches(3.95); x0 = Inches(0.6); gap = Inches(0.17); y0 = Inches(1.85)
-for i, (title, sub, col, items) in enumerate(cols):
-    x = x0 + i * (cw + gap)
-    rect(s, x, y0, cw, Inches(5.0), BG2, line=col, line_w=Pt(1.5))
-    rect(s, x, y0, cw, Inches(0.75), col)
-    txt(s, x + Inches(0.2), y0 + Inches(0.08), cw - Inches(0.4), Inches(0.7),
-        [[R(title, 16, BG, True, SANS)], [R(sub, 11, BG, False, MONO)]],
-        space_after=1)
-    txt(s, x + Inches(0.22), y0 + Inches(0.95), cw - Inches(0.44), Inches(3.9),
-        [[R("• ", 13, col, True, SANS), R(it, 13.5, GREY, False, SANS)] for it in items],
-        space_after=8, line_spacing=1.05)
+txt(s, Inches(0.6), Inches(2.2), Inches(6.4), Inches(4.0),
+    [[R("▸ ", 14, AMBER, True, SANS), R(a + " ", 14.5, WHITE, True, SANS),
+      R(b, 13.5, GREY, False, SANS)] for a, b in _v2],
+    space_after=9, line_spacing=1.05)
+# unit status chain
+_st = [("DISPATCHED", AMBER), ("ON THE WAY", BLUE), ("ON SCENE", RED),
+       ("TRANSPORTING", GREEN), ("AVAILABLE", GREY)]
+_sx = Inches(0.6); _sw = Inches(1.08); _sg = Inches(0.25)
+for _i, (_lbl, _c) in enumerate(_st):
+    rect(s, _sx, Inches(6.2), _sw, Inches(0.5), BG2, line=_c, line_w=Pt(1.25))
+    txt(s, _sx, Inches(6.2), _sw, Inches(0.5), [[R(_lbl, 9.5, _c, True, MONO)]],
+        align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    if _i < len(_st) - 1:
+        txt(s, _sx + _sw, Inches(6.2), _sg, Inches(0.5), [[R("→", 13, GREY_DK, True, SANS)]],
+            align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    _sx = _sx + _sw + _sg
+# right: wall display + example
+_r = shot(s, "wall-command.png", Inches(7.3), Inches(1.75), w=Inches(5.4))
+if _r:
+    caption(s, Inches(7.3), Inches(1.75) + _r[1] + Inches(0.06), Inches(5.4),
+            "Command wall: incidents, units by status, radio volume")
+rect(s, Inches(7.3), Inches(5.2), Inches(5.43), Inches(1.5), BG2, line=AMBER, line_w=Pt(1.5))
+txt(s, Inches(7.5), Inches(5.3), Inches(5.05), Inches(1.35),
+    [[R("EXAMPLE · FROM THE 12-HOUR BRIEFING", 10.5, AMBER, True, MONO)],
+     [R("Large warehouse fire on South Weaver in McAllen", 16, WHITE, True, SANS)],
+     [R("— twelve units, Rescue and Ladder. Dozens of radio calls, rolled into one story.",
+        13.5, GREY, False, SANS)]], space_after=4, line_spacing=1.08)
+notes(s, "This is the part that changed the most. The old enricher pulled a little JSON blob out of "
+         "each call in isolation. Enricher v2 sees each call alongside the incidents that are "
+         "already open. For every call, Claude Haiku 5.5 writes one plain-English line, decides "
+         "whether the call belongs to something already going on or starts a new incident, updates "
+         "the status of every unit it hears — dispatched, on the way, on scene, transporting, "
+         "available — pins the location to the block, never the house number, explains the radio "
+         "codes, and returns a list of private substrings to redact. The result: instead of "
+         "hundreds of separate radio clips, you get stories like 'Large warehouse fire on South "
+         "Weaver in McAllen — twelve units, Rescue and Ladder.' Today that's about 220 incidents a "
+         "day out of about 6,000 calls, with roughly 500 units tracked.")
+
+# ======================================================================
+# SLIDE — JAFO LIVE (the public views)
+# ======================================================================
+s = prs.slides.add_slide(BLANK)
+bg(s)
+header(s, "JAFO LIVE · jafo.live/live/<region>", "What you can get at")
+_iy = Inches(1.72); _ih = Inches(2.75)
+_x = Inches(0.6)
+for _name, _cap in [("briefing-12h.png", "Briefing · 12-hour recap"),
+                    ("console.png", "Console · pro view with River timeline"),
+                    ("map-phone.png", "Map · phone")]:
+    _r = shot(s, _name, _x, _iy, h=_ih)
+    if _r:
+        caption(s, _x, _iy + _ih + Inches(0.06), _r[0], _cap)
+        _x = _x + _r[0] + Inches(0.22)
+_views = [
+    (BLUE, [("Briefing", "plain-English front page: Now / 4h / 8h / 12h / 24h recap of the biggest incidents"),
+            ("Ranked by importance", "severity, units, radio volume, special resources (hazmat, air, rescue, ladder), duration")]),
+    (AMBER, [("Near me", "stories around places you choose"),
+             ("Map", "full screen — incidents, units, aircraft"),
+             ("Console", "multi-pane pro view with a River timeline")]),
+    (GREEN, [("Walls", "command · newsroom · grid · pulse · river"),
+             ("Extras", "web push alerts, TxDOT camera stills, NWS weather, About & privacy page"),
+             ("“N watching”", "city-level listener map; IPs never stored")]),
+]
+_cw = Inches(3.95); _gx = Inches(0.14)
+for _i, (_c, _items) in enumerate(_views):
+    _x = Inches(0.6) + _i * (_cw + _gx)
+    rect(s, _x, Inches(4.92), Inches(0.08), Inches(1.65), _c)
+    txt(s, _x + Inches(0.18), Inches(4.88), _cw - Inches(0.2), Inches(1.8),
+        [[R(a + "  ", 12.5, WHITE, True, SANS), R(b, 11.5, GREY, False, SANS)] for a, b in _items],
+        space_after=4, line_spacing=1.02)
+txt(s, Inches(0.6), Inches(6.72), Inches(12.1), Inches(0.3),
+    [[R("jafo.local", 11.5, BLUE, True, MONO),
+      R("  on the Pi serves the same views on the local network.", 11.5, GREY, False, SANS)]])
+notes(s, "This is what people actually see at jafo.live/live/<region>. The front door is the "
+         "Briefing: a plain-English front page. Pick Now, 4, 8, 12 or 24 hours and it writes a recap "
+         "of the biggest incidents, ranked by an importance score — severity, how many units, how "
+         "much radio traffic, whether special resources like hazmat, air, rescue or a ladder truck "
+         "went, and how long it lasted. Near me shows stories around places you pick. There's a "
+         "full-screen map, and the Console — a pro, multi-pane view with a River timeline along "
+         "the bottom. Five wall displays for TVs: command, newsroom, grid, pulse and river. Web push "
+         "alerts, TxDOT camera stills, National Weather Service weather, a public About & privacy "
+         "page, and an 'N watching' map that shows, city-level, where listeners are — from a local "
+         "IP lookup; the IPs themselves are never stored. And jafo.local on the Pi shows the same "
+         "views on your own network.")
+
+# ======================================================================
+# SLIDE — PRIVACY BY DESIGN
+# ======================================================================
+s = prs.slides.add_slide(BLANK)
+bg(s)
+header(s, "PRIVACY BY DESIGN", "Tell the story, not the person")
+# left panel: what's hidden
+rect(s, Inches(0.6), Inches(1.75), Inches(6.0), Inches(4.95), BG2, line=BLUE_DK, line_w=Pt(1.0))
+txt(s, Inches(0.85), Inches(1.9), Inches(5.5), Inches(0.4),
+    [[R("WHAT'S HIDDEN", 13, BLUE, True, MONO)]])
+bullet(s, Inches(0.85), Inches(2.35), Inches(5.55), [
+    ("House numbers →", "the block. “2200 block of South 10th Street,” never the address."),
+    ("Personal details —", "names, phone numbers, SSNs, dates of birth, license plates, radio IDs."),
+    ("ACARS crew names", "are scrubbed from aircraft messages."),
+], size=14)
+txt(s, Inches(0.85), Inches(4.45), Inches(5.5), Inches(0.4),
+    [[R("TWO LAYERS", 13, BLUE, True, MONO)]])
+txt(s, Inches(0.85), Inches(4.85), Inches(5.55), Inches(1.8),
+    [[R("1  ", 14, AMBER, True, MONO), R("AI redact list", 14, WHITE, True, SANS),
+      R(" — the model returns the private substrings in each call.", 13.5, GREY, False, SANS)],
+     [R("2  ", 14, AMBER, True, MONO), R("Pattern scrub", 14, WHITE, True, SANS),
+      R(" — regexes catch phone numbers, SSNs, plates, house numbers the model missed.",
+        13.5, GREY, False, SANS)]], space_after=8, line_spacing=1.05)
+# right column: three blocks
+_pb = [
+    (AMBER, "Sensitive calls are softened on walls.",
+     "Self-harm, mental health, death, sexual assault, child abuse — wall displays show a gentler "
+     "summary, since they run on TVs in public rooms."),
+    (GREEN, "Encrypted channels are never touched.",
+     "No decryption, no attempt. If it isn't in the clear, JAFO doesn't hear it."),
+    (RED, "Honest limit: audio is not bleeped.",
+     "Transcripts and summaries are scrubbed. The recording itself is the original radio call."),
+]
+_by = Inches(1.8)
+for _c, _lead, _body in _pb:
+    rect(s, Inches(6.95), _by, Inches(0.12), Inches(1.3), _c)
+    txt(s, Inches(7.25), _by - Inches(0.05), Inches(5.5), Inches(1.45),
+        [[R(_lead, 16, WHITE, True, SANS)], [R(_body, 13.5, GREY, False, SANS)]],
+        space_after=4, line_spacing=1.1)
+    _by = _by + Inches(1.68)
+notes(s, "Privacy is built into the pipeline, not bolted on. Locations are block-level by design — "
+         "the house number is never stored on an incident. Names, phone numbers, Social Security "
+         "numbers, dates of birth, license plates and radio IDs are hidden, and crew names are "
+         "scrubbed from ACARS. There are two layers: the model itself returns a redact list for "
+         "every call, and then a pattern-based scrub runs as a safety net for anything it missed. "
+         "Sensitive incidents — self-harm, mental health, death, sexual assault, child abuse — are "
+         "softened on the wall displays, because those run on TVs. Encrypted channels are never "
+         "touched. And to be honest about the limit: the audio is not bleeped. The text is "
+         "scrubbed; the recording is the original radio call.")
+
+# ======================================================================
+# SLIDE — WHY IT'S LEGAL
+# ======================================================================
+s = prs.slides.add_slide(BLANK)
+bg(s)
+header(s, "WHY IT'S LEGAL", "Listening to what's in the clear")
+txt(s, Inches(0.6), Inches(1.7), Inches(12.1), Inches(0.5),
+    [[R("Public-safety radio that anyone with a scanner can hear is open to the public by law. "
+        "Encrypted radio is not — and JAFO stays out of it.", 16, GREY, False, SANS)]],
+    line_spacing=1.1)
+_law = [
+    (BLUE, "18 U.S.C. § 2511(2)(g)", "FEDERAL",
+     "Permits intercepting radio from governmental, law-enforcement and public-safety systems "
+     "that is readily accessible to the general public."),
+    (AMBER, "18 U.S.C. § 2510(16)", "FEDERAL",
+     "Defines “readily accessible”: scrambled or encrypted radio is not. So decrypting would "
+     "be a different thing entirely."),
+    (GREEN, "Tex. Penal Code § 16.02(c)", "TEXAS",
+     "A similar Texas rule for radio readily accessible to the public. It treats police mobile "
+     "data terminals differently — JAFO listens to voice only."),
+]
+_cw = Inches(3.95); _gap = Inches(0.14)
+for _i, (_c, _cite, _tag, _body) in enumerate(_law):
+    _x = Inches(0.6) + _i * (_cw + _gap)
+    rect(s, _x, Inches(2.5), _cw, Inches(3.0), BG2, line=_c, line_w=Pt(1.5))
+    rect(s, _x, Inches(2.5), _cw, Inches(0.12), _c)
+    txt(s, _x + Inches(0.22), Inches(2.75), _cw - Inches(0.44), Inches(2.7),
+        [[R(_tag, 11, _c, True, MONO)], [R(_cite, 18, WHITE, True, SANS)],
+         [R(_body, 14, GREY, False, SANS)]], space_after=7, line_spacing=1.1)
+rect(s, Inches(0.6), Inches(5.75), Inches(12.13), Inches(0.75), BG2, line=BLUE_DK, line_w=Pt(1.0))
+txt(s, Inches(0.85), Inches(5.75), Inches(11.7), Inches(0.75),
+    [[R("In practice:  ", 14, WHITE, True, SANS),
+      R("receive-only, voice-only, no decryption, encrypted talkgroups skipped.  ", 14, GREY, False, SANS),
+      R("Not legal advice.", 14, AMBER, True, SANS)]], anchor=MSO_ANCHOR.MIDDLE)
+notes(s, "People always ask whether this is legal. The federal wiretap law has an explicit carve-out: "
+         "18 U.S.C. 2511(2)(g) permits intercepting radio communications from governmental, law "
+         "enforcement and public-safety systems that are readily accessible to the general public. "
+         "And 2510(16) defines that term — scrambled or encrypted radio is not readily accessible. "
+         "So listening in the clear is fine; breaking encryption would be a different matter, and "
+         "JAFO never tries. Texas Penal Code 16.02(c) has a similar rule, and it treats police mobile "
+         "data terminals differently — JAFO listens to voice only. This is the reasoning we publish "
+         "on the About page. It's not legal advice.")
+
+# ======================================================================
+# SLIDE — THE SKY (ADS-B + ACARS)
+# ======================================================================
+s = prs.slides.add_slide(BLANK)
+bg(s)
+header(s, "THE SKY · ADS-B + ACARS", "One RTL-SDR, two jobs")
+_sky = [
+    (BLUE, "ADS-B — aircraft on the map.",
+     "Popups show side-profile illustrations by aircraft type, in airline colours. Tracks are kept "
+     "48 h. When the Pi's antenna sees nothing, a community feed fills in: adsb.lol → adsb.fi → "
+     "airplanes.live."),
+    (AMBER, "ACARS — decoded into plain English.",
+     "“Took off from McAllen at 11:24 am, bound for Dallas–Fort Worth.”  “Position report: 53 mi "
+     "southeast of Matamoros at 38,980 ft…”  Pings and machine data are hidden; crew names scrubbed."),
+    (GREEN, "A smart time-share.",
+     "45 s ADS-B / 10 s ACARS. It skips ACARS when no airliners are in range, and backs off to "
+     "ADS-B legs of up to 6 minutes when ACARS is quiet."),
+]
+_by = Inches(1.8)
+for _c, _lead, _body in _sky:
+    rect(s, Inches(0.6), _by, Inches(0.12), Inches(1.25), _c)
+    txt(s, Inches(0.9), _by - Inches(0.05), Inches(7.1), Inches(1.45),
+        [[R(_lead, 17, WHITE, True, SANS)], [R(_body, 13.5, GREY, False, SANS)]],
+        space_after=4, line_spacing=1.1)
+    _by = _by + Inches(1.55)
+chip(s, Inches(0.6), Inches(6.12), Inches(3.4), Inches(0.62), "ACARS ARCHIVED", "13,400 messages", vcol=AMBER)
+chip(s, Inches(4.2), Inches(6.12), Inches(3.4), Inches(0.62), "AIRCRAFT TRACKS", "kept 48 hours")
+# right: aircraft popup illustration + decoded ACARS strip (phone crops)
+_ry = Inches(1.75); _rx = Inches(8.33); _rw = Inches(4.4)
+_r = shot(s, "aircraft-profile.png", _rx, _ry, w=_rw, crop_top=0.737)
+if _r:
+    caption(s, _rx, _ry + _r[1] + Inches(0.06), _rw, "Aircraft popup · type + airline illustration")
+    _ry = _ry + _r[1] + Inches(0.45)
+_r = shot(s, "map-aircraft.png", _rx, _ry, w=_rw, crop_top=0.8846, crop_bottom=0.0096)
+if _r:
+    caption(s, _rx, _ry + _r[1] + Inches(0.06), _rw, "Air tab · decoded ACARS + time-share status")
+notes(s, "The Pi has a second radio: one RTL-SDR that does two jobs. ADS-B puts aircraft on the "
+         "map — the popups have side-profile illustrations by aircraft type in airline colours, and "
+         "tracks are kept for 48 hours. If the Pi's antenna sees nothing, a community feed fills in, "
+         "falling back from adsb.lol to adsb.fi to airplanes.live. ACARS is the text datalink "
+         "airliners use, and JAFO decodes it into plain English: 'Took off from McAllen at 11:24 am, "
+         "bound for Dallas–Fort Worth', or a position report 53 miles southeast of Matamoros at "
+         "38,980 feet. Pings and machine data are hidden and crew names are scrubbed. The two share "
+         "the radio on a smart time-share: 45 seconds of ADS-B, 10 of ACARS; it skips ACARS when no "
+         "airliners are in range and backs off to ADS-B legs of up to six minutes when ACARS is "
+         "quiet. About 13,400 ACARS messages are archived so far.")
 
 # ======================================================================
 # SLIDE 6 — COMPONENTS NEEDED
@@ -474,18 +735,20 @@ header(s, "BILL OF MATERIALS", "What it takes to run one")
 txt(s, Inches(0.6), Inches(1.75), Inches(6), Inches(0.4),
     [[R("HARDWARE", 15, BLUE, True, MONO), R("   one-time ~$200–400", 13, GREY_DK, False, MONO)]])
 bullet(s, Inches(0.6), Inches(2.25), Inches(6.1), [
-    ("Raspberry Pi 5 (8 GB)", "+ official 27 W USB-C PSU + active cooler"),
+    ("Raspberry Pi 5 (8 GB)", "+ official 27 W USB-C PSU"),
+    ("Active cooling is mandatory —", "the production Pi runs at 72–78 °C.", RED),
     ("Powered USB hub —", "non-negotiable; SDRs draw too much for the Pi.", RED),
     ("256 GB+ SSD", "on an NVMe HAT (journal + DB + audio)"),
     ("800 MHz antenna", "mounted high — biggest single lever on decode"),
     ("One or more SDRs,", "auto-detected at install:"),
-], size=15)
-txt(s, Inches(0.95), Inches(5.25), Inches(5.9), Inches(1.8),
-    [[R("HackRF One + RTL-SDR", 13.5, WHITE, True, MONO), R("   standard config", 12, GREY, False, SANS)],
-     [R("HackRF One + SDRplay RSP", 13.5, WHITE, True, MONO), R("   better dynamic range", 12, GREY, False, SANS)],
-     [R("Airspy R2 (P25) + RTL (ADS-B)", 13.5, WHITE, True, MONO), R("   current RGV node", 12, AMBER, False, SANS)],
-     [R("HackRF / RSP alone", 13.5, WHITE, True, MONO), R("   single-SDR mode", 12, GREY, False, SANS)]],
-    space_after=6)
+], size=14)
+txt(s, Inches(0.95), Inches(5.3), Inches(5.9), Inches(1.7),
+    [[R("Airspy R2 (P25) + RTL-SDR", 13, WHITE, True, MONO), R("   current RGV node", 12, AMBER, True, SANS)],
+     [R("   RTL time-shared: ADS-B ⇄ ACARS (45 s / 10 s, smart)", 11.5, GREY, False, SANS)],
+     [R("HackRF One + RTL-SDR", 13, WHITE, True, MONO), R("   standard config", 12, GREY, False, SANS)],
+     [R("HackRF One + SDRplay RSP", 13, WHITE, True, MONO), R("   better dynamic range", 12, GREY, False, SANS)],
+     [R("HackRF / RSP alone", 13, WHITE, True, MONO), R("   single-SDR mode", 12, GREY, False, SANS)]],
+    space_after=3)
 # Software + APIs (right)
 rx = Inches(7.0)
 txt(s, rx, Inches(1.75), Inches(6), Inches(0.4),
@@ -501,11 +764,19 @@ rect(s, rx, Inches(4.75), Inches(5.73), Inches(2.1), BG2, line=AMBER, line_w=Pt(
 txt(s, rx + Inches(0.25), Inches(4.9), Inches(5.3), Inches(0.4),
     [[R("TWO PAID APIs", 15, AMBER, True, MONO), R("   free to start, pay-as-you-go", 12, GREY_DK, False, MONO)]])
 txt(s, rx + Inches(0.25), Inches(5.4), Inches(5.3), Inches(1.4),
-    [[R("Groq", 15, WHITE, True, SANS), R("  — Whisper transcription  (~$1–3/mo)", 14, GREY, False, SANS)],
-     [R("Anthropic", 15, WHITE, True, SANS), R("  — Claude Haiku enrichment  (~$2–5/mo)", 14, GREY, False, SANS)],
+    [[R("Groq", 15, WHITE, True, SANS), R("  — Whisper large-v3-turbo transcription", 14, GREY, False, SANS)],
+     [R("Anthropic", 15, WHITE, True, SANS), R("  — Claude Haiku 5.5 enrichment (v2)", 14, GREY, False, SANS)],
      [R("No keys? Capture + storage still run —", 13, GREY, False, SANS)],
      [R("you just lose transcripts & enrichment.", 13, GREY, False, SANS)]],
     space_after=5, line_spacing=1.05)
+notes(s, "What it takes to run one. A Raspberry Pi 5 with the official power supply, and active "
+         "cooling is not optional — the production Pi sits at 72 to 78 degrees C. A powered USB hub, "
+         "an NVMe SSD, and the antenna, mounted high, matters more than anything else. The current "
+         "RGV node runs an Airspy R2 for P25 and one RTL-SDR that time-shares between ADS-B and "
+         "ACARS — 45 seconds of one, 10 of the other, skipping ACARS when nothing's in range. The "
+         "other SDR combinations still work and are auto-detected at install. Two paid APIs, both "
+         "pay-as-you-go: Groq for Whisper transcription and Anthropic for Claude Haiku 5.5. Without "
+         "keys, capture and storage still run.")
 
 # ======================================================================
 # SLIDE 7 — QUICK START (new node)
