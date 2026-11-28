@@ -333,6 +333,12 @@ def live_build(slug: str):
     return render_template("build.html", view="build", **_page_ctx(slug))
 
 
+@bp.route("/live/<slug>/join")
+def live_join(slug: str):
+    """Request form: add your own station to jafo.live."""
+    return render_template("join.html", view="join", **_page_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     """Console: the multi-pane pro view, with the River timeline as a pane."""

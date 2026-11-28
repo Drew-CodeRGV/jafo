@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Add your station · JAFO Live</title>
+<meta name="description" content="Ask to add your own JAFO listening station to jafo.live.">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Public+Sans:wght@400..700&display=swap">
+<script>try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #141a24; --ink-2: #3d4757; --ink-3: #6b7585; --rule: #e2e6ee;
+  --accent: #1d4fd8; --ok: #11795a; --no: #b42318; --soft: #eef2fb;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+    --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+  --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16.5px/1.6 var(--f-body); }
+a { color: var(--accent); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 20px 18px 64px; }
+.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font: 800 20px var(--f-display); letter-spacing: -.01em; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand small { font: 600 13px var(--f-body); color: var(--ink-3); }
+.back { font-weight: 600; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--rule); }
+h1 { font: 800 clamp(30px, 6vw, 44px)/1.08 var(--f-display); letter-spacing: -.02em; margin: 18px 0 10px; }
+.lede { font-size: 19px; color: var(--ink-2); margin: 0 0 18px; }
+.alert { background: var(--card); border: 1px solid var(--rule); border-left: 5px solid var(--no); border-radius: 14px; padding: 14px 16px; margin: 18px 0 8px; }
+.alert b { color: var(--no); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
+nav.toc a { text-decoration: none; font: 600 13.5px var(--f-body); padding: 6px 12px; border-radius: 999px; background: var(--soft); color: var(--ink-2); }
+section { background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 6px 22px 16px; margin: 16px 0; }
+h2 { font: 750 23px/1.25 var(--f-display); letter-spacing: -.01em; margin: 18px 0 6px; scroll-margin-top: 16px; }
+h3 { font: 700 16.5px var(--f-body); margin: 16px 0 2px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 22px; margin: 8px 0; }
+li { margin: 5px 0; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--soft); color: var(--accent); font: 800 13.5px var(--f-body); }
+.parts { list-style: none; padding: 0; margin: 10px 0; }
+.parts li { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--rule); margin: 0; }
+.parts li:last-child { border-bottom: 0; }
+.parts b { min-width: 9em; }
+.parts span { flex: 1; color: var(--ink-2); min-width: 14em; }
+.parts a { font-weight: 600; white-space: nowrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .two { grid-template-columns: 1fr; } section { padding: 4px 16px 14px; } }
+.box { border-radius: 14px; padding: 4px 14px 10px; background: var(--soft); }
+.box h3 { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.no { background: var(--no); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.fine { font-size: 13.5px; color: var(--ink-3); }
+code { font-size: .92em; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { margin-top: 26px; color: var(--ink-3); font-size: 14px; text-align: center; }
+/* join form */
+form { display: grid; gap: 14px; margin: 8px 0 4px; }
+label { display: grid; gap: 5px; font-weight: 650; }
+label small { font-weight: 400; color: var(--ink-3); }
+input, select, textarea { font: 400 16px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; width: 100%; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { min-height: 110px; resize: vertical; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row input { flex: 1; min-width: 12em; }
+.btn { font: 650 15px var(--f-body); border-radius: 999px; padding: 10px 18px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .6; cursor: default; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; }
+.check input { width: auto; margin-top: 5px; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.msg { border-radius: 12px; padding: 10px 14px; }
+.msg.err { background: color-mix(in srgb, var(--no) 12%, transparent); color: var(--no); }
+.done { text-align: center; padding: 18px 6px; }
+.done h2 { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="brand" href="/live/{{ region_slug }}"><img src="/static/jafo-icon-512.png" alt="">JAFO Live <small>{{ region_name }}</small></a>
+    <a class="back" href="/live/{{ region_slug }}/build">← Build guide</a>
+  </div>
+
+  <h1>Add your station to jafo.live</h1>
+  <p class="lede">Built a JAFO station? Tell us about it and we'll send you a node token. Your town then gets its own live Briefing, map and alerts, fed by your station.</p>
+
+  <section id="form-card">
+    <form id="join" novalidate>
+      <label>Your name <input name="name" autocomplete="name" required maxlength="120"></label>
+      <label>Email <small>We'll send your node token here.</small><input name="email" type="email" autocomplete="email" required maxlength="200"></label>
+      <label>Where is your station? <small>Town and state is enough. "Use my location" fills it in for you.</small>
+        <span class="row"><input name="location" id="loc" placeholder="e.g. Mesa, Arizona" required maxlength="200">
+        <button type="button" class="btn" id="geo">📍 Use my location</button></span>
+      </label>
+      <label>Your radios
+        <select name="hardware">
+          <option>Airspy R2 + RTL-SDR (recommended kit)</option>
+          <option>Airspy only</option>
+          <option>Other SDRs</option>
+          <option>Not built yet</option>
+        </select>
+      </label>
+      <label>Radio system <small>Optional: e.g. "Phoenix RWC P25" or a RadioReference link.</small><input name="radio_system" maxlength="200"></label>
+      <label>Anything else? <small>Optional: antenna, where it's mounted, what you'd like to cover.</small><textarea name="message" maxlength="2000"></textarea></label>
+      <div class="hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
+      <label class="check"><input type="checkbox" name="agree" required> <span>My station listens only to unencrypted public radio, and I've read <a href="/live/{{ region_slug }}/about#legal" target="_blank">Is this legal?</a> and <a href="/live/{{ region_slug }}/about#hidden" target="_blank">what JAFO hides</a>.</span></label>
+      <div class="msg err" id="err" hidden></div>
+      <div><button class="btn primary" type="submit" id="send">Send request</button></div>
+      <p class="fine">We use your email only to send your token and to contact you about your station. It isn't shown publicly or shared. Your location is kept at town level.</p>
+    </form>
+    <div class="done" id="done" hidden>
+      <h2>Thanks, request received</h2>
+      <p>We'll review it and email your node token. When it arrives, run <code>bash ~/jafo/scripts/setup-keys.sh</code> on your Pi and paste it in.</p>
+      <p><a href="/live/{{ region_slug }}/build">Back to the build guide →</a></p>
+    </div>
+  </section>
+
+  <footer>JAFO Live · <a href="/live/{{ region_slug }}/about">About &amp; privacy</a> · <a href="/live/{{ region_slug }}">Briefing</a></footer>
+</div>
+<script>
+(() => {
+  const f = document.getElementById("join"), err = document.getElementById("err"), geo = document.getElementById("geo");
+  let coords = null;
+  const fail = (t) => { err.textContent = t; err.hidden = false; };
+  if (!navigator.geolocation) geo.hidden = true;
+  geo.onclick = () => {
+    geo.disabled = true; geo.textContent = "Locating…";
+    navigator.geolocation.getCurrentPosition(async (p) => {
+      coords = { lat: +p.coords.latitude.toFixed(2), lng: +p.coords.longitude.toFixed(2) };
+      try {
+        const d = await (await fetch(`/api/live/reverse?lat=${coords.lat}&lng=${coords.lng}`)).json();
+        f.location.value = d.label || `${coords.lat}, ${coords.lng}`;
+      } catch (e) { f.location.value = `${coords.lat}, ${coords.lng}`; }
+      geo.textContent = "📍 Located"; geo.disabled = false;
+    }, () => { geo.textContent = "📍 Use my location"; geo.disabled = false; fail("Couldn't get your location. Type your town instead."); },
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
+  };
+  f.location.addEventListener("input", () => { coords = null; geo.textContent = "📍 Use my location"; });
+  f.onsubmit = async (e) => {
+    e.preventDefault(); err.hidden = true;
+    if (!f.name.value.trim() || !f.email.value.trim() || !f.location.value.trim()) return fail("Please fill in your name, email and location.");
+    if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(f.email.value.trim())) return fail("That email doesn't look right.");
+    if (!f.agree.checked) return fail("Please confirm the box about public radio.");
+    const btn = document.getElementById("send"); btn.disabled = true; btn.textContent = "Sending…";
+    const body = Object.fromEntries(new FormData(f)); delete body.agree;
+    if (coords) Object.assign(body, coords);
+    try {
+      const r = await fetch("/api/live/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || "Something went wrong. Please try again.");
+      f.hidden = true; document.getElementById("done").hidden = false;
+    } catch (x) { fail(x.message); btn.disabled = false; btn.textContent = "Send request"; }
+  };
+})();
+</script>
+</body>
+</html>

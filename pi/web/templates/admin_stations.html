@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stations · JAFO admin</title>
+<meta name="description" content="JAFO station requests and fleet.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Public+Sans:wght@400..700&display=swap">
+<script>try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #141a24; --ink-2: #3d4757; --ink-3: #6b7585; --rule: #e2e6ee;
+  --accent: #1d4fd8; --ok: #11795a; --no: #b42318; --soft: #eef2fb;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+    --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+  --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16.5px/1.6 var(--f-body); }
+a { color: var(--accent); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 20px 18px 64px; }
+.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font: 800 20px var(--f-display); letter-spacing: -.01em; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand small { font: 600 13px var(--f-body); color: var(--ink-3); }
+.back { font-weight: 600; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--rule); }
+h1 { font: 800 clamp(30px, 6vw, 44px)/1.08 var(--f-display); letter-spacing: -.02em; margin: 18px 0 10px; }
+.lede { font-size: 19px; color: var(--ink-2); margin: 0 0 18px; }
+.alert { background: var(--card); border: 1px solid var(--rule); border-left: 5px solid var(--no); border-radius: 14px; padding: 14px 16px; margin: 18px 0 8px; }
+.alert b { color: var(--no); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
+nav.toc a { text-decoration: none; font: 600 13.5px var(--f-body); padding: 6px 12px; border-radius: 999px; background: var(--soft); color: var(--ink-2); }
+section { background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 6px 22px 16px; margin: 16px 0; }
+h2 { font: 750 23px/1.25 var(--f-display); letter-spacing: -.01em; margin: 18px 0 6px; scroll-margin-top: 16px; }
+h3 { font: 700 16.5px var(--f-body); margin: 16px 0 2px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 22px; margin: 8px 0; }
+li { margin: 5px 0; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--soft); color: var(--accent); font: 800 13.5px var(--f-body); }
+.parts { list-style: none; padding: 0; margin: 10px 0; }
+.parts li { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--rule); margin: 0; }
+.parts li:last-child { border-bottom: 0; }
+.parts b { min-width: 9em; }
+.parts span { flex: 1; color: var(--ink-2); min-width: 14em; }
+.parts a { font-weight: 600; white-space: nowrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .two { grid-template-columns: 1fr; } section { padding: 4px 16px 14px; } }
+.box { border-radius: 14px; padding: 4px 14px 10px; background: var(--soft); }
+.box h3 { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.no { background: var(--no); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.fine { font-size: 13.5px; color: var(--ink-3); }
+code { font-size: .92em; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { margin-top: 26px; color: var(--ink-3); font-size: 14px; text-align: center; }
+.wrap { max-width: 1040px; }
+.bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 16px; }
+.tabs button { font: 650 15px var(--f-body); border: 1px solid var(--rule); background: var(--card); color: var(--ink-2); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--no); color: #fff; font-size: 12px; text-align: center; margin-left: 4px; }
+.req { background: var(--card); border: 1px solid var(--rule); border-radius: 16px; padding: 14px 18px; margin: 12px 0; }
+.req.pending { border-left: 5px solid var(--accent); }
+.req h3 { margin: 0 0 2px; font-size: 18px; }
+.meta { color: var(--ink-3); font-size: 14px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 10px 0; font-size: 15px; }
+.kv dt { color: var(--ink-3); } .kv dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approve { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; align-items: end; background: var(--soft); border-radius: 12px; padding: 12px; margin-top: 8px; }
+.approve label { display: grid; gap: 4px; font: 600 13px var(--f-body); color: var(--ink-2); }
+input, select { font: 400 15px var(--f-body); color: var(--ink); background: var(--card); border: 1px solid var(--rule); border-radius: 9px; padding: 8px 10px; width: 100%; }
+.btn { font: 650 14px var(--f-body); border-radius: 999px; padding: 8px 14px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--no); }
+.btn.armed { background: var(--no); border-color: var(--no); color: #fff; }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font: 650 12px var(--f-body); background: var(--soft); color: var(--ink-2); }
+.pill.ok { color: var(--ok); } .pill.no { color: var(--no); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.empty { color: var(--ink-3); text-align: center; padding: 30px; }
+.err { color: var(--no); font-size: 14px; }
+.modal-back { position: fixed; inset: 0; background: rgba(10,14,20,.5); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.modal { background: var(--card); border-radius: 18px; padding: 20px 22px; width: min(640px, 100%); max-height: calc(100dvh - 32px); overflow: auto; }
+.modal h2 { margin-top: 0; }
+.tok { font: 600 14px ui-monospace, Menlo, Consolas, monospace; background: var(--soft); border-radius: 10px; padding: 10px 12px; word-break: break-all; }
+textarea.mail { width: 100%; min-height: 230px; font: 400 14px/1.5 var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <a class="brand" href="/live/rgv"><img src="/static/jafo-icon-512.png" alt="">JAFO admin</a>
+    <span class="meta">Signed in as <b>{{ who }}</b> · <a href="/admin">Fleet overview</a> · <a href="/admin/logout">Sign out</a></span>
+  </div>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-t="requests" aria-selected="true">Requests <span class="badge" id="nPending" hidden></span></button>
+    <button role="tab" data-t="stations" aria-selected="false">Stations</button>
+    <button role="tab" data-t="admins" aria-selected="false">Admins</button>
+  </div>
+  <div id="p-requests"></div>
+  <div id="p-stations" hidden></div>
+  <div id="p-admins" hidden></div>
+</div>
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const when = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—";
+  const ago = (t) => { if (!t) return "never"; const s = Date.now() / 1000 - t; return s < 120 ? "just now" : s < 7200 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
+  const slugify = (s) => String(s || "").toLowerCase().split(",")[0].trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  let D = { requests: [], regions: [], stations: [] };
+
+  async function api(url, opts = {}) {
+    const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+    if (r.status === 401) { location.href = "/admin/login"; throw new Error("signed out"); }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  }
+  // two-click confirm, no browser dialogs
+  function armed(btn, label) {
+    if (btn.classList.contains("armed")) return true;
+    const orig = btn.textContent; btn.classList.add("armed"); btn.textContent = label || "Click again to confirm";
+    setTimeout(() => { btn.classList.remove("armed"); btn.textContent = orig; }, 3500);
+    return false;
+  }
+
+  function tokenModal(d) {
+    const town = d.name || "";
+    const mail = `Hi ${town},\n\nYour JAFO station is approved for jafo.live.\n\nStation name: ${d.node_slug}\nNode token:   ${d.token}\n\nOn your Pi, run:\n\n    bash ~/jafo/scripts/setup-keys.sh\n\nSkip ahead to "jafo.live node token", paste the token, and enter the station name above when it asks. Your station starts sending to jafo.live straight away.\n\nKeep the token private. It works like a password for your station. If it ever leaks, reply and we'll issue a new one.\n\nThanks for building one!\n`;
+    const back = document.createElement("div"); back.className = "modal-back";
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Token for ${esc(d.node_slug)}</h2>
+      <p>This is the only time the token is shown. Copy it or send the email now.</p>
+      <div class="tok">${esc(d.token)}</div>
+      <p class="actions" style="margin:10px 0 16px"><button class="btn" data-copy="tok">Copy token</button></p>
+      <h3 style="margin:0 0 6px">Email to ${esc(d.email || "the owner")}</h3>
+      <textarea class="mail" readonly>${esc(mail)}</textarea>
+      <p class="actions" style="margin-top:10px"><button class="btn" data-copy="mail">Copy email</button>
+      ${d.email ? `<a class="btn primary" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent("Your JAFO station token")}&body=${encodeURIComponent(mail)}">Open in mail app</a>` : ""}
+      <button class="btn" data-close style="margin-left:auto">Done</button></p></div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", async (e) => {
+      const c = e.target.closest("[data-copy]");
+      if (c) { await navigator.clipboard.writeText(c.dataset.copy === "tok" ? d.token : mail); c.textContent = "Copied"; }
+      if (e.target === back || e.target.closest("[data-close]")) { back.remove(); load(); }
+    });
+  }
+
+  function renderRequests() {
+    const el = $("#p-requests"), pend = D.requests.filter((r) => r.status === "pending");
+    const b = $("#nPending"); b.textContent = pend.length; b.hidden = !pend.length;
+    if (!D.requests.length) { el.innerHTML = `<div class="empty">No requests yet. The public form is at <a href="/live/rgv/join">/live/rgv/join</a>.</div>`; return; }
+    const regionOpts = D.regions.map((g) => `<option value="${g.id}">${esc(g.name)} (${esc(g.slug)})</option>`).join("");
+    el.innerHTML = D.requests.map((r) => {
+      const town = slugify(r.location) || "station";
+      const map = r.lat != null ? ` · <a href="https://www.openstreetmap.org/?mlat=${r.lat}&mlon=${r.lng}#map=11/${r.lat}/${r.lng}" target="_blank" rel="noopener">map</a>` : "";
+      const st = r.status === "pending" ? "" : `<span class="pill ${r.status === "approved" ? "ok" : "no"}">${esc(r.status)}</span> `;
+      return `<article class="req ${r.status}" data-id="${r.id}">
+        <h3>${st}${esc(r.name)} · ${esc(r.location)}</h3>
+        <div class="meta">${when(r.created_at)}${map}${r.decided_by ? ` · ${esc(r.status)} by ${esc(r.decided_by)} ${ago(r.decided_at)}` : ""}${r.node_slug ? ` · station <b>${esc(r.node_slug)}</b>` : ""}</div>
+        <dl class="kv"><dt>Email</dt><dd><a href="mailto:${esc(r.email)}">${esc(r.email)}</a></dd>
+          <dt>Radios</dt><dd>${esc(r.hardware || "—")}</dd>
+          ${r.radio_system ? `<dt>System</dt><dd>${esc(r.radio_system)}</dd>` : ""}
+          ${r.message ? `<dt>Message</dt><dd>${esc(r.message)}</dd>` : ""}
+          ${r.admin_note ? `<dt>Note</dt><dd>${esc(r.admin_note)}</dd>` : ""}</dl>
+        ${r.status === "pending" ? `<div class="approve">
+          <label>Region<select name="region"><option value="">New region…</option>${regionOpts}</select></label>
+          <label class="newr">New region name<input name="region_name" value="${esc(r.location)}"></label>
+          <label class="newr">New region slug<input name="region_slug" value="${esc(town)}"></label>
+          <label>Station name<input name="node_slug" value="jafo-${esc(town)}-01"></label>
+          <span class="actions"><button class="btn primary" data-act="approve">Approve + make token</button><button class="btn danger" data-act="decline">Decline</button></span>
+          <span class="err" hidden></span></div>` : ""}
+      </article>`;
+    }).join("");
+    el.querySelectorAll(".approve").forEach((a) => {
+      const sel = a.querySelector("select"), toggle = () => a.querySelectorAll(".newr").forEach((x) => (x.hidden = !!sel.value));
+      sel.onchange = toggle; toggle();
+    });
+  }
+
+  function renderStations() {
+    const el = $("#p-stations");
+    if (!D.stations.length) { el.innerHTML = `<div class="empty">No stations yet.</div>`; return; }
+    el.innerHTML = `<div class="tbl-wrap"><table><tr><th>Station</th><th>Region</th><th>Owner</th><th>Last seen</th><th>Status</th><th></th></tr>${D.stations.map((n) => `
+      <tr data-id="${n.id}"><td><b>${esc(n.slug)}</b><div class="meta">${esc(n.display_name || "")}</div></td>
+      <td>${esc(n.region_name || "—")}</td><td>${n.owner_email ? `<a href="mailto:${esc(n.owner_email)}">${esc(n.owner_email)}</a>` : "—"}</td>
+      <td>${ago(n.last_seen_at)}</td>
+      <td><span class="pill ${n.status === "active" ? "ok" : "no"}">${esc(n.status)}</span>${n.has_token ? "" : ' <span class="pill">no token</span>'}</td>
+      <td><span class="actions"><button class="btn" data-act="rotate">${n.has_token ? "New token" : "Make token"}</button>
+        <button class="btn ${n.status === "active" ? "danger" : ""}" data-act="${n.status === "active" ? "disable" : "enable"}">${n.status === "active" ? "Disable" : "Enable"}</button></span></td></tr>`).join("")}</table></div>
+      <p class="fine">"New token" replaces the old one straight away: the station stops sending until its owner pastes the new token. "Disable" blocks it without changing the token.</p>`;
+  }
+
+  async function renderAdmins() {
+    const el = $("#p-admins");
+    const d = await api("/api/admin/admins");
+    el.innerHTML = `<div class="req"><h3>Who can sign in</h3>
+      <p class="meta">Admins sign in with Google. Owners are set in the hub's .env (<code>JAFO_ADMIN_EMAILS</code>) and can't be removed here.</p>
+      <div class="tbl-wrap"><table><tr><th>Google account</th><th>Added by</th><th>Last sign-in</th><th></th></tr>
+      ${d.admins.map((a) => `<tr><td><b>${esc(a.email)}</b> ${a.owner ? '<span class="pill ok">owner</span>' : ""}</td><td>${esc(a.added_by || "—")}</td>
+        <td>${a.last_login_at ? ago(a.last_login_at) : "never"}</td><td>${a.owner ? "" : `<button class="btn danger" data-rm="${esc(a.email)}">Remove</button>`}</td></tr>`).join("")
+        || `<tr><td colspan="4" class="meta">No admins yet.</td></tr>`}</table></div>
+      <form id="addAdmin" class="actions" style="margin-top:12px"><input name="email" type="email" placeholder="name@gmail.com" style="max-width:320px" required><button class="btn primary">Add admin</button><span class="err" hidden></span></form></div>`;
+    $("#addAdmin").onsubmit = async (e) => {
+      e.preventDefault(); const er = e.target.querySelector(".err");
+      try { await api("/api/admin/admins", { method: "POST", body: JSON.stringify({ email: e.target.email.value }) }); renderAdmins(); }
+      catch (x) { er.textContent = x.message; er.hidden = false; }
+    };
+    el.querySelectorAll("[data-rm]").forEach((b) => b.onclick = async () => {
+      if (!armed(b, "Remove?")) return;
+      await api(`/api/admin/admins?email=${encodeURIComponent(b.dataset.rm)}`, { method: "DELETE" }); renderAdmins();
+    });
+  }
+
+  async function load() {
+    D = await api("/api/admin/requests");
+    renderRequests(); renderStations();
+  }
+
+  $("#p-requests").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const card = b.closest(".req"), id = card.dataset.id, er = card.querySelector(".err");
+    er.hidden = true;
+    try {
+      if (b.dataset.act === "decline") {
+        if (!armed(b, "Decline?")) return;
+        await api(`/api/admin/requests/${id}/decline`, { method: "POST", body: "{}" }); return load();
+      }
+      const q = (n) => card.querySelector(`[name="${n}"]`).value.trim();
+      b.disabled = true;
+      const d = await api(`/api/admin/requests/${id}/approve`, { method: "POST", body: JSON.stringify({
+        region_id: q("region") || null, region_name: q("region_name"), region_slug: q("region_slug"), node_slug: q("node_slug") }) });
+      tokenModal(d);
+    } catch (x) { er.textContent = x.message; er.hidden = false; b.disabled = false; }
+  });
+
+  $("#p-stations").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const id = b.closest("tr").dataset.id, act = b.dataset.act;
+    if (act === "rotate") {
+      if (!armed(b, "Replace token?")) return;
+      tokenModal(await api(`/api/admin/stations/${id}/rotate`, { method: "POST", body: "{}" }));
+    } else {
+      if (act === "disable" && !armed(b, "Disable?")) return;
+      await api(`/api/admin/stations/${id}/status`, { method: "POST", body: JSON.stringify({ status: act === "disable" ? "disabled" : "active" }) });
+      load();
+    }
+  });
+
+  document.querySelectorAll("[role=tab]").forEach((t) => t.onclick = () => {
+    document.querySelectorAll("[role=tab]").forEach((x) => x.setAttribute("aria-selected", x === t));
+    ["requests", "stations", "admins"].forEach((k) => ($(`#p-${k}`).hidden = k !== t.dataset.t));
+    if (t.dataset.t === "admins") renderAdmins();
+  });
+  load();
+})();
+</script>
+</body>
+</html>

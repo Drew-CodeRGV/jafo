@@ -7279,6 +7279,8 @@ else:
     app.register_blueprint(_cameras.bp)
     import air as _air  # noqa: E402  ADS-B / ACARS for /live
     app.register_blueprint(_air.bp)
+    import fleet_admin as _fleet_admin  # noqa: E402  station requests + admin sign-in
+    app.register_blueprint(_fleet_admin.bp)
     try:  # web push alerts (needs pywebpush in the web venv)
         import push as _push  # noqa: E402
         app.register_blueprint(_push.bp)

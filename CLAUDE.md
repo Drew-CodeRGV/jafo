@@ -318,3 +318,13 @@ Gotchas:
   (configures the radio locally, keeps the owner's own node token). The installer
   detects the Airspy (1d50:60a1) → `airspy-only` profile, RTL left for ADS-B.
   `bootstrap.sh` clones **main**, so the guide only matches once this branch merges.
+- **Station requests + admin:** `/live/<region>/join` (`templates/join.html`) posts to
+  `/api/live/join` → `station_requests` table (town-level lat/lng, honeypot, 5/h/IP).
+  `fleet_admin.py` (hub only) adds `/admin/login` (Google sign-in for
+  `JAFO_ADMIN_EMAILS` owners + `admin_users` table, or the admin token),
+  `/admin/stations` (Requests → approve creates region/node + one-time token and a
+  ready-to-send email; Stations → rotate/disable; Admins → add/remove). Google needs
+  `JAFO_GOOGLE_CLIENT_ID/SECRET` in the hub .env and the redirect URI
+  `https://jafo.live/admin/auth/google/callback` on the OAuth client. Signing in sets
+  the existing `jafo_admin` cookie, so every older admin endpoint works too.
+

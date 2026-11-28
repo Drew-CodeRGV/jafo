@@ -140,6 +140,12 @@ def live_build(slug: str):
     return render_template("build.html", view="build", **_ctx(slug))
 
 
+@bp.route("/live/<slug>/join")
+def live_join(slug: str):
+    """Request form: add your own station to jafo.live."""
+    return render_template("join.html", view="join", **_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     return render_template(["pro.html", "v_console.html"], view="pro", concept="console", **_ctx(slug))

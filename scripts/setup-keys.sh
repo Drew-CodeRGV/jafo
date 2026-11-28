@@ -101,8 +101,8 @@ ask_plain JAFO_REGION "Your area, for placing addresses on the map" "e.g. McAlle
 echo
 echo -e "${B}jafo.live — share your station on the public map${N}  ${D}(optional)${N}"
 echo    "  Without this your station runs on its own at http://$(hostname).local"
-echo    "  To feed jafo.live, ask the JAFO team for a node token, then paste it here."
-ask_secret JAFO_NODE_TOKEN "jafo.live node token" "the JAFO team (see the Build guide)" "optional"
+echo    "  To feed jafo.live, request a node token at https://jafo.live/live/rgv/join"
+ask_secret JAFO_NODE_TOKEN "jafo.live node token" "the email you got after requesting one" "optional"
 if [[ " ${CHANGED[*]} " == *" JAFO_NODE_TOKEN "* ]]; then
   [[ -n "$(get JAFO_HUB_URL)" ]] || put JAFO_HUB_URL "https://jafo.live"
   ask_plain JAFO_NODE_SLUG "Node name the JAFO team gave you" "e.g. jafo-phoenix-07"
