@@ -11,6 +11,8 @@
 #   rsp1-hackrf-rtl — All three present (overkill, uses HackRF + RSP1)
 #   hackrf-only     — HackRF only (RSP1 takes voice, no dedicated control SDR)
 #   rsp1-only       — RSP1 only (rare, no HackRF)
+#   airspy-only     — Airspy R2/Mini takes the whole P25 system (control +
+#                     voice); any RTL-SDR is left free for ADS-B/ACARS
 #   rtl-only        — RTL-SDR only (control channel only, no voice capture)
 #   none            — nothing detected
 #
@@ -30,9 +32,13 @@ HAS_RSP1A=false
 HAS_RSPDX=false
 HAS_RSPDUO=false
 HAS_RTL=false
+HAS_AIRSPY=false
 
 # HackRF: 1d50:6089 (Great Scott Gadgets HackRF One)
 echo "$LSUSB" | grep -qi "1d50:6089"  && HAS_HACKRF=true
+
+# Airspy R2 / Mini: 1d50:60a1
+echo "$LSUSB" | grep -qi "1d50:60a1"  && HAS_AIRSPY=true
 
 # SDRplay RSPs (vendor 1df7):
 #   RSP1     1df7:2500
@@ -65,8 +71,9 @@ $HAS_RSP1   && echo "  ✓ SDRplay RSP1" >&2
 $HAS_RSP1A  && echo "  ✓ SDRplay RSP1A / RSP1B" >&2
 $HAS_RSPDUO && echo "  ✓ SDRplay RSPduo" >&2
 $HAS_RSPDX  && echo "  ✓ SDRplay RSPdx / RSPdx-R2" >&2
+$HAS_AIRSPY && echo "  ✓ Airspy R2 / Mini" >&2
 $HAS_RTL    && echo "  ✓ RTL-SDR" >&2
-$HAS_HACKRF || $HAS_RSP || $HAS_RTL || echo "  (none detected)" >&2
+$HAS_HACKRF || $HAS_RSP || $HAS_RTL || $HAS_AIRSPY || echo "  (none detected)" >&2
 
 # --- Profile selection logic ---
 # Preference order for control channel: RTL-SDR > RSP > HackRF
@@ -77,7 +84,11 @@ $HAS_HACKRF || $HAS_RSP || $HAS_RTL || echo "  (none detected)" >&2
 #   RSP1 maxes around 8-10 MHz, also usable.
 #   RTL-SDR maxes around 2.4 MHz — too narrow for voice on this system.
 
-if   $HAS_HACKRF && $HAS_RTL && $HAS_RSP; then
+if   $HAS_AIRSPY; then
+  # Airspy is the recommended JAFO radio (10 MS/s covers a whole 800 MHz
+  # P25 system). Any RTL-SDR stays free for ADS-B / ACARS.
+  echo "airspy-only"
+elif $HAS_HACKRF && $HAS_RTL && $HAS_RSP; then
   echo "rsp1-hackrf-rtl"
 elif $HAS_HACKRF && $HAS_RTL; then
   echo "hackrf-rtl"

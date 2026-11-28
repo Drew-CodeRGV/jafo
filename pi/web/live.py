@@ -327,6 +327,12 @@ def live_about(slug: str):
                            air_hours=int(float(os.environ.get("JAFO_AIR_HISTORY_HOURS", "48"))), **_page_ctx(slug))
 
 
+@bp.route("/live/<slug>/build")
+def live_build(slug: str):
+    """Build guide: wiring, antenna placement, Pi setup, own credentials."""
+    return render_template("build.html", view="build", **_page_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     """Console: the multi-pane pro view, with the River timeline as a pane."""

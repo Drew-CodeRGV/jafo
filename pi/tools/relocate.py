@@ -299,7 +299,7 @@ def main():
     cur_region = env.get("JAFO_REGION", "")
     cur_ccs = json.load(open(CONFIG))["systems"][0].get("control_channels", [])
     same_system = sorted(cur_ccs) == sorted(plan["control_channels"]) and \
-                  env.get("JAFO_NODE_SLUG") == plan["node_slug"]
+                  (not env.get("JAFO_PROVISION_TOKEN") or env.get("JAFO_NODE_SLUG") == plan["node_slug"])
 
     ccs = ", ".join(f"{h/1e6:.4f}" for h in plan["control_channels"])
     log("\n──────── RELOCATION PLAN ────────")
@@ -321,23 +321,31 @@ def main():
         if not sys.stdin.isatty(): sys.exit("Need --yes to apply non-interactively.")
         if input("Relocate now? [y/N] ").strip().lower() not in ("y", "yes"): return 0
 
-    log("• Self-provisioning hub node …")
-    try:
-        pr = provision(plan, loc, env)
-    except Exception as e:
-        sys.exit(f"✗ provision failed: {e}")
-    if not pr or not pr.get("node_token"):
-        sys.exit("✗ provision returned no token")
-    log(f"  ✓ hub node {pr['node_slug']} ({'created' if pr.get('created') else 'updated'}), "
-        f"talkgroups rows: {pr.get('talkgroups_rows')}")
+    if env.get("JAFO_PROVISION_TOKEN"):
+        log("• Self-provisioning hub node …")
+        try:
+            pr = provision(plan, loc, env)
+        except Exception as e:
+            sys.exit(f"✗ provision failed: {e}")
+        if not pr or not pr.get("node_token"):
+            sys.exit("✗ provision returned no token")
+        log(f"  ✓ hub node {pr['node_slug']} ({'created' if pr.get('created') else 'updated'}), "
+            f"talkgroups rows: {pr.get('talkgroups_rows')}")
+    else:
+        # Standalone station (no fleet provisioning token): configure the radio
+        # locally and keep whatever hub token the owner entered themselves.
+        log("• No JAFO_PROVISION_TOKEN — setting up as a standalone station (local web UI only"
+            + (", feeding the hub with your own node token)" if env.get("JAFO_NODE_TOKEN") else ")"))
+        pr = {"node_token": env.get("JAFO_NODE_TOKEN", "")}
 
     log("• Installing talkgroups + config + env …")
     if plan.get("talkgroups_csv"):
         backup(TG_ACTIVE)
         open(TG_ACTIVE, "w").write(plan["talkgroups_csv"])
     patch_config(plan)
-    set_env({"JAFO_NODE_SLUG": plan["node_slug"], "JAFO_NODE_NAME": plan["node_slug"],
-             "JAFO_NODE_TOKEN": pr["node_token"], "JAFO_REGION": plan["region_name"],
+    set_env({**({"JAFO_NODE_SLUG": plan["node_slug"], "JAFO_NODE_NAME": plan["node_slug"],
+                 "JAFO_NODE_TOKEN": pr["node_token"]} if env.get("JAFO_PROVISION_TOKEN") else {}),
+             "JAFO_REGION": plan["region_name"],
              # location-dynamic edge UI (map center + system label follow the move)
              "JAFO_MAP_LAT": f"{loc['lat']:.5f}", "JAFO_MAP_LNG": f"{loc['lng']:.5f}",
              "JAFO_SYSTEM_LABEL": plan.get("sys_label") or "P25 TRUNKED"})

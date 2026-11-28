@@ -134,6 +134,12 @@ def live_about(slug: str):
                            air_hours=48, **_ctx(slug))
 
 
+@bp.route("/live/<slug>/build")
+def live_build(slug: str):
+    """Build guide: wiring, antenna placement, Pi setup, own credentials."""
+    return render_template("build.html", view="build", **_ctx(slug))
+
+
 @bp.route("/live/<slug>/pro")
 def live_pro(slug: str):
     return render_template(["pro.html", "v_console.html"], view="pro", concept="console", **_ctx(slug))

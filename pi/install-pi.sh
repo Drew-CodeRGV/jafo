@@ -70,6 +70,7 @@ info "Installing HackRF + RTL-SDR drivers..."
 sudo apt-get install -y -qq \
   libhackrf-dev hackrf \
   rtl-sdr librtlsdr-dev \
+  airspy libairspy-dev soapysdr-module-airspy \
   libsoapysdr-dev soapysdr-tools \
   soapysdr-module-rtlsdr soapysdr-module-hackrf soapysdr-module-uhd \
   libusb-1.0-0-dev
@@ -118,6 +119,11 @@ case "$PROFILE" in
     warn "but won't capture until SDRs are plugged in."
     warn "After plugging in, re-run: bash ~/jafo/pi/install-pi.sh"
     SDR_OK=false
+    NEEDS_SDRPLAY=false
+    ;;
+  airspy-only)
+    info "Airspy R2/Mini — covers the whole P25 system (10 MS/s). Any RTL-SDR is left for ADS-B/ACARS."
+    SDR_OK=true
     NEEDS_SDRPLAY=false
     ;;
   rtl-only)
@@ -297,8 +303,7 @@ echo "  SDR check:        ~/jafo/pi/tools/check-sdrs.sh"
 echo ""
 if [[ -z "${GROQ_API_KEY:-}" ]] || [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   echo "  ⚠ API keys missing. Capture works but no transcription/enrichment."
-  echo "    Add them: nano ~/jafo/.env"
-  echo "    Then:     sudo systemctl restart jafo-transcriber jafo-enricher"
+  echo "    Add your own keys:   bash ~/jafo/scripts/setup-keys.sh"
   echo ""
 fi
 if ! $SDR_OK; then
@@ -307,4 +312,8 @@ if ! $SDR_OK; then
   echo "    bash ~/jafo/pi/install-pi.sh    # re-run to re-detect + reconfigure"
   echo ""
 fi
+echo "  Next steps:"
+echo "    1. Your keys:          bash ~/jafo/scripts/setup-keys.sh"
+echo "    2. Your radio system:  python3 ~/jafo/pi/tools/relocate.py"
+echo ""
 echo "============================================================"

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Build a JAFO station · {{ region_name }}</title>
+<meta name="description" content="Build your own JAFO listening station: parts, wiring, antenna placement, setting up the Raspberry Pi, and your own service keys.">
+<link rel="icon" type="image/png" href="/static/jafo-icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Public+Sans:wght@400..700&display=swap">
+<script>try { const t = localStorage.getItem("jafo.live.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #141a24; --ink-2: #3d4757; --ink-3: #6b7585; --rule: #e2e6ee;
+  --accent: #1d4fd8; --ok: #11795a; --no: #b42318; --soft: #eef2fb;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+    --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e1218; --card: #161c25; --ink: #eef2f8; --ink-2: #c3cad6; --ink-3: #8c95a4; --rule: #263040;
+  --accent: #7ea2ff; --ok: #4cc49a; --no: #ff8a7a; --soft: #1b2433; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16.5px/1.6 var(--f-body); }
+a { color: var(--accent); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 20px 18px 64px; }
+.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font: 800 20px var(--f-display); letter-spacing: -.01em; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand small { font: 600 13px var(--f-body); color: var(--ink-3); }
+.back { font-weight: 600; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--rule); }
+h1 { font: 800 clamp(30px, 6vw, 44px)/1.08 var(--f-display); letter-spacing: -.02em; margin: 18px 0 10px; }
+.lede { font-size: 19px; color: var(--ink-2); margin: 0 0 18px; }
+.alert { background: var(--card); border: 1px solid var(--rule); border-left: 5px solid var(--no); border-radius: 14px; padding: 14px 16px; margin: 18px 0 8px; }
+.alert b { color: var(--no); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
+nav.toc a { text-decoration: none; font: 600 13.5px var(--f-body); padding: 6px 12px; border-radius: 999px; background: var(--soft); color: var(--ink-2); }
+section { background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 6px 22px 16px; margin: 16px 0; }
+h2 { font: 750 23px/1.25 var(--f-display); letter-spacing: -.01em; margin: 18px 0 6px; scroll-margin-top: 16px; }
+h3 { font: 700 16.5px var(--f-body); margin: 16px 0 2px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 22px; margin: 8px 0; }
+li { margin: 5px 0; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--soft); color: var(--accent); font: 800 13.5px var(--f-body); }
+.parts { list-style: none; padding: 0; margin: 10px 0; }
+.parts li { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--rule); margin: 0; }
+.parts li:last-child { border-bottom: 0; }
+.parts b { min-width: 9em; }
+.parts span { flex: 1; color: var(--ink-2); min-width: 14em; }
+.parts a { font-weight: 600; white-space: nowrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .two { grid-template-columns: 1fr; } section { padding: 4px 16px 14px; } }
+.box { border-radius: 14px; padding: 4px 14px 10px; background: var(--soft); }
+.box h3 { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.no { background: var(--no); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.fine { font-size: 13.5px; color: var(--ink-3); }
+code { font-size: .92em; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { margin-top: 26px; color: var(--ink-3); font-size: 14px; text-align: center; }
+/* build guide */
+.steps li li { counter-increment: none; padding-left: 0; margin: 4px 0; }
+.steps li li::before { content: none; }
+.steps ul { list-style: disc; padding-left: 22px; }
+.steps li h3 { margin: 0 0 4px; font: 700 17px var(--f-body); }
+.steps li p { margin: 4px 0; }
+pre { background: #0f1520; color: #e8eef8; border-radius: 12px; padding: 12px 14px; overflow-x: auto; font: 500 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 8px 0; position: relative; }
+pre .c { color: #8c9ab0; }
+.copy { position: absolute; top: 6px; right: 6px; border: 1px solid #33405a; background: #1b2433; color: #c3cad6; border-radius: 8px; font: 600 12px var(--f-body); padding: 3px 8px; cursor: pointer; }
+.diagram { overflow-x: auto; margin: 10px 0 4px; }
+.diagram svg { display: block; width: 100%; min-width: 600px; height: auto; }
+.diagram .bx { fill: var(--soft); stroke: var(--ink-3); stroke-width: 1.5; }
+.diagram .bx.hi { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+.diagram .ln { stroke: var(--ink-2); stroke-width: 2.5; fill: none; }
+.diagram .usb { stroke: var(--accent); stroke-width: 2.5; fill: none; stroke-dasharray: 6 4; }
+.diagram text { fill: var(--ink); font: 700 14px var(--f-body); }
+.diagram .sm { fill: var(--ink-3); font: 500 12px var(--f-body); }
+.diagram .lbl { fill: var(--ink-2); font: 600 12px var(--f-body); }
+.tip { background: var(--soft); border-radius: 12px; padding: 10px 14px; margin: 10px 0; }
+.warn { border-left: 4px solid var(--no); }
+kbd { font: 600 .9em var(--f-body); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 6px; padding: 0 6px; background: var(--card); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="brand" href="/live/{{ region_slug }}"><img src="/static/jafo-icon-512.png" alt="">JAFO Live <small>{{ region_name }}</small></a>
+    <a class="back" href="/live/{{ region_slug }}/about#build">← Parts list</a>
+  </div>
+
+  <h1>Build a JAFO station</h1>
+  <p class="lede">From a box of parts to your own live radio station in about an hour. Most of that time is the installer running on its own. You don't need to know Linux; you'll copy and paste a few commands.</p>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#parts">1. Parts</a><a href="#wire">2. Wiring</a><a href="#antenna">3. Antenna placement</a><a href="#card">4. Prepare the card</a>
+    <a href="#boot">5. First boot</a><a href="#login">6. Log in</a><a href="#install">7. Install</a><a href="#keys">8. Your keys</a><a href="#system">9. Find your radio system</a><a href="#share">10. Share it (optional)</a><a href="#help">Troubleshooting</a>
+  </nav>
+
+  <section id="parts">
+    <h2>1. Parts</h2>
+    <p>The full list, with links, is on the <a href="/live/{{ region_slug }}/about#build">About page</a>. In short:</p>
+    <ul>
+      <li><b>Raspberry Pi 5</b>, with the official 27 W USB-C power supply and an active cooler.</li>
+      <li><b>A microSD card</b> of 32 GB or more. Look for "A2" on the label.</li>
+      <li><b>Airspy R2</b>, which listens to police, fire and EMS.</li>
+      <li><b>RTL-SDR</b> (optional), which listens to aircraft.</li>
+      <li><b>An antenna.</b> Use what you have.</li>
+      <li>If one antenna feeds both radios: a <b>splitter</b>, two <b>SMA jumpers</b> and a <b>PL-259 to SMA cable</b>.</li>
+      <li>A computer (Windows, Mac or Linux) with a microSD slot or a USB card reader, used once to set up the card.</li>
+      <li>Internet for the Pi. Wired Ethernet is best; Wi-Fi works.</li>
+    </ul>
+  </section>
+
+  <section id="wire">
+    <h2>2. How it connects</h2>
+    <div class="diagram" role="img" aria-label="Wiring: antenna coax with a PL-259 plug goes to a PL-259 to SMA cable, into the splitter input. The splitter's two outputs go through SMA jumpers to the Airspy R2 and the RTL-SDR. Both radios plug into the Raspberry Pi 5 over USB. The Pi gets power from the 27 watt supply and internet from Ethernet or Wi-Fi.">
+      <svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg">
+        <!-- antenna -->
+        <g transform="translate(40,20)">
+          <path class="ln" d="M40 10 L40 90 M40 30 L10 10 M40 30 L70 10 M40 45 L14 70 M40 45 L66 70 M40 45 L40 72"/>
+          <text x="40" y="112" text-anchor="middle">Antenna</text>
+          <text class="sm" x="40" y="128" text-anchor="middle">high, outdoors if you can</text>
+        </g>
+        <!-- coax down -->
+        <path class="ln" d="M80 115 L80 215 L150 215"/>
+        <text class="lbl" x="88" y="175">coax, PL-259 plug</text>
+        <!-- adapter cable -->
+        <rect class="bx" x="150" y="196" width="118" height="40" rx="9"/>
+        <text x="209" y="214" text-anchor="middle" style="font-size:12.5px">PL-259 → SMA</text>
+        <text class="sm" x="209" y="229" text-anchor="middle">1 ft cable</text>
+        <path class="ln" d="M268 216 L300 216"/>
+        <!-- splitter -->
+        <rect class="bx" x="300" y="186" width="96" height="60" rx="9"/>
+        <text x="348" y="212" text-anchor="middle">Splitter</text>
+        <text class="sm" x="348" y="229" text-anchor="middle">IN → 2 OUT</text>
+        <!-- jumpers -->
+        <path class="ln" d="M396 200 L430 200 L430 92 L470 92"/>
+        <path class="ln" d="M396 232 L430 232 L430 278 L470 278"/>
+        <text class="lbl" x="438" y="150">SMA jumper</text>
+        <text class="lbl" x="438" y="246">SMA jumper</text>
+        <!-- radios -->
+        <rect class="bx hi" x="470" y="66" width="120" height="54" rx="9"/>
+        <text x="530" y="90" text-anchor="middle">Airspy R2</text>
+        <text class="sm" x="530" y="107" text-anchor="middle">police · fire · EMS</text>
+        <rect class="bx hi" x="470" y="252" width="120" height="54" rx="9"/>
+        <text x="530" y="276" text-anchor="middle">RTL-SDR</text>
+        <text class="sm" x="530" y="293" text-anchor="middle">aircraft</text>
+        <!-- usb -->
+        <path class="usb" d="M590 93 L640 93 L640 160 L656 160"/>
+        <path class="usb" d="M590 279 L640 279 L640 200 L656 200"/>
+        <text class="lbl" x="598" y="84">USB</text>
+        <text class="lbl" x="598" y="270">USB</text>
+        <!-- pi -->
+        <rect class="bx hi" x="656" y="140" width="92" height="82" rx="10"/>
+        <text x="702" y="172" text-anchor="middle">Pi 5</text>
+        <text class="sm" x="702" y="190" text-anchor="middle">+ cooler</text>
+        <text class="sm" x="702" y="206" text-anchor="middle">+ microSD</text>
+        <path class="ln" d="M702 140 L702 112"/><text class="sm" x="702" y="104" text-anchor="middle">27 W power</text>
+        <path class="ln" d="M702 222 L702 250"/><text class="sm" x="702" y="266" text-anchor="middle">Ethernet / Wi-Fi</text>
+      </svg>
+    </div>
+    <p class="fine">Two antennas instead of one? Skip the splitter and jumpers: each antenna goes straight to its own radio, using a PL-259 to SMA cable if needed.</p>
+    <ol class="steps">
+      <li><h3>Mount the cooler on the Pi</h3><p>Peel the backing from the thermal pads, press the cooler on, and plug its little fan cable into the <b>FAN</b> header next to the USB ports. The Pi gets hot running radios all day, so don't skip this.</p></li>
+      <li><h3>Build the antenna side</h3><p>Screw the PL-259 to SMA cable onto the antenna's coax, and its SMA end onto the splitter's <b>IN</b> port. Connect an SMA jumper from each <b>OUT</b> port to each radio's antenna jack. Finger-tight is enough. SMA threads are small, so never force them.</p></li>
+      <li><h3>Plug the radios into the Pi</h3><p>Plug both radios straight into the Pi's USB ports; either colour works. If they don't fit side by side, use a short USB extension cable. That also moves the RTL-SDR's heat and noise away from the Pi. Avoid unpowered USB hubs.</p></li>
+      <li><h3>Leave power for last</h3><p>Don't plug in the power supply yet. You'll do that in step 5, once the card is ready.</p></li>
+    </ol>
+  </section>
+
+  <section id="antenna">
+    <h2>3. Where to put the antenna</h2>
+    <p>The antenna matters more than any other part, and its position matters more than its price.</p>
+    <ul>
+      <li><b>Get it high.</b> At 800 MHz and 1090 MHz, signals travel roughly line-of-sight. Every floor of height helps, and a roof or mast is best.</li>
+      <li><b>Get it outside, or near a window.</b> Walls, low-E window coatings, foil-backed insulation and metal roofs all block signal. Indoors, use the highest window that faces the nearest radio towers.</li>
+      <li><b>Stand it up straight.</b> Public-safety radio and aircraft both transmit vertically polarised signals, so mount the antenna vertically, not lying flat.</li>
+      <li><b>Point it toward the towers.</b> You can see your system's tower sites on RadioReference. A clear view toward even one of them beats a perfect antenna in the wrong spot.</li>
+      <li><b>Keep it away from noise.</b> Keep it at least a few feet from the Pi, power bricks, LED bulbs, TVs and routers, which all leak radio noise.</li>
+      <li><b>Keep the cable short.</b> Long, thin coax loses a lot of signal at these frequencies. For runs over about 15 ft, use low-loss cable such as LMR-400.</li>
+      <li><b>Outdoors, protect against lightning.</b> Ground the mast and add a coax lightning arrester where the cable enters the building. Follow your local electrical code, or ask an installer.</li>
+    </ul>
+    <div class="tip">Start simple: put the antenna in a window, finish the setup, and look at how many calls come in. Move it higher later and you'll see the difference straight away.</div>
+  </section>
+
+  <section id="card">
+    <h2>4. Prepare the microSD card</h2>
+    <p>You'll use your computer to put the Pi's operating system on the card. This takes about 10 minutes.</p>
+    <ol class="steps">
+      <li><h3>Install Raspberry Pi Imager</h3><p>Download it free from <a href="https://www.raspberrypi.com/software/" target="_blank" rel="noopener">raspberrypi.com/software</a>. It's available for Windows, macOS and Ubuntu. Install and open it.</p></li>
+      <li><h3>Put the card in your computer</h3><p>Many laptops have an SD slot. Slide the microSD into the full-size adapter that came with it, label side up, and push it in until it clicks. No slot? Use a USB card reader. Windows may offer to "format" the card; click <b>Cancel</b>.</p></li>
+      <li><h3>Choose the device, the system and the card</h3><p>In Imager:</p>
+        <ul>
+          <li><b>Device:</b> Raspberry Pi 5.</li>
+          <li><b>Operating system:</b> <b>Raspberry Pi OS (other) → Raspberry Pi OS Lite (64-bit)</b>. "Lite" has no desktop, which is what we want. JAFO is tested on the Bookworm release; if Lite is a newer release, choose the Legacy 64-bit Lite option, which is Bookworm.</li>
+          <li><b>Storage:</b> your microSD card. Check the size so you don't pick a different drive.</li>
+        </ul></li>
+      <li><h3>Customise the settings (important)</h3><p>When Imager asks whether to apply OS customisation, choose <b>Edit settings</b> (newer versions show these as steps). Set:</p>
+        <ul>
+          <li><b>Hostname:</b> <code>jafo</code></li>
+          <li><b>Username:</b> <code>pi</code> (it must be exactly <code>pi</code>) and a password you'll remember.</li>
+          <li><b>Wi-Fi:</b> your network name and password, and your country. Skip this if you'll use an Ethernet cable.</li>
+          <li><b>Time zone</b> and keyboard layout.</li>
+          <li><b>Services:</b> turn on <b>Enable SSH</b> with <b>password authentication</b>.</li>
+        </ul>
+        <p>Save, then confirm. Writing <b>erases the card</b>. When Imager says it's done, eject the card.</p></li>
+    </ol>
+  </section>
+
+  <section id="boot">
+    <h2>5. First boot</h2>
+    <ol class="steps">
+      <li><h3>Insert the card into the Pi</h3><p>The microSD slot is on the underside of the Pi, at the end opposite the USB ports. Hold the card with its metal contacts facing the board and slide it in until it stops.</p></li>
+      <li><h3>Connect the network</h3><p>Plug in an Ethernet cable from your router, if you're using one.</p></li>
+      <li><h3>Plug in the power</h3><p>Use the 27 W supply. The first boot takes 2 to 3 minutes while it sets itself up, so give it time before the next step.</p></li>
+    </ol>
+  </section>
+
+  <section id="login">
+    <h2>6. Log in to the Pi</h2>
+    <p>You'll control the Pi from your computer, using a terminal window and a program called SSH.</p>
+    <ul>
+      <li><b>Windows:</b> open the Start menu, type <b>Terminal</b> (or PowerShell), and open it.</li>
+      <li><b>Mac:</b> press <kbd>⌘</kbd> <kbd>Space</kbd>, type <b>Terminal</b>, and open it.</li>
+      <li><b>Linux:</b> open your terminal.</li>
+    </ul>
+    <p>Type this and press <kbd>Enter</kbd>:</p>
+    <pre>ssh pi@jafo.local</pre>
+    <p>The first time, it asks if you trust this computer; type <code>yes</code>. Then enter the password you chose in Imager. Nothing shows as you type it; that's normal. You're in when the prompt reads <code>pi@jafo:~ $</code>.</p>
+    <div class="tip">If you get "could not resolve hostname", open your router's app or admin page, find the device named <b>jafo</b> and note its address (like <code>192.168.1.57</code>). Then run <code>ssh pi@192.168.1.57</code> with that address.</div>
+  </section>
+
+  <section id="install">
+    <h2>7. Install JAFO (one command)</h2>
+    <p>Copy this whole line into the terminal and press <kbd>Enter</kbd>:</p>
+    <pre>curl -fsSL https://raw.githubusercontent.com/Drew-CodeRGV/jafo/main/bootstrap.sh | bash</pre>
+    <p>It downloads JAFO, installs the radio software, finds your radios, and sets up every service. Expect <b>25 to 35 minutes</b>, mostly while it builds the radio decoder. It ends with a summary listing each service and its status.</p>
+    <ul>
+      <li>Keep the terminal open and the Pi powered while it runs.</li>
+      <li>If the connection drops, log back in and run the same line again. It's safe to repeat and picks up where it left off.</li>
+      <li>Plug the radios in before you run it, so it can find them. If you add a radio later, run <code>bash ~/jafo/pi/install-pi.sh</code> again.</li>
+    </ul>
+  </section>
+
+  <section id="keys">
+    <h2>8. Add your own keys</h2>
+    <p>JAFO uses a few outside services to turn audio into text and text into stories. <b>Each station uses its owner's own accounts.</b> Your keys are billed to you, stay on your Pi, and are never shared with JAFO or anyone else.</p>
+    <div class="tbl-wrap"><table>
+      <tr><th>Service</th><th>What it does</th><th>Needed?</th><th>Sign up</th></tr>
+      <tr><td><b>Groq</b></td><td>Turns radio audio into text (Whisper).</td><td>Yes, for transcripts</td><td><a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com</a> → API Keys → Create</td></tr>
+      <tr><td><b>Anthropic</b></td><td>Claude writes the plain-English summaries.</td><td>Recommended</td><td><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> → add credit → API Keys → Create</td></tr>
+      <tr><td><b>RadioReference</b></td><td>Looks up your local radio system's frequencies and talkgroup names.</td><td>Recommended</td><td><a href="https://www.radioreference.com" target="_blank" rel="noopener">radioreference.com</a>: a Premium subscription, plus an API app key requested from your account</td></tr>
+      <tr><td><b>jafo.live node token</b></td><td>Puts your station on the public jafo.live map.</td><td>Optional</td><td>See step 10</td></tr>
+      <tr><td><b>TomTom</b></td><td>Live traffic layer on your map.</td><td>Optional</td><td><a href="https://developer.tomtom.com" target="_blank" rel="noopener">developer.tomtom.com</a></td></tr>
+    </table></div>
+    <p>Once you have them, run the key setup on the Pi:</p>
+    <pre>bash ~/jafo/scripts/setup-keys.sh</pre>
+    <p>It asks for each key in turn. Paste with right-click, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> in most terminals; the key stays hidden as you paste. Press <kbd>Enter</kbd> to skip one you don't have yet. It saves them in a file only your Pi user can read, then restarts what's needed. Run it again whenever you want to add or change a key.</p>
+    <div class="tip warn"><b>Keep keys private.</b> Don't post them, email them or paste them into chats. In each service's console, set a monthly spending limit so a busy night can't surprise you. If a key ever leaks, delete it there and make a new one.</div>
+  </section>
+
+  <section id="system">
+    <h2>9. Find your radio system</h2>
+    <p>Tell JAFO where it is. It works out your location, finds the nearest trunked public-safety system and the towers it can hear, and loads the talkgroup names:</p>
+    <pre>python3 ~/jafo/pi/tools/relocate.py</pre>
+    <p>It shows a plan: the system, the nearest site, the control channels and how many talkgroups it found. Type <code>y</code> to apply it. Within a minute or two, calls start arriving.</p>
+    <p>Then open <b>http://jafo.local</b> in a browser on any phone or computer on the same network to see your station.</p>
+    <p class="fine">JAFO listens to unencrypted P25 trunked systems, the most common kind in the U.S. If your area's police are encrypted, you'll still hear fire, EMS and the other services that aren't. Read <a href="/live/{{ region_slug }}/about#legal">Is this legal?</a> before you share anything publicly.</p>
+  </section>
+
+  <section id="share">
+    <h2>10. Share it on jafo.live (optional)</h2>
+    <p>Your station works on its own at <b>http://jafo.local</b>. To add it to the public jafo.live map, so your town gets a Briefing, map and alerts, ask the JAFO team for a <b>node token</b>. Use <a href="/live/{{ region_slug }}#report">Report a problem</a> and write "node token request" with your city. Then run <code>bash ~/jafo/scripts/setup-keys.sh</code> again and paste the token when it asks.</p>
+    <p>A shared station sends its recordings and transcripts to jafo.live, which does the heavy processing and keeps the archive. The Pi itself keeps only the last few hours.</p>
+  </section>
+
+  <section id="help">
+    <h2>Troubleshooting</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Problem</th><th>Try this</th></tr>
+      <tr><td>Can't reach <code>jafo.local</code></td><td>Wait 3 minutes after power-on. Use the Pi's address from your router instead. Check the computer is on the same network.</td></tr>
+      <tr><td>"Permission denied" at login</td><td>The username must be <code>pi</code>. Re-type the password slowly; nothing shows as you type.</td></tr>
+      <tr><td>The installer says "No SDRs detected"</td><td>Reseat the USB cables, run <code>sudo reboot</code>, log back in, then run <code>bash ~/jafo/pi/install-pi.sh</code>.</td></tr>
+      <tr><td>Is it working?</td><td><code>~/jafo/pi/tools/check-sdrs.sh</code> checks the radios. <code>sudo journalctl -u jafo-recorder -f</code> shows live decoding; press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop.</td></tr>
+      <tr><td>Calls arrive but no transcripts</td><td>Your Groq key is missing or wrong. Run <code>bash ~/jafo/scripts/setup-keys.sh</code>.</td></tr>
+      <tr><td>Very few calls</td><td>Usually the antenna. Move it higher or outside, check every connector is snug, and see step 3.</td></tr>
+      <tr><td>The Pi gets very hot or restarts</td><td>Check the cooler's fan is plugged in. Use the official 27 W supply.</td></tr>
+    </table></div>
+  </section>
+
+  <footer>JAFO Live · {{ region_name }} · <a href="/live/{{ region_slug }}/about">About &amp; privacy</a> · <a href="/live/{{ region_slug }}">Briefing</a></footer>
+</div>
+<script>
+document.querySelectorAll("pre").forEach((p) => {
+  if (!navigator.clipboard) return;
+  const b = document.createElement("button"); b.type = "button"; b.className = "copy"; b.textContent = "Copy";
+  b.onclick = () => navigator.clipboard.writeText(p.firstChild.textContent.trim()).then(() => { b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1500); });
+  p.appendChild(b);
+});
+</script>
+</body>
+</html>

@@ -311,3 +311,10 @@ Gotchas:
   `pi/web/geoip.py` using the DB-IP City Lite mmdb at `DATA_DIR/geo/` (hub only,
   refreshed monthly, needs `maxminddb` in venv-web). IPs are never stored —
   only the city name and centroid on the `presence` row.
+- **Build guide:** `/live/<region>/build` (`templates/build.html`) walks a newcomer
+  through parts, wiring, antenna placement, Pi Imager, SSH, `bootstrap.sh`, their
+  own keys (`scripts/setup-keys.sh` writes `.env` + `radioreference.json`, chmod 600)
+  and `relocate.py`. relocate.py runs standalone without `JAFO_PROVISION_TOKEN`
+  (configures the radio locally, keeps the owner's own node token). The installer
+  detects the Airspy (1d50:60a1) → `airspy-only` profile, RTL left for ADS-B.
+  `bootstrap.sh` clones **main**, so the guide only matches once this branch merges.
