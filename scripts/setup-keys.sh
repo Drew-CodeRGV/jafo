@@ -132,6 +132,10 @@ for s in "${svcs[@]}"; do
     sudo systemctl restart "$s" && echo "  restarted $s"
   fi
 done
+if [[ " ${CHANGED[*]} " == *" JAFO_NODE_TOKEN "* ]] && [[ -f "$INSTALL_DIR/pi/systemd/jafo-uploader.service" ]]; then
+  [[ -f /etc/systemd/system/jafo-uploader.service ]] || { sudo cp "$INSTALL_DIR/pi/systemd/jafo-uploader.service" /etc/systemd/system/ && sudo systemctl daemon-reload; }
+  sudo systemctl enable --now jafo-uploader && echo "  jafo-uploader on: your station now feeds jafo.live"
+fi
 if [[ " ${CHANGED[*]} " == *" RADIOREFERENCE "* ]] && [[ -f "$INSTALL_DIR/pi/tools/relocate.py" ]]; then
   echo -e "${Y}Next:${N} look up your local radio system with"
   echo    "  python3 ~/jafo/pi/tools/relocate.py"

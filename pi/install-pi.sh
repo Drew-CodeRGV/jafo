@@ -265,6 +265,16 @@ done
 sudo systemctl daemon-reload
 sudo systemctl enable jafo-recorder jafo-processor jafo-transcriber jafo-enricher jafo-web
 
+# Uploader (feeds jafo.live). Installed always, but only enabled once the owner
+# has a node token: without one it would just exit and restart-loop.
+sudo cp "$INSTALL_DIR/pi/systemd/jafo-uploader.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+if [[ -n "${JAFO_NODE_TOKEN:-}" ]]; then
+  sudo systemctl enable --now jafo-uploader || warn "jafo-uploader failed to start"
+else
+  info "jafo-uploader installed (off). It turns on when you add a jafo.live node token."
+fi
+
 # ============================================================================
 # 11. Start services
 # ============================================================================
